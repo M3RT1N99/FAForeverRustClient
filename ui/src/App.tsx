@@ -19,10 +19,28 @@ import {
   clearLegacyBrowsingPreferences,
   migrateLegacyBrowsingPreferences,
 } from "./shared/browsingPreferences";
+import { runsOnAndroid } from "./shared/platform";
+
+/**
+ * The width the page is laid out at on Android, at 100%: its first window on
+ * the desktop is 1100 wide. A phone lying down is about 830 CSS px wide, so the
+ * desktop layout shows whole, drawn at three quarters, rather than laid out anew.
+ */
+const ANDROID_LAYOUT_WIDTH = 1100;
 
 /** Never let a zoom failure take the shell down with it; the UI is still usable
  *  at 100%, and there is nothing the user could do about it here anyway. */
 async function applyInterfaceScale(scale: number): Promise<void> {
+  // Android's webview has no zoom (wry's does nothing there). Its wide viewport
+  // (MainActivity) scales the page's layout width to the screen instead, so the
+  // scale goes into that width: a larger scale is a narrower layout, shown
+  // larger, in the one coordinate space the webview zoom keeps on the desktop.
+  if (runsOnAndroid()) {
+    document
+      .querySelector('meta[name="viewport"]')
+      ?.setAttribute("content", `width=${Math.round((ANDROID_LAYOUT_WIDTH * 100) / scale)}`);
+    return;
+  }
   try {
     await native.setZoom(scale / 100);
   } catch (error) {

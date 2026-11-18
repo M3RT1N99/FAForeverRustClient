@@ -40,6 +40,17 @@ export function runsOnWindows(): boolean {
  * do nothing at all. Android's user agent says Linux too, and is not one.
  */
 export function steamStatusIsSupported(): boolean {
-  const agent = typeof navigator === "undefined" ? "" : navigator.userAgent;
-  return runsOnWindows() || (/Linux/i.test(agent) && !/Android/i.test(agent));
+  return runsOnWindows() || (/Linux/i.test(userAgent()) && !runsOnAndroid());
+}
+
+/**
+ * Whether the client is the Android app: Tauri's mobile build in the system
+ * webview, whose user agent names Android.
+ */
+export function runsOnAndroid(): boolean {
+  return /Android/i.test(userAgent());
+}
+
+function userAgent(): string {
+  return typeof navigator === "undefined" ? "" : navigator.userAgent;
 }

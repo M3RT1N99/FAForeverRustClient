@@ -2,6 +2,7 @@ package com.faforever.rustclient
 
 import android.os.Bundle
 import android.system.Os
+import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -24,5 +25,14 @@ class MainActivity : TauriActivity() {
       view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, keyboard.bottom))
       WindowInsetsCompat.CONSUMED
     }
+  }
+
+  // The page is laid out at the width its viewport names, which the interface
+  // scale sets on Android (App.tsx), and drawn at the screen's: the desktop
+  // layout shows whole instead of being laid out anew for a phone.
+  override fun onWebViewCreate(webView: WebView) {
+    super.onWebViewCreate(webView)
+    webView.settings.useWideViewPort = true
+    webView.settings.loadWithOverviewMode = true
   }
 }
