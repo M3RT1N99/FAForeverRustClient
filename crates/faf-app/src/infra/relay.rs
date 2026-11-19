@@ -6,12 +6,17 @@
 //! `to_adapter` are encoded and written back. The launcher bridges these channels
 //! to the lobby relay. Only one adapter connection is expected per game; when it
 //! drops, or sends framing that can never parse, the relay ends.
+//!
+//! The same server is the game's own GPGNet port when the game runs its links
+//! itself ([`GpgRelayServer::listen`]). There the game connects, and a game
+//! that crashed in its match connects again, so it serves one connection after
+//! another until it is stopped.
 
 use std::sync::{Arc, Mutex};
 
 use faf_domain::protocol::gpgnet::{self, encode, GpgMessage};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
@@ -30,19 +35,47 @@ pub struct RelayChannels {
     pub ready: oneshot::Receiver<()>,
 }
 
-/// The loopback TCP server the Go (faf-pioneer) adapter connects to.
+/// What a listener that outlives its connections reports: see
+/// [`GpgRelayServer::listen`].
+#[derive(Debug)]
+pub enum GameConnection {
+    /// A game connected. What is sent here reaches it while it stays, and is
+    /// dropped with the connection: a game that comes back gets nothing the
+    /// one before it was meant to. Dropping the sender closes the connection.
+    Connected(mpsc::Sender<GpgMessage>),
+    /// A message from the connected game.
+    Message(GpgMessage),
+    /// The connected game went away.
+    Closed,
+}
+
+impl From<GpgMessage> for GameConnection {
+    fn from(message: GpgMessage) -> Self {
+        Self::Message(message)
+    }
+}
+
+/// The live listener's endpoints, handed to the backend that owns it.
+pub struct GameListener {
+    /// The game's GPGNet port: `/gpgnet 127.0.0.1:<port>`.
+    pub port: u16,
+    pub events: mpsc::Receiver<GameConnection>,
+}
+
+/// The loopback TCP server the Go (faf-pioneer) adapter connects to, and the
+/// game itself when it runs its own links.
 ///
 /// Deliberately *not* behind a port trait. It was one when the launcher owned
 /// the relay and either adapter backend might have supplied it; today it is an
-/// implementation detail of exactly one backend: [`super::PioneerAdapter`],
-/// which constructs it concretely. The Java backend
-/// ([`super::JavaAdapter`]) speaks JSON-RPC and has no relay of its own, so
-/// there was never a second implementation for the seam to swap in, and the
-/// `FakeRelay` that existed to fill it was reachable from no test.
+/// implementation detail of the backends that construct it concretely:
+/// [`super::PioneerAdapter`], and [`super::NativeNetwork`], whose game takes
+/// the adapter's place. The Java backend ([`super::JavaAdapter`]) speaks
+/// JSON-RPC and has no relay of its own, and the `FakeRelay` that existed to
+/// fill the seam was reachable from no test.
 ///
-/// Both backends remain available; the choice is made by the persisted setting
-/// or `FAF_ICE_ADAPTER_KIND`. Pioneer is explicit-only and is never an
-/// automatic fallback for the production Java backend.
+/// The backends remain available side by side; the choice is made by the
+/// persisted setting or `FAF_ICE_ADAPTER_KIND`. Pioneer is explicit-only and
+/// is never an automatic fallback for the production Java backend.
 #[derive(Default)]
 pub struct GpgRelayServer {
     cancel: Arc<Mutex<Option<CancellationToken>>>,
@@ -52,20 +85,7 @@ impl GpgRelayServer {
     /// Bind the relay server and return its port plus the two message channels.
     /// Errors if the socket can't be bound.
     pub async fn start(&self) -> Result<RelayChannels, String> {
-        let listener = TcpListener::bind(("127.0.0.1", 0))
-            .await
-            .map_err(|e| format!("could not bind relay socket: {e}"))?;
-        let port = listener
-            .local_addr()
-            .map_err(|e| format!("could not read relay port: {e}"))?
-            .port();
-        tracing::info!(port, "GPGNet relay server bound");
-
-        let token = CancellationToken::new();
-        if let Some(prev) = self.cancel.lock().unwrap().replace(token.clone()) {
-            tracing::debug!("cancelling previous relay server instance");
-            prev.cancel();
-        }
+        let (listener, port, token) = self.bind().await?;
 
         // from_adapter: server → launcher.  to_adapter: launcher → server.
         let (from_tx, from_rx) = mpsc::channel::<GpgMessage>(64);
@@ -82,6 +102,37 @@ impl GpgRelayServer {
             to_adapter: to_tx,
             ready: ready_rx,
         })
+    }
+
+    /// Bind the game's own GPGNet port, served until [`Self::stop`]: one
+    /// connection at a time, and the next one after it closes, because a game
+    /// that crashed in its match comes back to the same port (#275).
+    pub async fn listen(&self) -> Result<GameListener, String> {
+        let (listener, port, token) = self.bind().await?;
+        let (events_tx, events) = mpsc::channel(64);
+        tokio::spawn(serve_games(listener, events_tx, token));
+        Ok(GameListener { port, events })
+    }
+
+    /// A loopback socket, and the token that stops whatever serves it. The
+    /// previous server stops: a second game must not leave the first one's
+    /// port open.
+    async fn bind(&self) -> Result<(TcpListener, u16, CancellationToken), String> {
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .map_err(|e| format!("could not bind relay socket: {e}"))?;
+        let port = listener
+            .local_addr()
+            .map_err(|e| format!("could not read relay port: {e}"))?
+            .port();
+        tracing::info!(port, "GPGNet relay server bound");
+
+        let token = CancellationToken::new();
+        if let Some(prev) = self.cancel.lock().unwrap().replace(token.clone()) {
+            tracing::debug!("cancelling previous relay server instance");
+            prev.cancel();
+        }
+        Ok((listener, port, token))
     }
 
     /// Tear down the server and any adapter connection. Idempotent.
@@ -117,46 +168,102 @@ async fn run_relay(
     };
     tracing::info!("ICE adapter connected to local relay");
     let _ = ready.send(());
-    let (mut read_half, mut write_half) = socket.into_split();
+    let reason = match pump(socket, &from_adapter, &mut to_adapter, &cancel).await {
+        Pumped::Stopped => "stop() called (cancellation token fired)",
+        Pumped::Unheard => "from_adapter channel closed (launcher dropped its receiver)",
+        Pumped::Closed(reason) => reason,
+    };
+    tracing::info!(reason, "GPGNet relay closed");
+}
 
+/// Serve the game's connections one after another until `cancel` fires or
+/// nobody listens to `events` any more.
+async fn serve_games(
+    listener: TcpListener,
+    events: mpsc::Sender<GameConnection>,
+    cancel: CancellationToken,
+) {
+    loop {
+        let socket = tokio::select! {
+            _ = cancel.cancelled() => return,
+            accepted = listener.accept() => match accepted {
+                Ok((socket, _)) => socket,
+                // The port has to stay open for a game coming back, so a
+                // failed accept is waited out rather than the end of it.
+                Err(error) => {
+                    tracing::warn!(%error, "GPGNet accept failed; listening on");
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    continue;
+                }
+            }
+        };
+        tracing::info!("the game connected to its GPGNet port");
+        let (to_game, mut outgoing) = mpsc::channel(64);
+        if events
+            .send(GameConnection::Connected(to_game))
+            .await
+            .is_err()
+        {
+            return;
+        }
+        match pump(socket, &events, &mut outgoing, &cancel).await {
+            Pumped::Stopped | Pumped::Unheard => return,
+            Pumped::Closed(reason) => {
+                tracing::info!(reason, "the game's GPGNet connection closed");
+                if events.send(GameConnection::Closed).await.is_err() {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+/// Why [`pump`] stopped.
+enum Pumped {
+    /// `stop` was called.
+    Stopped,
+    /// Nobody reads what the connection says any more.
+    Unheard,
+    /// The connection is over, for the reason given.
+    Closed(&'static str),
+}
+
+/// Pump one connection both ways: what it sends, decoded, to `incoming`, and
+/// what arrives on `outgoing`, encoded, to it. Until either side closes or
+/// `cancel` fires; the socket closes on return.
+async fn pump<T: From<GpgMessage>>(
+    socket: TcpStream,
+    incoming: &mpsc::Sender<T>,
+    outgoing: &mut mpsc::Receiver<GpgMessage>,
+    cancel: &CancellationToken,
+) -> Pumped {
+    let (mut read_half, mut write_half) = socket.into_split();
     let mut buffer: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 4096];
-    let close_reason;
     loop {
         tokio::select! {
-            _ = cancel.cancelled() => {
-                close_reason = "stop() called (cancellation token fired)";
-                break;
-            },
-            // Launcher → adapter.
-            outgoing = to_adapter.recv() => {
-                let Some(message) = outgoing else {
-                    close_reason = "to_adapter channel closed (launcher dropped its sender)";
-                    break;
+            _ = cancel.cancelled() => return Pumped::Stopped,
+            message = outgoing.recv() => {
+                let Some(message) = message else {
+                    return Pumped::Closed("whoever sent to it dropped its sender");
                 };
                 tracing::trace!(
                     command = %message.command,
                     args = ?message.args,
-                    "relay: launcher -> adapter"
+                    "relay: client -> connection"
                 );
-                if let Err(e) = write_half.write_all(&encode(&message)).await {
-                    close_reason = "write to adapter socket failed";
-                    tracing::warn!(error = %e, "relay write to adapter failed");
-                    break;
+                if let Err(error) = write_half.write_all(&encode(&message)).await {
+                    tracing::warn!(%error, "GPGNet write failed");
+                    return Pumped::Closed("write to the socket failed");
                 }
             }
-            // Adapter → launcher.
             read = read_half.read(&mut chunk) => {
                 let n = match read {
-                    Ok(0) => {
-                        close_reason = "adapter closed its end of the TCP connection (EOF)";
-                        break;
-                    }
+                    Ok(0) => return Pumped::Closed("the other end closed the connection (EOF)"),
                     Ok(n) => n,
-                    Err(e) => {
-                        close_reason = "read from adapter socket failed";
-                        tracing::warn!(error = %e, "ICE relay read failed");
-                        break;
+                    Err(error) => {
+                        tracing::warn!(%error, "GPGNet read failed");
+                        return Pumped::Closed("read from the socket failed");
                     }
                 };
                 buffer.extend_from_slice(&chunk[..n]);
@@ -165,26 +272,23 @@ async fn run_relay(
                     tracing::trace!(
                         command = %message.command,
                         args = ?message.args,
-                        "relay: adapter -> launcher"
+                        "relay: connection -> client"
                     );
-                    if from_adapter.send(message).await.is_err() {
-                        tracing::info!("GPGNet relay closed: from_adapter channel closed (launcher dropped its receiver)");
-                        return;
+                    if incoming.send(message.into()).await.is_err() {
+                        return Pumped::Unheard;
                     }
                 }
                 if let Some(failure) = failure {
                     tracing::warn!(
                         reason = failure,
                         buffered = buffer.len(),
-                        "GPGNet relay received a stream it cannot parse; dropping the adapter connection"
+                        "GPGNet relay received a stream it cannot parse; dropping the connection"
                     );
-                    close_reason = "adapter sent invalid GPGNet framing";
-                    break;
+                    return Pumped::Closed("invalid GPGNet framing");
                 }
             }
         }
     }
-    tracing::info!(reason = close_reason, "GPGNet relay closed");
 }
 
 /// The most the relay holds for a message that has not finished arriving.
@@ -307,6 +411,106 @@ mod tests {
             .expect("the socket is closed rather than left hanging");
         assert!(matches!(read, Ok(0) | Err(_)));
         relay.stop();
+    }
+
+    async fn next_event(listener: &mut GameListener) -> GameConnection {
+        tokio::time::timeout(std::time::Duration::from_secs(5), listener.events.recv())
+            .await
+            .expect("an event")
+            .expect("the listener is still serving")
+    }
+
+    /// The port a game that crashed in its match comes back to (#275): served
+    /// again once its first connection is gone, and whatever was still on
+    /// its way to the first one goes with it.
+    #[tokio::test]
+    async fn the_games_port_takes_the_game_back_after_it_closes() {
+        use faf_domain::protocol::gpgnet::GpgArg;
+
+        let server = GpgRelayServer::default();
+        let mut listener = server.listen().await.expect("bind");
+
+        let first = tokio::net::TcpStream::connect(("127.0.0.1", listener.port))
+            .await
+            .expect("connect");
+        let GameConnection::Connected(to_first) = next_event(&mut listener).await else {
+            panic!("the first game was not announced");
+        };
+        drop(first);
+        assert!(matches!(
+            next_event(&mut listener).await,
+            GameConnection::Closed
+        ));
+        // Sent too late for the first game; the second must not get it.
+        let _ = to_first
+            .send(GpgMessage::new("IceMsg", vec![GpgArg::Int(2)]))
+            .await;
+
+        let mut second = tokio::net::TcpStream::connect(("127.0.0.1", listener.port))
+            .await
+            .expect("the port is still open");
+        let GameConnection::Connected(to_second) = next_event(&mut listener).await else {
+            panic!("the second game was not announced");
+        };
+        let idle = GpgMessage::new("GameState", vec![GpgArg::Str("Idle".into())]);
+        second.write_all(&encode(&idle)).await.unwrap();
+        assert!(matches!(
+            next_event(&mut listener).await,
+            GameConnection::Message(message) if message == idle
+        ));
+
+        let lobby = GpgMessage::new("CreateLobby", vec![GpgArg::Int(0)]);
+        to_second.send(lobby.clone()).await.unwrap();
+        let mut received = Vec::new();
+        let mut chunk = [0_u8; 256];
+        while received.len() < encode(&lobby).len() {
+            let read =
+                tokio::time::timeout(std::time::Duration::from_secs(5), second.read(&mut chunk))
+                    .await
+                    .expect("the game hears from the client")
+                    .unwrap();
+            assert!(read > 0, "the connection closed");
+            received.extend_from_slice(&chunk[..read]);
+        }
+        assert_eq!(
+            received,
+            encode(&lobby),
+            "only what was sent to this game arrives"
+        );
+        server.stop();
+    }
+
+    /// A message longer than one read arrives whole, however the socket cuts
+    /// it: an ICE candidate list runs past 4 KB.
+    #[tokio::test]
+    async fn a_message_longer_than_a_read_arrives_whole() {
+        use faf_domain::protocol::gpgnet::GpgArg;
+
+        let server = GpgRelayServer::default();
+        let mut listener = server.listen().await.expect("bind");
+        let mut game = tokio::net::TcpStream::connect(("127.0.0.1", listener.port))
+            .await
+            .expect("connect");
+        // Held: letting go of it is letting go of the game.
+        let GameConnection::Connected(_to_game) = next_event(&mut listener).await else {
+            panic!("the game was not announced");
+        };
+
+        let long = GpgMessage::new(
+            "IceMsg",
+            vec![GpgArg::Int(7), GpgArg::Str("c".repeat(10_000))],
+        );
+        let bytes = encode(&long);
+        for piece in bytes.chunks(3_000) {
+            game.write_all(piece).await.unwrap();
+            game.flush().await.unwrap();
+            tokio::task::yield_now().await;
+        }
+        assert!(matches!(
+            next_event(&mut listener).await,
+            GameConnection::Message(message) if message == long
+        ));
+        server.stop();
     }
 
     #[tokio::test]
