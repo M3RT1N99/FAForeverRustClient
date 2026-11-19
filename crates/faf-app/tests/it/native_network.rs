@@ -33,6 +33,7 @@ use faf_domain::state::{
 };
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
@@ -302,10 +303,40 @@ impl LobbyServer {
             .collect()
     }
 
+    /// How many `command` messages `player`'s client relayed from its game.
+    fn count_from(&self, player: i32, command: &str) -> usize {
+        self.state
+            .lock()
+            .unwrap()
+            .received
+            .iter()
+            .filter(|(from, sent, _)| *from == player && sent == command)
+            .count()
+    }
+
     fn said_its_game_ended(&self, player: i32) -> bool {
         self.received_from(player)
             .iter()
             .any(|(command, args)| command == "GameState" && args == &[json!("Ended")])
+    }
+
+    /// Send `player`'s game a message of the server's own.
+    fn tell(&self, player: i32, command: &str, args: Vec<Value>) {
+        self.state.lock().unwrap().to_game(player, command, args);
+    }
+
+    /// The same, waiting for room as a socket does: for more than the
+    /// client's queue holds at once.
+    async fn tell_in_turn(&self, player: i32, command: &str, args: Vec<Value>) {
+        let updates = self.state.lock().unwrap().connections[&player]
+            .updates
+            .clone()
+            .expect("the client is connected");
+        let relay = LobbyUpdate::GameRelay {
+            command: command.into(),
+            args,
+        };
+        updates.send(relay).await.expect("the client is there");
     }
 
     /// Wait until `client` has handled everything this server sent it so far:
@@ -637,38 +668,28 @@ impl Client {
 }
 
 /// A game, as far as GPGNet goes: what `ForgedAlliance.exe` says on its
-/// client's port and hears from it.
+/// client's port and hears from it. The two directions are apart, as the
+/// engine's are, so it can talk while it listens.
 struct GameSide {
-    socket: TcpStream,
+    writer: OwnedWriteHalf,
+    hearing: Hearing,
+}
+
+/// The game's side of the connection that it reads.
+struct Hearing {
+    reader: OwnedReadHalf,
     buffer: Vec<u8>,
     arrived: VecDeque<GpgMessage>,
 }
 
-impl GameSide {
-    async fn start(launch: &GameLaunchParams) -> Self {
-        Self {
-            socket: TcpStream::connect(("127.0.0.1", launch.game_port))
-                .await
-                .expect("the client's GPGNet port is open"),
-            buffer: Vec::new(),
-            arrived: VecDeque::new(),
-        }
-    }
-
-    async fn send(&mut self, command: &str, args: Vec<GpgArg>) {
-        self.socket
-            .write_all(&encode(&message(command, args)))
-            .await
-            .unwrap();
-    }
-
+impl Hearing {
     async fn next(&mut self) -> GpgMessage {
         loop {
             if let Some(message) = self.arrived.pop_front() {
                 return message;
             }
             let mut chunk = [0_u8; 4096];
-            let read = tokio::time::timeout(support::PATIENCE, self.socket.read(&mut chunk))
+            let read = tokio::time::timeout(support::PATIENCE, self.reader.read(&mut chunk))
                 .await
                 .expect("the game hears from its client")
                 .unwrap();
@@ -679,6 +700,98 @@ impl GameSide {
             self.arrived.extend(drained.messages);
         }
     }
+}
+
+impl GameSide {
+    async fn start(launch: &GameLaunchParams) -> Self {
+        let (reader, writer) = TcpStream::connect(("127.0.0.1", launch.game_port))
+            .await
+            .expect("the client's GPGNet port is open")
+            .into_split();
+        Self {
+            writer,
+            hearing: Hearing {
+                reader,
+                buffer: Vec::new(),
+                arrived: VecDeque::new(),
+            },
+        }
+    }
+
+    async fn send(&mut self, command: &str, args: Vec<GpgArg>) {
+        self.say(&[message(command, args)]).await;
+    }
+
+    async fn say(&mut self, messages: &[GpgMessage]) {
+        let bytes: Vec<u8> = messages.iter().flat_map(encode).collect();
+        self.writer.write_all(&bytes).await.unwrap();
+    }
+
+    async fn next(&mut self) -> GpgMessage {
+        self.hearing.next().await
+    }
+
+    /// Say `messages` while hearing `count` from the client, at once.
+    async fn say_while_hearing(
+        &mut self,
+        messages: &[GpgMessage],
+        count: usize,
+    ) -> Vec<GpgMessage> {
+        let bytes: Vec<u8> = messages.iter().flat_map(encode).collect();
+        let Self { writer, hearing } = self;
+        let saying = async { writer.write_all(&bytes).await.unwrap() };
+        let listening = async {
+            let mut heard = Vec::with_capacity(count);
+            while heard.len() < count {
+                heard.push(hearing.next().await);
+            }
+            heard
+        };
+        tokio::join!(saying, listening).1
+    }
+}
+
+/// Two players in one game, both games in their lobby and linked.
+struct TwoInAGame {
+    server: Arc<LobbyServer>,
+    ada: Client,
+    ada_game: GameSide,
+    bert: Client,
+    bert_game: GameSide,
+}
+
+async fn two_in_a_game() -> TwoInAGame {
+    let server = Arc::new(LobbyServer::default());
+    let mut ada = Client::sign_in(&server, 101, "Ada").await;
+    let mut bert = Client::sign_in(&server, 102, "Bert").await;
+    let (hosted, mut ada_game) = ada.host().await;
+    let (_, mut bert_game) = bert.join(hosted.game_id).await;
+    assert_eq!(
+        bert_game.next().await,
+        message("JoinGame", vec![text("Ada"), int(101)])
+    );
+    assert_eq!(
+        ada_game.next().await,
+        message("ConnectToPeer", vec![text("Bert"), int(102), int(1)])
+    );
+    TwoInAGame {
+        server,
+        ada,
+        ada_game,
+        bert,
+        bert_game,
+    }
+}
+
+/// Whether a game heard what was said to it, naming where it parts from
+/// that rather than printing megabytes of candidates.
+fn assert_heard(heard: &[GpgMessage], said: &[GpgMessage], who: &str) {
+    assert_eq!(heard.len(), said.len(), "{who} heard as many as were said");
+    let parted = heard
+        .iter()
+        .zip(said)
+        .position(|(heard, said)| heard != said);
+    assert_eq!(parted, None, "{who} heard another message here");
 }
 
 /// Three players in one game, every game in its lobby, every link announced.
@@ -804,6 +917,159 @@ async fn a_host_and_a_joiner_link_through_their_games_alone() {
             .received_from(102)
             .contains(&("IceMsg".into(), vec![json!(101), json!(candidates)])),
         "the server got the game's message as the game sent it"
+    );
+}
+
+/// A game and the lobby say a lot to each other at once, as when a match's
+/// links gather their candidates: all of it gets through, in order. The
+/// client used to wait for room in the queue to the game in the same loop
+/// that hears the game, while the game's connection waited for that loop to
+/// hear it, and with both queues full neither moved again: what the lobby
+/// said then piled up in front of the lobby connection itself.
+///
+/// On threads, as the client runs. The game's options, small messages that
+/// its connection hands on many to a read, are what filled the queue from
+/// the game at once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn bursts_both_ways_at_once_all_get_through() {
+    if adapter_named_by_the_environment() {
+        return;
+    }
+    let server = Arc::new(LobbyServer::default());
+    let mut ada = Client::sign_in(&server, 101, "Ada").await;
+    let (_, mut ada_game) = ada.host().await;
+    const BURST: usize = 300;
+    // A candidate list of a device with many addresses: 2.5 KB each.
+    let candidates = |from: i32| -> Vec<String> {
+        (0..BURST)
+            .map(|n| format!("{from}:{n}:{}", "c".repeat(2_500)))
+            .collect()
+    };
+    let (from_ada, from_bert) = (candidates(101), candidates(102));
+
+    // Bert's candidates come from the server as fast as Ada's client takes
+    // them, while her game says its options and its candidates to him.
+    let lobby = {
+        let (server, from_bert) = (server.clone(), from_bert.clone());
+        tokio::spawn(async move {
+            for candidate in from_bert {
+                server
+                    .tell_in_turn(101, "IceMsg", vec![json!(102), json!(candidate)])
+                    .await;
+            }
+        })
+    };
+    let option = |n: usize| format!("Option{n}");
+    let said: Vec<GpgMessage> = (0..BURST)
+        .map(|n| message("GameOption", vec![text(&option(n)), int(n as i32)]))
+        .chain(
+            from_ada
+                .iter()
+                .map(|candidate| message("IceMsg", vec![int(102), text(candidate)])),
+        )
+        .collect();
+    let heard = ada_game.say_while_hearing(&said, BURST).await;
+    lobby.await.unwrap();
+    let from_the_server: Vec<GpgMessage> = from_bert
+        .iter()
+        .map(|candidate| message("IceMsg", vec![int(102), text(candidate)]))
+        .collect();
+    assert_heard(&heard, &from_the_server, "Ada's game");
+
+    support::eventually("the server heard all the game said", || {
+        server.count_from(101, "IceMsg") == BURST
+    })
+    .await;
+    let expected = (0..BURST)
+        .map(|n| ("GameOption".to_string(), vec![json!(option(n)), json!(n)]))
+        .chain(
+            from_ada
+                .iter()
+                .map(|candidate| ("IceMsg".to_string(), vec![json!(102), json!(candidate)])),
+        );
+    assert!(
+        server
+            .received_from(101)
+            .into_iter()
+            .filter(|(command, _)| command == "GameOption" || command == "IceMsg")
+            .eq(expected),
+        "the server heard what the game said, in order"
+    );
+}
+
+/// A game that stops reading its connection, hung, holds up nothing else:
+/// its client's lobby connection goes on, and what the lobby says to the
+/// game waits for it, all of it, in order.
+#[tokio::test]
+async fn a_game_that_stops_reading_holds_up_nothing() {
+    if adapter_named_by_the_environment() {
+        return;
+    }
+    let TwoInAGame {
+        server,
+        ada,
+        mut ada_game,
+        bert: _bert,
+        mut bert_game,
+    } = two_in_a_game().await;
+    const COUNT: usize = 500;
+    let candidate = "c".repeat(2_500);
+    // Ada's game reads nothing while Bert's says all of this to it.
+    bert_game
+        .say(&vec![
+            message("IceMsg", vec![int(101), text(&candidate)]);
+            COUNT
+        ])
+        .await;
+    support::eventually("the server passed every one on", || {
+        server.count_from(102, "IceMsg") == COUNT
+    })
+    .await;
+    // What the server says after them is handled: Ada's client took every
+    // one of them off its lobby connection.
+    server.settle(&ada).await;
+
+    // Reading again, the game gets them all.
+    let said = vec![message("IceMsg", vec![int(102), text(&candidate)]); COUNT];
+    let mut heard = Vec::with_capacity(COUNT);
+    for _ in 0..COUNT {
+        heard.push(ada_game.next().await);
+    }
+    assert_heard(&heard, &said, "Ada's game");
+}
+
+/// A datagram on the game's lobby port reaches its client as
+/// `ProcessNatPacket [address, data]`. The game's own links have no use for
+/// it, nor has the server, and JSON has no type for its bytes: it goes no
+/// further, and the game's connection goes on as before.
+#[tokio::test]
+async fn a_game_message_that_carries_data_goes_no_further() {
+    if adapter_named_by_the_environment() {
+        return;
+    }
+    let server = Arc::new(LobbyServer::default());
+    let mut ada = Client::sign_in(&server, 101, "Ada").await;
+    let (_, mut ada_game) = ada.host().await;
+
+    ada_game
+        .send(
+            "ProcessNatPacket",
+            vec![text("127.0.0.1:6000"), GpgArg::Data(vec![0x08, 0x00, 0xff])],
+        )
+        .await;
+    ada_game.send("GameState", vec![text("Launching")]).await;
+    support::eventually("the game state after it reached the server", || {
+        server
+            .received_from(101)
+            .contains(&("GameState".into(), vec![json!("Launching")]))
+    })
+    .await;
+    assert_eq!(server.count_from(101, "ProcessNatPacket"), 0);
+
+    server.tell(101, "IceMsg", vec![json!(102), json!("still connected")]);
+    assert_eq!(
+        ada_game.next().await,
+        message("IceMsg", vec![int(102), text("still connected")])
     );
 }
 
@@ -997,6 +1263,125 @@ async fn neither_an_ended_match_nor_a_stopped_game_comes_back() {
     .await;
     assert!(ada.launched.try_recv().is_err());
     drop(ada_game);
+}
+
+/// An offer the game app would refuse to come back with, a source past 255,
+/// brings no return: the crash ends the game, as it does without an offer.
+#[tokio::test]
+async fn an_offer_out_of_what_a_return_takes_brings_none() {
+    if adapter_named_by_the_environment() {
+        return;
+    }
+    let TwoInAGame {
+        server,
+        ada: _ada,
+        mut ada_game,
+        mut bert,
+        mut bert_game,
+    } = two_in_a_game().await;
+    offer_a_return(&mut bert_game, "256", &mut ada_game, 101, 102).await;
+
+    drop(bert_game);
+    bert.machine.end(GameExit::Crashed);
+    support::eventually("Bert's client let the game go", || {
+        server.said_its_game_ended(102)
+    })
+    .await;
+    assert!(bert.launched.try_recv().is_err(), "not started again");
+}
+
+/// What the server says while the game is down is what the game comes back
+/// to: a player who left meanwhile is not linked to again, and one the
+/// server named meanwhile is.
+#[tokio::test]
+async fn what_the_server_says_while_the_game_is_down_is_what_it_comes_back_to() {
+    if adapter_named_by_the_environment() {
+        return;
+    }
+    let ThreeInAGame {
+        server,
+        ada: _ada,
+        mut ada_game,
+        bert,
+        bert_game,
+        mut cleo,
+        cleo_launch: _,
+        mut cleo_game,
+    } = three_in_a_game().await;
+    offer_a_return(&mut cleo_game, "2", &mut ada_game, 101, 103).await;
+    drop(cleo_game);
+    cleo.machine.end(GameExit::Crashed);
+    let back = cleo.next_launch().await;
+
+    // Meanwhile Bert quits, and the server links Cleo to a player new to her.
+    drop(bert_game);
+    bert.machine.end(GameExit::Quit);
+    assert_eq!(
+        ada_game.next().await,
+        message("DisconnectFromPeer", vec![int(102)])
+    );
+    server.tell(
+        103,
+        "ConnectToPeer",
+        vec![json!("Dora"), json!(104), json!(true)],
+    );
+    server.settle(&cleo).await;
+
+    let mut cleo_back = GameSide::start(&back).await;
+    cleo.set_up(&mut cleo_back).await;
+    assert_eq!(
+        cleo_back.next().await,
+        message("JoinGame", vec![text("Ada"), int(101)])
+    );
+    assert_eq!(
+        cleo_back.next().await,
+        message("ConnectToPeer", vec![text("Dora"), int(104), int(1)])
+    );
+    ada_game.send("IceMsg", vec![int(103), text("hello")]).await;
+    assert_eq!(
+        cleo_back.next().await,
+        message("IceMsg", vec![int(101), text("hello")]),
+        "and no link to Bert"
+    );
+}
+
+/// A game that keeps crashing on its way back is let go after three returns,
+/// as if it had not offered one: the next crash ends it.
+#[tokio::test]
+async fn a_game_that_keeps_crashing_is_let_go_after_three_returns() {
+    if adapter_named_by_the_environment() {
+        return;
+    }
+    let TwoInAGame {
+        server,
+        ada: _ada,
+        mut ada_game,
+        mut bert,
+        mut bert_game,
+    } = two_in_a_game().await;
+    offer_a_return(&mut bert_game, "1", &mut ada_game, 101, 102).await;
+    drop(bert_game);
+
+    for _ in 0..3 {
+        bert.machine.end(GameExit::Crashed);
+        let back = bert.next_launch().await;
+        assert!(
+            matches!(
+                back.network,
+                GameNetwork::Native {
+                    rejoin: Some(_),
+                    ..
+                }
+            ),
+            "{back:?}"
+        );
+    }
+    bert.machine.end(GameExit::Crashed);
+    support::eventually("Bert's client let the game go", || {
+        server.said_its_game_ended(102)
+    })
+    .await;
+    assert!(bert.launched.try_recv().is_err(), "no fourth return");
 }
 
 #[tokio::test]
