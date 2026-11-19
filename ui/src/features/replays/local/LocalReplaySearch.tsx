@@ -25,6 +25,7 @@ import {
 import type { MessageKey } from "../../../i18n";
 import { useTranslation } from "../../../i18n/useTranslation";
 import { DateInput } from "../../../design-system/DateInput";
+import { filesCanBePicked } from "../../../shared/platform";
 
 const SORT_LABELS: Record<LocalReplaySortField, MessageKey> = {
   date: "replays.search.sort.datePlayed",
@@ -308,7 +309,9 @@ export function LocalReplaySearch({
         </Button>
         <Button type="button" onClick={() => apply(EMPTY_LOCAL_REPLAY_QUERY)}>{t("replays.search.clear")}</Button>
         <Button type="button" disabled={loading} onClick={onRefresh}><Icon name="refresh" size={15} /> {t("replays.search.refresh")}</Button>
-        <Button type="button" variant="primary" disabled={busy} onClick={onOpenFile}>{t("replays.search.openFile")}</Button>
+        {filesCanBePicked() && (
+          <Button type="button" variant="primary" disabled={busy} onClick={onOpenFile}>{t("replays.search.openFile")}</Button>
+        )}
       </div>
 
       {advanced && (

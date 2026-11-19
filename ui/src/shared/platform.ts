@@ -42,6 +42,15 @@ export function foldersCanBePicked(): boolean {
 }
 
 /**
+ * Whether the system's dialog hands back a file the client can use. Android's
+ * hands back a content address, not a path the shell (`pick_path`) or the
+ * backend can read, so nothing there offers a file to pick either.
+ */
+export function filesCanBePicked(): boolean {
+  return !runsOnAndroid();
+}
+
+/**
  * Whether the system can show one of the client's folders in its file
  * manager. Android cannot: an app's own folders are closed to other apps, and
  * the opener refuses them (`open_path`), so nothing there offers to.

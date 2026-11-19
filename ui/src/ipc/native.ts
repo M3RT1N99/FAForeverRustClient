@@ -12,6 +12,8 @@ import {
   sendNotification,
 } from "@tauri-apps/plugin-notification";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { t } from "../i18n";
+import { filesCanBePicked, foldersCanBePicked } from "../shared/platform";
 import type {
   ClientNotification,
   LogPreview,
@@ -231,14 +233,21 @@ export const native = {
   /**
    * Let the player pick a file (or, with `directory`, a folder). Null when
    * they cancelled. The only way to get a path the backend will accept.
+   *
+   * Every picker goes through here, so this is the one gate for a platform
+   * whose dialog cannot answer (Android, see `shared/platform`). The controls
+   * that would ask are not offered there; one that asks anyway is refused in a
+   * plain sentence in the player's language, never with the shell's refusal.
    */
   selectFile(options: PickRequest): Promise<string | null> {
+    const answers = options.directory ? foldersCanBePicked() : filesCanBePicked();
+    if (!answers) return Promise.reject(new Error(t("errors.cause.notOnAndroid")));
     return invoke<string | null>("pick_path", { request: options });
   },
 
   /** Pick a folder rather than a file. Same dialog, `directory` mode. */
   selectDirectory(defaultPath?: string): Promise<string | null> {
-    return invoke<string | null>("pick_path", { request: { directory: true, defaultPath } });
+    return native.selectFile({ directory: true, defaultPath });
   },
 
   openUrl(url: string): Promise<void> {

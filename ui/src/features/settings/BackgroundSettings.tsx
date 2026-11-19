@@ -14,6 +14,7 @@ import { useAppStore } from "../../store/store";
 import { useTranslation } from "../../i18n/useTranslation";
 import { BACKGROUND_EXTENSIONS } from "../../shared/appBackground";
 import { plainError } from "../../shared/plainError";
+import { filesCanBePicked } from "../../shared/platform";
 import { SettingRow } from "./SettingControls";
 
 const save = (patch: AppearancePreferencesPatch) =>
@@ -61,7 +62,9 @@ export function BackgroundSettings() {
     <>
       <SettingRow label={t("settings.appearance.background")}>
         <div className="settings-background-actions">
-          <Button onClick={pick}>{t(image ? "settings.appearance.backgroundChange" : "settings.appearance.backgroundPick")}</Button>
+          {filesCanBePicked() && (
+            <Button onClick={pick}>{t(image ? "settings.appearance.backgroundChange" : "settings.appearance.backgroundPick")}</Button>
+          )}
           {image && <Button onClick={() => save({ backgroundImage: "" })}>{t("settings.appearance.backgroundRemove")}</Button>}
         </div>
       </SettingRow>

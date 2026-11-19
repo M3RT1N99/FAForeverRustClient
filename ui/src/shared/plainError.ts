@@ -29,6 +29,8 @@ const CAUSES: { key: MessageKey; pattern: RegExp }[] = [
   { key: "errors.cause.lobbyDisconnected", pattern: /^The FAF lobby is disconnected\. Reconnect and try again\.$/ },
   // `vault_install::NOT_ON_ANDROID`.
   { key: "errors.cause.vaultInstallsAndroid", pattern: /^Maps and mods are not installed on Android yet\./ },
+  // The shell's `pick_path` on Android, and what v3 still said there.
+  { key: "errors.cause.notOnAndroid", pattern: /^(Choosing files and folders is not available on Android\.|folders cannot be picked on Android)$/i },
   { key: "errors.cause.lobbySendBusy", pattern: /^The FAF lobby send queue is full\. Wait a moment and try again\.$/ },
   { key: "errors.cause.timeout", pattern: /timed? ?out|os error (10060|110)\b/i },
   {

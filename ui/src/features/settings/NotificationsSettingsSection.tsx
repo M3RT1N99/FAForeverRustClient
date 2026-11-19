@@ -26,6 +26,7 @@ import { NumberInput } from "../../design-system/NumberInput";
 import { MultiSelect } from "../../design-system/MultiSelect";
 import type { MessageKey } from "../../i18n";
 import { useTranslation } from "../../i18n/useTranslation";
+import { filesCanBePicked } from "../../shared/platform";
 
 /* In reading order rather than enum order: the corner the bell is in comes
    first, because it is the default and the one most people will keep. */
@@ -149,7 +150,7 @@ function SoundChoice({
             {name}
           </option>
         ))}
-        <option value={ADD_VALUE}>{t("settings.notifications.sound.add")}</option>
+        {filesCanBePicked() && <option value={ADD_VALUE}>{t("settings.notifications.sound.add")}</option>}
       </select>
     </span>
   );
@@ -370,9 +371,11 @@ export function NotificationsSettingsSection() {
                 </button>
               </li>
             ))}
-            <li>
-              <Button onClick={addSound}>{t("settings.notifications.sound.add")}</Button>
-            </li>
+            {filesCanBePicked() && (
+              <li>
+                <Button onClick={addSound}>{t("settings.notifications.sound.add")}</Button>
+              </li>
+            )}
           </ul>
         </SettingRow>
         {/* The kinds with no switch of their own: server notices, errors, a new

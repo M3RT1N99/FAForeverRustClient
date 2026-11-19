@@ -6084,6 +6084,7 @@ export const de: Partial<Record<MessageKey, Message>> = {
   "errors.cause.lobbyDisconnected": "Die Verbindung zur FAF-Lobby ist getrennt. Verbinde dich erneut und versuche es noch einmal.",
   "errors.cause.lobbySendBusy": "Die FAF-Lobby kann gerade keine weiteren Anfragen senden. Warte einen Moment und versuche es erneut.",
   "errors.cause.vaultInstallsAndroid": "Karten und Mods werden auf Android noch nicht installiert. Eine spätere Version gibt sie an die Spiel-App weiter.",
+  "errors.cause.notOnAndroid": "Auf Android nicht verfügbar.",
   "errors.cause.unknown": "Etwas ist schiefgelaufen. Versuche es erneut.",
   "replays.insights.from": "Von",
   "replays.insights.transfers": "Transfers",

@@ -36,6 +36,12 @@ describe("plainError", () => {
     expect(plainError(refused)).toBe(en["errors.cause.vaultInstallsAndroid"]);
   });
 
+  it("says plainly that a picker is not available on Android", () => {
+    // The shell's `pick_path` refusal, now and as test build 3 still worded it.
+    expect(plainError("Choosing files and folders is not available on Android.")).toBe(en["errors.cause.notOnAndroid"]);
+    expect(plainError("folders cannot be picked on Android")).toBe(en["errors.cause.notOnAndroid"]);
+  });
+
   it("tidies what it does not recognise: no long paths, no snake case, a full stop", () => {
     expect(plainError("game_not_found")).toBe("Game not found.");
     expect(plainError("could not read D:\\Games\\FA\\maps\\scmp_009\\scmp_009_scenario.lua: bad header")).toBe(

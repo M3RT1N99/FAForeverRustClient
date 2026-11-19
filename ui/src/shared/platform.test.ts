@@ -4,6 +4,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  filesCanBePicked,
   foldersCanBeOpened,
   foldersCanBePicked,
   gameNeedsALaunchWrapper,
@@ -34,6 +35,7 @@ describe("platform", () => {
     expect(gameNeedsALaunchWrapper()).toBe(true);
     expect(theGameIsItsOwnApp()).toBe(false);
     expect(foldersCanBePicked()).toBe(true);
+    expect(filesCanBePicked()).toBe(true);
     expect(foldersCanBeOpened()).toBe(true);
     expect(startsProgramsBesideTheGame()).toBe(true);
     expect(steamStatusIsSupported()).toBe(true);
@@ -52,6 +54,7 @@ describe("platform", () => {
     expect(theGameIsItsOwnApp()).toBe(true);
     expect(gameNeedsALaunchWrapper()).toBe(false);
     expect(foldersCanBePicked()).toBe(false);
+    expect(filesCanBePicked()).toBe(false);
     expect(foldersCanBeOpened()).toBe(false);
     expect(startsProgramsBesideTheGame()).toBe(false);
     expect(steamStatusIsSupported()).toBe(false);
