@@ -48,6 +48,7 @@ const READY: GameAppStatus = {
     engineCommit: "c4050b171",
   },
   lastGame: null,
+  silentUpdate: false,
 };
 
 const MISSING: GameAppStatus = {
@@ -57,6 +58,7 @@ const MISSING: GameAppStatus = {
   contract: "none",
   gameData: null,
   lastGame: null,
+  silentUpdate: false,
 };
 
 const playButton = () => screen.getByRole("button", { name: en["auth.playOffline"] });

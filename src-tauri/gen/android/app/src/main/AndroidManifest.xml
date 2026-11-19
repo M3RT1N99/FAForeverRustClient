@@ -3,6 +3,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- BrowserWaitService: the client kept running while sign-in waits in the browser. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- GameAppPlugin's updates of the FAF game app: whether the network is
+         metered, the package installer, and its updates without a question
+         once this app installed the game app last (Android 12 and later). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />

@@ -81,6 +81,7 @@ pub(crate) mod faf_content;
 mod file_cache;
 pub mod galactic_war;
 pub mod game;
+pub mod game_app_release;
 pub mod game_cache;
 pub mod game_logs;
 pub mod game_prefs_backup;

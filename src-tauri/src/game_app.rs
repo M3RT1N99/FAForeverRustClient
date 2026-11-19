@@ -6,7 +6,12 @@
 //! platform for that; only Android calls it.
 #![cfg_attr(not(target_os = "android"), allow(dead_code))]
 
-use faf_ipc::shell::{GameAppContract, GameAppData, GameAppEnd, GameAppLastGame, GameAppStatus};
+use std::cmp::Ordering;
+
+use faf_domain::state::compare_versions;
+use faf_ipc::shell::{
+    GameAppContract, GameAppData, GameAppEnd, GameAppInstall, GameAppLastGame, GameAppStatus,
+};
 use serde::Deserialize;
 
 /// Android's `Activity.RESULT_FIRST_USER`: the game app did not start a game,
@@ -22,6 +27,7 @@ struct RawStatus {
     contract: Option<String>,
     game_data: Option<RawGameData>,
     last_game: Option<RawLastGame>,
+    silent_update: bool,
 }
 
 /// The provider's `game_data` columns.
@@ -49,6 +55,14 @@ struct RawLastGame {
     exit_code: Option<i64>,
     crashed: i64,
     end: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct RawInstall {
+    installed: bool,
+    failure: Option<String>,
+    message: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -111,7 +125,28 @@ pub(crate) fn status_from(raw: serde_json::Value) -> Result<GameAppStatus, Strin
                 end: text(last.end),
             })
         }),
+        silent_update: raw.installed && raw.silent_update,
     })
+}
+
+/// Whether a release `version` is newer than the game app on this device. A
+/// version name that is no release version, a build of one's own, is never
+/// offered one.
+pub(crate) fn is_newer(version: &str, installed: &GameAppStatus) -> bool {
+    installed.installed && compare_versions(version, &installed.version_name) == Ordering::Greater
+}
+
+/// What `GameAppPlugin.installUpdate` answered. A refusal without its code is
+/// Android's own (`INSTALL`).
+pub(crate) fn install_from(raw: serde_json::Value) -> GameAppInstall {
+    let raw: RawInstall = serde_json::from_value(raw).unwrap_or_default();
+    if raw.installed {
+        return GameAppInstall::Installed;
+    }
+    GameAppInstall::Failed {
+        failure: text(raw.failure).unwrap_or_else(|| "INSTALL".to_owned()),
+        message: text(raw.message).unwrap_or_default(),
+    }
 }
 
 /// What `GameAppPlugin.ended` answered, for a start or the setup screen.
@@ -197,6 +232,61 @@ mod tests {
                 crashed: false,
                 end: Some("END ok".into()),
             })
+        );
+    }
+
+    #[test]
+    fn only_a_newer_release_version_is_an_update() {
+        let installed = |version: &str| {
+            status_from(json!({ "installed": true, "versionName": version, "contract": "open" }))
+                .unwrap()
+        };
+        assert!(is_newer("0.16.0", &installed("0.15.1")));
+        assert!(is_newer("0.16.0", &installed("0.16.0-rc1")));
+        assert!(!is_newer("0.16.0", &installed("0.16.0")));
+        assert!(!is_newer("0.15.1", &installed("0.16.0")));
+        assert!(
+            !is_newer("0.16.0", &installed("my build")),
+            "a version of one's own"
+        );
+        let missing = status_from(json!({ "installed": false })).unwrap();
+        assert!(
+            !is_newer("0.16.0", &missing),
+            "D updates, it does not install"
+        );
+    }
+
+    #[test]
+    fn silent_updates_need_the_game_app() {
+        let silent = status_from(json!({ "installed": true, "silentUpdate": true })).unwrap();
+        assert!(silent.silent_update);
+        let gone = status_from(json!({ "installed": false, "silentUpdate": true })).unwrap();
+        assert!(!gone.silent_update);
+    }
+
+    #[test]
+    fn an_install_says_installed_or_why_not() {
+        assert_eq!(
+            install_from(json!({ "installed": true })),
+            GameAppInstall::Installed
+        );
+        assert_eq!(
+            install_from(
+                json!({ "installed": false, "failure": "SIGNER", "message": "signed by d00d" })
+            ),
+            GameAppInstall::Failed {
+                failure: "SIGNER".into(),
+                message: "signed by d00d".into()
+            }
+        );
+        assert_eq!(
+            install_from(
+                json!({ "installed": false, "message": "INSTALL_FAILED_INSUFFICIENT_STORAGE" })
+            ),
+            GameAppInstall::Failed {
+                failure: "INSTALL".into(),
+                message: "INSTALL_FAILED_INSUFFICIENT_STORAGE".into()
+            }
         );
     }
 

@@ -475,7 +475,7 @@ impl GitHubUpdates {
 }
 
 /// GitHub's `digest` for a release asset: `sha256:` and 64 hex digits.
-fn sha256_digest(text: &str) -> Option<[u8; 32]> {
+pub(crate) fn sha256_digest(text: &str) -> Option<[u8; 32]> {
     let hex = text.strip_prefix("sha256:")?;
     // Checked first: `from_str_radix` would take a `+` sign in a pair.
     if hex.len() != 64 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -490,7 +490,7 @@ fn sha256_digest(text: &str) -> Option<[u8; 32]> {
 
 /// The SHA-256 of a file, or `None` when it cannot be read. Off the async
 /// runtime: an installer is a couple of hundred megabytes.
-async fn file_sha256(path: &Path) -> Option<[u8; 32]> {
+pub(crate) async fn file_sha256(path: &Path) -> Option<[u8; 32]> {
     let path = path.to_path_buf();
     tokio::task::spawn_blocking(move || {
         use sha2::Digest as _;

@@ -41,6 +41,7 @@ function status(jobStep: string | null): GameAppStatus {
       engineCommit: "c4050b171",
     },
     lastGame: null,
+    silentUpdate: false,
   };
 }
 

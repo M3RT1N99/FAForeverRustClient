@@ -3581,6 +3581,17 @@ export type GameAppEnd =
  */
 { kind: "failed"; failure: string; message: string };
 
+/**  How an update of the game app ended. */
+export type GameAppInstall =
+/**  Android installed it. */
+{ kind: "installed" } |
+/**
+ *  It was not installed: why, as this client's code (`RUNNING`, `PACKAGE`,
+ *  `SIGNER`, `NOT_NEWER`, `ABORTED`, `CONFLICT`, `STORAGE`, `INSTALL`),
+ *  and Android's own words where it gave some.
+ */
+{ kind: "failed"; failure: string; message: string };
+
 /**  The game app's `last_game`. */
 export type GameAppLastGame = {
 	/**  When it started, in milliseconds since 1970. */
@@ -3628,6 +3639,22 @@ export type GameAppStatus = {
 	gameData: GameAppData | null,
 	/**  The last game it ran, when it answers this client and ran one. */
 	lastGame: GameAppLastGame | null,
+	/**
+	 *  Whether Android lets this client update it without asking: Android 12
+	 *  or later, and this client installed it last.
+	 */
+	silentUpdate: boolean,
+};
+
+/**  A release of the game app newer than the one on this device. */
+export type GameAppUpdate = {
+	/**  Its version, `0.17.0`. */
+	version: string,
+	/**
+	 *  Whether the phone is on a metered network now (mobile data, a hotspot,
+	 *  a Wi-Fi set so): the download is then the player's to start.
+	 */
+	metered: boolean,
 };
 
 export type GameCacheInfo = {

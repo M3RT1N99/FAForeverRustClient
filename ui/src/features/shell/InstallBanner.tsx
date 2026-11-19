@@ -27,6 +27,7 @@ import { useTranslation } from "../../i18n/useTranslation";
 import { pickOriginalGameFolder, setOriginalGameDir } from "../../shared/originalGame";
 import { theGameIsItsOwnApp } from "../../shared/platform";
 import { GAME_APP_NEED_TEXT, gameAppNeed, gameAppNeedAction, useGameAppStatus } from "../../shared/gameApp";
+import { installGameAppUpdate, useGameAppUpdateStore } from "../../shared/gameAppUpdate";
 
 const openSettings = () =>
   ipc.send({ kind: "Nav", command: { type: "select", payload: { tab: "settings" } } });
@@ -185,17 +186,21 @@ function OriginalGameMissing({ onDismiss }: { onDismiss: () => void }) {
 /**
  * Android: the game is FAF's game app, not a file or a folder on this device,
  * so nothing here can locate or choose it. The banner says what the game app
- * still needs, with the one press that answers it (its releases, or its own
- * setup), and is gone once it is ready.
+ * still needs, with the one press that answers it (its update, its releases,
+ * or its own setup), and is gone once it is ready.
  */
 function GameIsItsOwnApp({ onDismiss }: { onDismiss: () => void }) {
   const { t } = useTranslation();
   const { status, refresh } = useGameAppStatus();
+  const update = useGameAppUpdateStore();
   if (!status) return null;
   const need = gameAppNeed(status);
   if (need === "ready") return null;
   const text = GAME_APP_NEED_TEXT[need];
-  const action = gameAppNeedAction(need);
+  const updateOffered = need === "update" && update.offer !== null;
+  const action = updateOffered
+    ? { label: "android.gameApp.update.install" as const, run: installGameAppUpdate }
+    : gameAppNeedAction(need);
 
   return (
     <div className="install-banner" role="status">
@@ -208,10 +213,18 @@ function GameIsItsOwnApp({ onDismiss }: { onDismiss: () => void }) {
         {need === "busy" && status.gameData?.jobStep && (
           <span className="muted">{t("android.gameApp.busy", { step: status.gameData.jobStep })}</span>
         )}
+        {updateOffered && update.phase === "installing" && update.offer && (
+          <span className="muted">{t("android.gameApp.update.installing", { version: update.offer.version })}</span>
+        )}
+        {updateOffered && update.failure && <span className="muted">{update.failure}</span>}
       </div>
       <div className="install-banner-actions">
         {action && (
-          <Button variant="primary" onClick={() => ipc.run(action.run().finally(refresh))}>
+          <Button
+            variant="primary"
+            disabled={update.phase === "installing"}
+            onClick={() => ipc.run(action.run().finally(refresh))}
+          >
             {t(action.label)}
           </Button>
         )}

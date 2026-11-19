@@ -1,10 +1,17 @@
 //! What the client needs from Android itself, through its own Kotlin in
 //! `gen/android`: the browser for sign-in, the share sheet and the device's
-//! make for the logs and a problem report, and the FAF game app.
+//! make for the logs and a problem report, and the FAF game app with its
+//! updates.
 
+use std::sync::{Mutex, PoisonError};
+
+use faf_app::infra::game_app_release::{GameAppRelease, GameAppReleases};
 use faf_app::infra::log_export::export_client_logs;
 use faf_app::infra::log_scrub::Scrubber;
-use faf_ipc::shell::{GameAppEnd, GameAppLaunch, GameAppStatus, ReportContext};
+use faf_ipc::shell::{
+    GameAppEnd, GameAppInstall, GameAppLaunch, GameAppStatus, GameAppUpdate, ReportContext,
+};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
 use tauri::{Manager, Wry};
@@ -37,6 +44,7 @@ pub(crate) fn init() -> TauriPlugin<Wry> {
             app.manage(GameApp(
                 api.register_android_plugin(APP_PACKAGE, "GameAppPlugin")?,
             ));
+            app.manage(GameAppUpdates::faf());
             let app = app.clone();
             faf_app::infra::set_browser_opener(move |url| {
                 // Before the browser covers the page: Android starts a
@@ -176,21 +184,38 @@ pub(crate) async fn share_client_logs(
     .map_err(|_| "the log export stopped".to_string())?
 }
 
+/// Call `command` on a Kotlin plugin, off the async runtime: the call blocks
+/// until the plugin answers, which for a start, the setup screen or an
+/// install is when the player is back.
+async fn call<A, R>(plugin: &PluginHandle<Wry>, command: &'static str, args: A) -> Result<R, String>
+where
+    A: Serialize + Send + 'static,
+    R: DeserializeOwned + Send + 'static,
+{
+    let plugin = plugin.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        plugin
+            .run_mobile_plugin::<R>(command, args)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|_| format!("the app's {command} stopped"))?
+}
+
+async fn game_app_status_of(game_app: &GameApp) -> Result<GameAppStatus, String> {
+    let raw = call(&game_app.0, "status", ())
+        .await
+        .map_err(|error| format!("could not ask the game app: {error}"))?;
+    crate::game_app::status_from(raw)
+}
+
 /// The FAF game app: whether it is there, whether it lets this client in, and
 /// its game data.
 #[tauri::command]
 pub(crate) async fn game_app_status(
     game_app: tauri::State<'_, GameApp>,
 ) -> Result<GameAppStatus, String> {
-    let plugin = game_app.0.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let raw = plugin
-            .run_mobile_plugin::<serde_json::Value>("status", ())
-            .map_err(|error| format!("could not ask the game app: {error}"))?;
-        crate::game_app::status_from(raw)
-    })
-    .await
-    .map_err(|_| "the game app lookup stopped".to_string())?
+    game_app_status_of(&game_app).await
 }
 
 /// Open the game app's own screen for its game data, `scfa`, the player's
@@ -204,19 +229,14 @@ pub(crate) async fn game_app_setup(
     if !matches!(step.as_str(), "scfa" | "game_files") {
         return Err(format!("no such setup step: {step}"));
     }
-    let plugin = game_app.0.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        #[derive(Serialize)]
-        struct Setup {
-            step: String,
-        }
-        plugin
-            .run_mobile_plugin::<serde_json::Value>("setup", Setup { step })
-            .map(crate::game_app::end_from)
-            .map_err(|error| format!("could not open the game app's setup: {error}"))
-    })
-    .await
-    .map_err(|_| "the game app's setup stopped".to_string())?
+    #[derive(Serialize)]
+    struct Setup {
+        step: String,
+    }
+    call(&game_app.0, "setup", Setup { step })
+        .await
+        .map(crate::game_app::end_from)
+        .map_err(|error| format!("could not open the game app's setup: {error}"))
 }
 
 /// Start a game in the game app and wait until it ends, or until the game
@@ -226,13 +246,104 @@ pub(crate) async fn game_app_play(
     launch: GameAppLaunch,
     game_app: tauri::State<'_, GameApp>,
 ) -> Result<GameAppEnd, String> {
-    let plugin = game_app.0.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        plugin
-            .run_mobile_plugin::<serde_json::Value>("play", launch)
-            .map(crate::game_app::end_from)
-            .map_err(|error| format!("could not start the game app: {error}"))
-    })
-    .await
-    .map_err(|_| "the game stopped answering".to_string())?
+    call(&game_app.0, "play", launch)
+        .await
+        .map(crate::game_app::end_from)
+        .map_err(|error| format!("could not start the game app: {error}"))
+}
+
+/// The game app's releases, and the newest the last check found, which is
+/// the one an update installs.
+pub(crate) struct GameAppUpdates {
+    releases: GameAppReleases,
+    newest: Mutex<Option<GameAppRelease>>,
+}
+
+impl GameAppUpdates {
+    fn faf() -> Self {
+        Self {
+            releases: GameAppReleases::faf(),
+            newest: Mutex::default(),
+        }
+    }
+}
+
+/// Look for a release of the game app newer than the one on this device.
+#[tauri::command]
+pub(crate) async fn game_app_update_check(
+    game_app: tauri::State<'_, GameApp>,
+    updates: tauri::State<'_, GameAppUpdates>,
+) -> Result<Option<GameAppUpdate>, String> {
+    let status = game_app_status_of(&game_app).await?;
+    let newest = updates.releases.newest().await?;
+    *updates
+        .newest
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = newest.clone();
+    let Some(newest) =
+        newest.filter(|release| crate::game_app::is_newer(&release.version, &status))
+    else {
+        return Ok(None);
+    };
+    #[derive(Deserialize)]
+    struct Network {
+        metered: bool,
+    }
+    let network: Network = call(&game_app.0, "network", ())
+        .await
+        .map_err(|error| format!("could not ask about the network: {error}"))?;
+    Ok(Some(GameAppUpdate {
+        version: newest.version,
+        metered: network.metered,
+    }))
+}
+
+/// Download the release `version` the last check found, and have Android
+/// install it once its APK has the published checksum, the game app's name,
+/// its signer and a higher version code. Never under a game: Android ends
+/// the game app's process to update it.
+#[tauri::command]
+pub(crate) async fn game_app_update_install(
+    version: String,
+    app: tauri::AppHandle,
+    game_app: tauri::State<'_, GameApp>,
+    updates: tauri::State<'_, GameAppUpdates>,
+) -> Result<GameAppInstall, String> {
+    let release = updates
+        .newest
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+        .filter(|release| release.version == version)
+        .ok_or_else(|| format!("version {version} of the game app was not found; look again"))?;
+    // Asked before the download too, which a game makes pointless; the
+    // plugin asks again right before the install, which is what counts.
+    let status = game_app_status_of(&game_app).await?;
+    if status.game_data.is_some_and(|data| data.game_running) {
+        return Ok(GameAppInstall::Failed {
+            failure: "RUNNING".into(),
+            message: String::new(),
+        });
+    }
+    let folder = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("could not find the cache folder: {error}"))?
+        .join("game-app");
+    let apk = updates.releases.download(&release, &folder).await?;
+    #[derive(Serialize)]
+    struct Install {
+        path: String,
+    }
+    let path = apk.to_string_lossy().into_owned();
+    let installed = call(&game_app.0, "installUpdate", Install { path })
+        .await
+        .map(crate::game_app::install_from)
+        .map_err(|error| format!("could not install the game app: {error}"))?;
+    // Kept otherwise, so a second try after a refusal (the player said no
+    // to Android's question) needs no second download.
+    if installed == GameAppInstall::Installed {
+        let _ = tokio::fs::remove_file(&apk).await;
+    }
+    Ok(installed)
 }

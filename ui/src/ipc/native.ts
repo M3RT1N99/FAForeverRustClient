@@ -17,8 +17,10 @@ import { filesCanBePicked, foldersCanBePicked } from "../shared/platform";
 import type {
   ClientNotification,
   GameAppEnd,
+  GameAppInstall,
   GameAppLaunch,
   GameAppStatus,
+  GameAppUpdate,
   LogPreview,
   MapAnalysis,
   MarkedMapPreview,
@@ -37,8 +39,10 @@ import type {
 export type {
   GameAppData,
   GameAppEnd,
+  GameAppInstall,
   GameAppLaunch,
   GameAppStatus,
+  GameAppUpdate,
   LogIssue,
   LogPreview,
   MapAnalysis,
@@ -268,6 +272,20 @@ export const native = {
    */
   gameAppPlay(launch: GameAppLaunch): Promise<GameAppEnd> {
     return invoke<GameAppEnd>("game_app_play", { launch });
+  },
+
+  /** Android only: a release of the game app newer than the one there. */
+  gameAppUpdateCheck(): Promise<GameAppUpdate | null> {
+    return invoke<GameAppUpdate | null>("game_app_update_check");
+  },
+
+  /**
+   * Android only: download the release `version` the last check found and
+   * have Android install it. Settles when Android is done, after its
+   * question where it asks one.
+   */
+  gameAppUpdateInstall(version: string): Promise<GameAppInstall> {
+    return invoke<GameAppInstall>("game_app_update_install", { version });
   },
 
   revealReplay(path: string): Promise<void> {

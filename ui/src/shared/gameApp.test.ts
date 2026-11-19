@@ -44,6 +44,7 @@ function status(patch: Partial<GameAppStatus> = {}): GameAppStatus {
     contract: "open",
     gameData: data(),
     lastGame: null,
+    silentUpdate: false,
     ...patch,
   };
 }
