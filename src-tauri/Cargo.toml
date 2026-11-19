@@ -15,6 +15,11 @@ crate-type = ["lib", "cdylib", "staticlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+# faf-app's: fakes for FAF's services in an Android release build, for
+# measurement and test builds only (`tauri android build --features fake-ports`).
+fake-ports = ["faf-app/fake-ports"]
+
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 # Native file pickers and the shell's own warnings. Opened from Rust only

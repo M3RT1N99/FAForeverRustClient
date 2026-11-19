@@ -747,7 +747,7 @@ pub fn fake_ports() -> Ports {
 /// real services are the default whenever `FAF_FAKE_AUTH` is not enabled.
 pub fn real_ports() -> Ports {
     let tokens = TokenStore::new();
-    let lobby: Arc<dyn LobbyPort> = if env_enabled("FAF_FAKE_LOBBY") {
+    let lobby: Arc<dyn LobbyPort> = if fake_enabled("FAF_FAKE_LOBBY") {
         Arc::new(FakeLobby::default())
     } else {
         Arc::new(LobbyClient::faf(tokens.clone()))
@@ -756,7 +756,7 @@ pub fn real_ports() -> Ports {
     // The real chat client speaks live IRC against production Ergochat. It is
     // selected by default for a real account; `FAF_FAKE_CHAT=1` is the local
     // override for development.
-    let chat: Arc<dyn ChatPort> = if env_enabled("FAF_FAKE_CHAT") {
+    let chat: Arc<dyn ChatPort> = if fake_enabled("FAF_FAKE_CHAT") {
         Arc::new(FakeChat::default())
     } else {
         Arc::new(IrcClient::faf(tokens.clone()))
@@ -959,10 +959,49 @@ fn env_enabled(name: &str) -> bool {
     std::env::var(name).is_ok_and(|value| !value.is_empty())
 }
 
+/// Whether a build may stand fakes in for FAF's services at all, as the
+/// `FAF_FAKE_*` toggles ask. Not an Android release: a phone client that
+/// signed nobody in and faked the lobby would pass for a working one. There
+/// it takes the `fake-ports` feature, which a measurement or test build turns
+/// on and a release never does.
+const fn fake_ports_allowed(android: bool, debug: bool, feature: bool) -> bool {
+    !android || debug || feature
+}
+
+const FAKE_PORTS_ALLOWED: bool = fake_ports_allowed(
+    cfg!(target_os = "android"),
+    cfg!(debug_assertions),
+    cfg!(feature = "fake-ports"),
+);
+
+// The build check: an Android release without the feature cannot fake.
+#[cfg(all(
+    target_os = "android",
+    not(debug_assertions),
+    not(feature = "fake-ports")
+))]
+const _: () = assert!(!FAKE_PORTS_ALLOWED);
+
+/// A `FAF_FAKE_*` toggle, where this build may fake at all; set where it may
+/// not, it is said in the log and ignored.
+fn fake_enabled(name: &str) -> bool {
+    if !env_enabled(name) {
+        return false;
+    }
+    if !FAKE_PORTS_ALLOWED {
+        tracing::warn!(
+            variable = name,
+            "ignoring a fake service toggle in an Android release"
+        );
+        return false;
+    }
+    true
+}
+
 /// Pick the port bundle the shell should use. Defaults to real auth; set
 /// `FAF_FAKE_AUTH=1` to run fully offline (no browser login) for local dev.
 pub fn ports_from_env() -> Ports {
-    if std::env::var("FAF_FAKE_AUTH").is_ok_and(|v| !v.is_empty()) {
+    if fake_enabled("FAF_FAKE_AUTH") {
         // Fake auth is the recommended local UI workflow, but game-location
         // settings are local capabilities rather than network services. Using
         // FakeSettings/FakeGame here made Browse appear to work while dropping
@@ -987,6 +1026,29 @@ pub fn ports_from_env() -> Ports {
         ports
     } else {
         real_ports()
+    }
+}
+
+#[cfg(test)]
+mod fake_ports_tests {
+    use super::fake_ports_allowed;
+
+    #[test]
+    fn only_an_android_release_without_the_feature_cannot_fake() {
+        // (android, debug, feature)
+        assert!(
+            !fake_ports_allowed(true, false, false),
+            "an Android release"
+        );
+        assert!(fake_ports_allowed(true, false, true), "a measurement build");
+        assert!(
+            fake_ports_allowed(true, true, false),
+            "an Android debug build"
+        );
+        assert!(
+            fake_ports_allowed(false, false, false),
+            "a desktop release, as before"
+        );
     }
 }
 
