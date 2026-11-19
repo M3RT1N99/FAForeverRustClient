@@ -33,7 +33,9 @@ import java.security.MessageDigest
 // Android. Its launcher contract (its android/README.md, "The launcher's
 // contract"):
 // - the exported `.action.PLAY` starts a game for a result, for callers whose
-//   signing certificate it allows, with the `.extra.*` values below;
+//   signing certificate it allows, with the `.extra.*` values below and a
+//   token for that one start, which the status provider's `play_token` hands
+//   out right before it;
 // - the read-only provider `…status` answers `game_data` and `last_game`;
 // - `.action.SETUP_GAME_DATA` opens its own screen that sets up the game data,
 //   for any caller, with the step in `.extra.STEP`.
@@ -138,6 +140,7 @@ class GameAppPlugin(private val activity: Activity) : Plugin(activity) {
     args.rejoinPeers?.let { intent.putExtra("${EXTRA}REJOIN_PEERS", it) }
     args.rejoinSource?.let { intent.putExtra("${EXTRA}REJOIN_SOURCE", it) }
     // A replay goes as the intent's data, which the game app is let read.
+    playToken()?.let { intent.putExtra("${EXTRA}TOKEN", it) }
     args.replayPath?.let { path ->
       intent.setData(FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", File(path)))
       intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -158,6 +161,19 @@ class GameAppPlugin(private val activity: Activity) : Plugin(activity) {
     result.data?.getStringExtra("failure")?.let { end.put("failure", it) }
     result.data?.getStringExtra("message")?.let { end.put("message", it) }
     invoke.resolve(end)
+  }
+
+  // The game app's token for one start within 60 s, or null where it gives
+  // none (a caller it does not allow, a game app from before the token). A
+  // start without one is refused with CALLER, which says why.
+  private fun playToken(): String? = try {
+    activity.contentResolver
+      .call(Uri.parse("content://$STATUS_AUTHORITY"), "play_token", null, null)
+      ?.getString("token")
+  } catch (refused: SecurityException) {
+    null
+  } catch (unknown: IllegalArgumentException) {
+    null
   }
 
   // Whether the phone is on a metered network now: mobile data, a hotspot, a
@@ -206,8 +222,10 @@ class GameAppPlugin(private val activity: Activity) : Plugin(activity) {
   private fun refusalOf(apk: File): Pair<String, String>? {
     val archive = archiveInfo(apk) ?: return "PACKAGE" to "not an APK"
     if (archive.packageName != GAME_PACKAGE) return "PACKAGE" to archive.packageName
+    // One signer, the game app's: as its own contract takes callers, an APK
+    // with two or more is refused.
     val signers = signersOf(archive)
-    if (signers.isEmpty() || !GAME_SIGNERS.containsAll(signers)) {
+    if (signers.size != 1 || !GAME_SIGNERS.containsAll(signers)) {
       return "SIGNER" to signers.joinToString(",")
     }
     val installed = try {

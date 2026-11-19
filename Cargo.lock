@@ -1234,6 +1234,7 @@ dependencies = [
  "faf-app",
  "faf-domain",
  "faf-ipc",
+ "keyring",
  "serde",
  "serde_json",
  "tauri",

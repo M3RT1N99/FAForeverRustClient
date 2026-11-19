@@ -24,6 +24,8 @@ mod commands;
 mod diagnostics;
 mod exit;
 mod game_app;
+#[cfg(target_os = "android")]
+mod keystore;
 mod navigation;
 mod notification_popup;
 mod picked_paths;
@@ -95,7 +97,7 @@ pub fn run() {
     // Sign-in's browser, and the share sheet for the logs, which on Android
     // only the app's own Kotlin reaches.
     #[cfg(target_os = "android")]
-    let builder = builder.plugin(android::init());
+    let builder = android::plugins(builder);
     // Where the window was, how big, on which monitor, and whether it was
     // maximised. Restored on the next start, and it belongs here rather
     // than in the settings store: it is a property of the shell, not of the

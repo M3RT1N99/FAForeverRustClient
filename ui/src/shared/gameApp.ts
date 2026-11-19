@@ -121,8 +121,13 @@ export async function playOfflineInGameApp(): Promise<void> {
   }
 }
 
-/** How often the status is asked again while the game app's setup runs. */
-const BUSY_POLL_MS = 3000;
+/**
+ * How often the status is asked again while the game app's setup runs. Its
+ * provider sends no change notices (any app could watch them), so the client
+ * asks: before a start, after one, when it comes back to the front, and this
+ * often during a job.
+ */
+const BUSY_POLL_MS = 2000;
 
 /**
  * The game app's status as last asked, one for every view that shows it, so

@@ -46,6 +46,11 @@ faf-ipc = { workspace = true }
 tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
 
+# Android only: keyring keeps secrets in memory there, so the shell gives it a
+# store of its own (`src/keystore.rs`). The version faf-app already builds.
+[target.'cfg(target_os = "android")'.dependencies]
+keyring = "3"
+
 # The WebView2 bindings Tauri's own `wry` already builds, at the versions it
 # uses, for the one event Tauri does not pass on: the window's page or its
 # browser process crashing (`webview_recovery`). Nothing new is downloaded.
