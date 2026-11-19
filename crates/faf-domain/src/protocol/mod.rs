@@ -23,6 +23,7 @@ pub mod map_reclaim;
 pub mod markup;
 pub mod mod_info;
 pub mod navigation;
+pub mod pe_version;
 pub mod rating;
 pub mod replay_query;
 pub mod report_log;
