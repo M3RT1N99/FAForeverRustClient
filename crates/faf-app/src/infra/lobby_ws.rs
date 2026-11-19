@@ -42,7 +42,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use faf_domain::protocol::lobby::{split_messages, ClientMessage, ServerMessage};
-use faf_domain::state::{HostGameConfig, PlayerVeto, Relation};
+use faf_domain::state::{HostGameConfig, LobbyUnavailable, PlayerVeto, Relation};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -220,6 +220,23 @@ impl LobbyClient {
     }
 }
 
+/// Why the lobby is not contacted from this device, if it is not.
+///
+/// Android, until FAF publishes faf-uid for it (FAForever/uid#18): the
+/// lobby's `auth` needs the machine proof only FAF's own build of that program
+/// makes, and FAF's server takes a sign-in with any other proof for a fraud
+/// and bans the account. So the lobby is not contacted at all, here and only
+/// here; `FAF_UID_PATH` opens no way around it. When FAF's build exists, this
+/// is where its SHA-256 is pinned and checked against the program the app
+/// ships.
+fn android_hold_back() -> Option<LobbyUnavailable> {
+    if cfg!(target_os = "android") {
+        Some(LobbyUnavailable::AndroidNeedsOfficialUid)
+    } else {
+        None
+    }
+}
+
 #[async_trait]
 impl LobbyPort for LobbyClient {
     async fn resolve_contacts(&self, ids: &[i32]) -> Result<(), String> {
@@ -242,7 +259,18 @@ impl LobbyPort for LobbyClient {
         }
     }
 
+    fn unavailable(&self) -> Option<LobbyUnavailable> {
+        android_hold_back()
+    }
+
     async fn connect(&self) -> mpsc::Receiver<LobbyUpdate> {
+        // The service asks `unavailable` first and does not come here then.
+        // This is the second lock on the same door: no socket, and so no
+        // `auth`, whoever calls.
+        if android_hold_back().is_some() {
+            let (_tx, rx) = mpsc::channel(1);
+            return rx;
+        }
         let token = CancellationToken::new();
         if let Some(prev) = self.cancel.lock().unwrap().replace(token.clone()) {
             prev.cancel();

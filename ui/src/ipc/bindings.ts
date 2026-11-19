@@ -5121,6 +5121,13 @@ export type LobbyCommand = { type: "connect" } | { type: "join"; payload: {
 { type: "terminateGame" } | { type: "disconnect" };
 
 export type LobbyEvent = { type: "connecting" } | { type: "connected" } |
+/**
+ *  The lobby cannot be had on this device, with the reason: see
+ *  [`LobbyState::unavailable`].
+ */
+{ type: "unavailable"; payload: {
+	reason: LobbyUnavailable,
+} } |
 /**  Another tab asked for the host dialog, with this title. */
 { type: "hostPrepared"; payload: {
 	title: string,
@@ -5248,9 +5255,25 @@ export type LobbyState = {
 	 *  host's decision, and the existing dialog already asks for them properly.
 	 */
 	hostPrefill: string | null,
+	/**
+	 *  Why this client does not connect to the lobby at all on this device,
+	 *  decided before any socket opens (`faf-app`'s `infra::lobby_ws`). While
+	 *  it is set the lobby stays disconnected and the way to connect is not
+	 *  offered.
+	 */
+	unavailable: LobbyUnavailable | null,
 };
 
 export type LobbyStatus = "disconnected" | "connecting" | "connected";
+
+/**  A reason the lobby cannot be had on this device, for the page to say. */
+export type LobbyUnavailable =
+/**
+ *  Android, until FAF publishes its faf-uid for it (FAForever/uid#18).
+ *  The lobby's sign-in needs the machine proof only that program makes,
+ *  and FAF's server takes a sign-in with any other proof for a fraud.
+ */
+"androidNeedsOfficialUid";
 
 /**
  *  The preview art an installed map carries in its own folder.

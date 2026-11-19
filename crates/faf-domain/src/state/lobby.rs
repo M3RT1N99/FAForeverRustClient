@@ -740,6 +740,21 @@ pub struct LobbyState {
     /// Only the title: the map, the featured mod and the password are the
     /// host's decision, and the existing dialog already asks for them properly.
     pub host_prefill: Option<String>,
+    /// Why this client does not connect to the lobby at all on this device,
+    /// decided before any socket opens (`faf-app`'s `infra::lobby_ws`). While
+    /// it is set the lobby stays disconnected and the way to connect is not
+    /// offered.
+    pub unavailable: Option<LobbyUnavailable>,
+}
+
+/// A reason the lobby cannot be had on this device, for the page to say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum LobbyUnavailable {
+    /// Android, until FAF publishes its faf-uid for it (FAForever/uid#18).
+    /// The lobby's sign-in needs the machine proof only that program makes,
+    /// and FAF's server takes a sign-in with any other proof for a fraud.
+    AndroidNeedsOfficialUid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -747,6 +762,11 @@ pub struct LobbyState {
 pub enum LobbyEvent {
     Connecting,
     Connected,
+    /// The lobby cannot be had on this device, with the reason: see
+    /// [`LobbyState::unavailable`].
+    Unavailable {
+        reason: LobbyUnavailable,
+    },
     /// Another tab asked for the host dialog, with this title.
     HostPrepared {
         title: String,
@@ -981,8 +1001,14 @@ fn apply_game_changes(list: &mut Vec<Game>, upserted: &[Game], removed: &[i32]) 
 
 pub fn reduce(state: &mut LobbyState, event: &LobbyEvent) {
     match event {
+        LobbyEvent::Unavailable { reason } => {
+            state.status = LobbyStatus::Disconnected;
+            state.unavailable = Some(*reason);
+        }
         LobbyEvent::Connecting => {
             state.status = LobbyStatus::Connecting;
+            // A lobby being connected to is one this device can have.
+            state.unavailable = None;
             // A join belongs to one connection. On the first attempt there is
             // nothing to clear; on a reconnect there may be a join the server
             // has already forgotten, and leaving it standing is how a client
@@ -1881,6 +1907,29 @@ mod tests {
                 queue_name: "tmm_2v2".into(),
             }
         );
+    }
+
+    #[test]
+    fn an_unavailable_lobby_is_disconnected_with_its_reason_until_a_connection_is_tried() {
+        let mut state = LobbyState {
+            status: LobbyStatus::Connecting,
+            ..LobbyState::default()
+        };
+
+        reduce(
+            &mut state,
+            &LobbyEvent::Unavailable {
+                reason: LobbyUnavailable::AndroidNeedsOfficialUid,
+            },
+        );
+        assert_eq!(state.status, LobbyStatus::Disconnected);
+        assert_eq!(
+            state.unavailable,
+            Some(LobbyUnavailable::AndroidNeedsOfficialUid)
+        );
+
+        reduce(&mut state, &LobbyEvent::Connecting);
+        assert_eq!(state.unavailable, None);
     }
 
     #[test]

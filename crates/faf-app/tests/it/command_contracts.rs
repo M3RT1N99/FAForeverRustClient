@@ -1195,6 +1195,9 @@ struct CountingLobby {
 
 #[async_trait]
 impl LobbyPort for CountingLobby {
+    fn unavailable(&self) -> Option<faf_domain::state::LobbyUnavailable> {
+        self.inner.unavailable()
+    }
     async fn connect(&self) -> mpsc::Receiver<LobbyUpdate> {
         self.connects.fetch_add(1, Ordering::SeqCst);
         self.inner.connect().await
@@ -1313,6 +1316,40 @@ async fn the_lobby_socket_is_single_flight_before_and_after_a_drop() {
         2,
         "connecting again after the drop opened more than one socket"
     );
+}
+
+/// A lobby this device cannot have (Android, until FAF publishes its faf-uid
+/// for it) is never connected to: no socket opens, so no sign-in goes out,
+/// and the state says why instead of offering a connection that cannot work.
+/// Asking again changes nothing.
+#[tokio::test]
+async fn a_lobby_the_device_cannot_have_opens_no_socket_and_says_why() {
+    use faf_domain::state::{LobbyStatus, LobbyUnavailable};
+
+    let lobby = FakeLobby::default();
+    lobby.set_unavailable(Some(LobbyUnavailable::AndroidNeedsOfficialUid));
+    let connects = Arc::new(AtomicUsize::new(0));
+    let app = start(Ports {
+        lobby: Arc::new(CountingLobby {
+            inner: lobby,
+            connects: connects.clone(),
+        }),
+        ..fake_ports()
+    });
+    let mut events = app.subscribe();
+
+    app.dispatch(LobbyCommand::Connect.into()).await.unwrap();
+    lobby_event(&mut events, "the lobby held back", |event| {
+        matches!(event, LobbyEvent::Unavailable { .. })
+    })
+    .await;
+    completes(&app, "asking again", LobbyCommand::Connect.into()).await;
+
+    let (status, unavailable) =
+        app.with_state(|state| (state.lobby.status, state.lobby.unavailable));
+    assert_eq!(status, LobbyStatus::Disconnected);
+    assert_eq!(unavailable, Some(LobbyUnavailable::AndroidNeedsOfficialUid));
+    assert_eq!(connects.load(Ordering::SeqCst), 0, "a socket was opened");
 }
 
 /// Chat goes to the offline fake, shared so the test can drop it from the

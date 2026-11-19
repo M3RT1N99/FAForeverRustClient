@@ -6304,6 +6304,8 @@ export const en = {
   "lobby.details.joinFailed": "Could not join: {reason}",
   "lobby.browser.disconnected": "Not connected to FAF",
   "lobby.browser.disconnectedHint": "Open games appear here once the client is connected.",
+  "lobby.browser.unavailable": "The FAF lobby is not available on this device",
+  "lobby.unavailable.androidNeedsOfficialUid": "The FAF lobby needs a machine check from FAF's own faf-uid program, and FAF has not published it for Android yet. Until then this app does not connect to the lobby.",
   "lobby.browser.connecting": "Connecting to FAF…",
   "lobby.browser.noGames": "No open games right now",
   "lobby.browser.noGamesHint": "Host one, or check back in a moment.",

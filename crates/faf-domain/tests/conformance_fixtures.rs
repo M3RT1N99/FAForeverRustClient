@@ -5263,6 +5263,17 @@ fn cases() -> Vec<Case> {
             ],
         ),
         case(
+            "a lobby the device cannot have is disconnected with its reason until one is tried",
+            vec![
+                LobbyEvent::Connecting.into(),
+                LobbyEvent::Unavailable {
+                    reason: LobbyUnavailable::AndroidNeedsOfficialUid,
+                }
+                .into(),
+                LobbyEvent::Connecting.into(),
+            ],
+        ),
+        case(
             "a matchmaker game that ends releases the queue",
             vec![
                 LobbyEvent::Connected.into(),

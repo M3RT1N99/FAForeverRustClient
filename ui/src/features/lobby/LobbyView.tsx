@@ -289,6 +289,7 @@ export function LobbyView() {
           vault={maps.vault}
           viewMode={gameView}
           status={lobby.status}
+          unavailable={lobby.unavailable}
           join={lobby.join}
           onJoin={requestJoin}
           onPreview={setPreviewGame}

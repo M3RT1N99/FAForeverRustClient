@@ -545,6 +545,7 @@ export function ClientStatusBar() {
   const session = useAppStore((state) => state.state.session);
   const player = useAppStore((state) => state.state.auth.player);
   const lobbyStatus = useAppStore((state) => state.state.lobby.status);
+  const lobbyUnavailable = useAppStore((state) => state.state.lobby.unavailable);
   const joinState = useAppStore((state) => state.state.lobby.join);
   const chatStatus = useAppStore((state) => state.state.chat.status);
   const activities = useBackgroundActivities();
@@ -600,7 +601,8 @@ export function ClientStatusBar() {
 
   const renderConnectionMenu = (kind: ConnectionKind, status: ConnectionStatus, label: string) => {
     const isOpen = openMenu === kind;
-    const canConnect = kind !== "chat" || Boolean(player?.name);
+    // A lobby this device cannot have is not offered; the Play tab says why.
+    const canConnect = kind === "chat" ? Boolean(player?.name) : lobbyUnavailable === null;
     const actionLabel = status === "disconnected" ? t("status.reconnect") : t("status.disconnect");
     const stateLabel = t(STATUS_LABEL[status]);
 

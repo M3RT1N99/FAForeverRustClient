@@ -29,6 +29,13 @@ pub(super) async fn connect(ctx: &ServiceCtx, out: &EventSink) {
 
 async fn connect_with(ctx: &ServiceCtx, out: &EventSink, only_if_armed: bool) {
     let out = out.scoped_to_account();
+    // A device the lobby cannot be had from (`LobbyPort::unavailable`): said
+    // in the state, the watchdog left alone as after a ban, nothing opened.
+    if let Some(reason) = ctx.ports.lobby.unavailable() {
+        ctx.lifecycle.stop_lobby();
+        out.emit(LobbyEvent::Unavailable { reason });
+        return;
+    }
     let session = out.account_token();
     let Some(_active) = ctx.lobby.active.acquire(&session).await else {
         return;

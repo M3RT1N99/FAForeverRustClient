@@ -6030,6 +6030,8 @@ export const de: Partial<Record<MessageKey, Message>> = {
   "lobby.details.joinFailed": "Beitritt fehlgeschlagen: {reason}",
   "lobby.browser.disconnected": "Nicht mit FAF verbunden",
   "lobby.browser.disconnectedHint": "Offene Spiele erscheinen hier, sobald der Client verbunden ist.",
+  "lobby.browser.unavailable": "Die FAF-Lobby ist auf diesem Gerät nicht verfügbar",
+  "lobby.unavailable.androidNeedsOfficialUid": "Die FAF-Lobby verlangt eine Geräteprüfung durch FAFs eigenes Programm faf-uid, und das hat FAF für Android noch nicht veröffentlicht. Bis dahin verbindet sich diese App nicht mit der Lobby.",
   "lobby.browser.connecting": "Verbinde mit FAF…",
   "lobby.browser.noGames": "Gerade keine offenen Spiele",
   "lobby.browser.noGamesHint": "Hoste selbst eins oder schau gleich wieder vorbei.",

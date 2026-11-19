@@ -10,8 +10,8 @@
 
 use async_trait::async_trait;
 use faf_domain::state::{
-    AvailableAvatar, Contact, Game, GameLaunch, HostGameConfig, MatchmakerQueue, MatchmakingState,
-    PartyState, PlayerProfile, PlayerVeto, Relation,
+    AvailableAvatar, Contact, Game, GameLaunch, HostGameConfig, LobbyUnavailable, MatchmakerQueue,
+    MatchmakingState, PartyState, PlayerProfile, PlayerVeto, Relation,
 };
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -153,6 +153,13 @@ pub trait LobbyPort: Send + Sync {
     async fn resolve_contacts(&self, _ids: &[i32]) -> Result<(), String> {
         Err("contact lookup is unavailable".into())
     }
+    /// Why this port will not connect at all on this device, asked before
+    /// [`Self::connect`]. `None` where it can, which is everywhere but the
+    /// real port on Android (`infra::lobby_ws`).
+    fn unavailable(&self) -> Option<LobbyUnavailable> {
+        None
+    }
+
     /// Connect to the lobby. The receiver yields a [`LobbyUpdate`] on each change;
     /// it closes when the connection ends (server-side or via [`Self::disconnect`]).
     async fn connect(&self) -> mpsc::Receiver<LobbyUpdate>;

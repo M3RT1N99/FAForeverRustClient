@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use faf_domain::state::{
-    AvailableAvatar, Contact, Game, GameLaunch, HostGameConfig, MatchmakerQueue, MatchmakingState,
-    PlayerProfile, PlayerVeto, RatingRange, Relation,
+    AvailableAvatar, Contact, Game, GameLaunch, HostGameConfig, LobbyUnavailable, MatchmakerQueue,
+    MatchmakingState, PlayerProfile, PlayerVeto, RatingRange, Relation,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -44,9 +44,16 @@ pub struct FakeLobby {
     /// test (`answer_join`), so a test can act between the two.
     held_joins: Arc<Mutex<Option<Vec<i32>>>>,
     relays: Arc<Mutex<Vec<GameRelay>>>,
+    /// What `unavailable` answers, as the real port on Android does.
+    unavailable: Arc<Mutex<Option<LobbyUnavailable>>>,
 }
 
 impl FakeLobby {
+    /// Make the lobby one this device cannot have, as the real port on Android.
+    pub fn set_unavailable(&self, reason: Option<LobbyUnavailable>) {
+        *self.unavailable.lock().unwrap() = reason;
+    }
+
     /// Simulate a saturated writer while the fake connection stays open.
     pub fn set_send_busy(&self, busy: bool) {
         self.send_busy
@@ -104,6 +111,10 @@ impl FakeLobby {
 
 #[async_trait]
 impl LobbyPort for FakeLobby {
+    fn unavailable(&self) -> Option<LobbyUnavailable> {
+        *self.unavailable.lock().unwrap()
+    }
+
     async fn connect(&self) -> mpsc::Receiver<LobbyUpdate> {
         let token = CancellationToken::new();
         // Replace (and cancel) any previous connection.
