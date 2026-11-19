@@ -301,7 +301,11 @@ mod tests {
         let start = GameAppStart {
             game_version: Some(3841),
             featured_mod: Some("faf".into()),
-            arguments: vec!["/gpgnet".into(), "127.0.0.1:6112".into(), "/nativenet".into()],
+            arguments: vec![
+                "/gpgnet".into(),
+                "127.0.0.1:6112".into(),
+                "/nativenet".into(),
+            ],
             map: Some("scmp_009".into()),
             mods: vec![
                 GameMod {
@@ -350,7 +354,11 @@ mod tests {
         let play = serde_json::to_value(play_start(start, Some("copy".into()))).unwrap();
         assert_eq!(play["keepClient"], json!(false));
         assert_eq!(play["rejoinOffer"], json!(false));
-        assert_eq!(play["mods"], json!(null), "no empty list: the extra is left out");
+        assert_eq!(
+            play["mods"],
+            json!(null),
+            "no empty list: the extra is left out"
+        );
     }
 
     #[test]
