@@ -260,6 +260,11 @@ class GameAppPlugin(private val activity: Activity) : Plugin(activity) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       params.setPackageSource(PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE)
     }
+    // A session of an earlier try that Android left open is dropped first:
+    // allowing installs from this app ends its process, question and all.
+    installer.mySessions
+      .filter { it.appPackageName == GAME_PACKAGE }
+      .forEach { runCatching { installer.abandonSession(it.sessionId) } }
     val id = installer.createSession(params)
     val action = "${context.packageName}.GAME_APP_INSTALL.$id"
     val receiver = object : BroadcastReceiver() {
