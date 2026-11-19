@@ -3,6 +3,7 @@
 // come from `useHostMapPicker`; this only draws them.
 
 import { SectionTabs, sectionPanelProps } from "../../../design-system/SectionTabs";
+import { mapsCanBeGenerated } from "../../../shared/platform";
 import { memo } from "react";
 import { Button } from "../../../design-system/Button";
 import { Icon } from "../../../design-system/Icon";
@@ -241,17 +242,19 @@ export const HostMapListColumn = memo(function HostMapListColumn({
           <Icon name="refresh" size={14} />
           {t("lobby.host.randomMap")}
         </Button>
-        <Button
-          className="host-col-action-btn host-generate-btn"
-          onClick={onGenerate}
-          title={t("lobby.host.generateTitle")}
-        >
-          <span className="host-generate-btn-label">
-            <Icon name="plus" size={14} />
-            <span>{t("lobby.host.generateMap")}</span>
-          </span>
-          <span className="host-badge-neroxis">Neroxis</span>
-        </Button>
+        {mapsCanBeGenerated() && (
+          <Button
+            className="host-col-action-btn host-generate-btn"
+            onClick={onGenerate}
+            title={t("lobby.host.generateTitle")}
+          >
+            <span className="host-generate-btn-label">
+              <Icon name="plus" size={14} />
+              <span>{t("lobby.host.generateMap")}</span>
+            </span>
+            <span className="host-badge-neroxis">Neroxis</span>
+          </Button>
+        )}
       </div>
     </section>
   );

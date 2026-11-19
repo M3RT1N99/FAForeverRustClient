@@ -36,7 +36,7 @@ import { ProfileMenu, type ProfileMenuTarget } from "./ProfileMenu";
 import { PlayerName } from "../../shared/components/nameColors";
 import { useLinkRequests } from "../../shared/deepLinks";
 import { playOfflineInGameApp } from "../../shared/gameApp";
-import { theGameIsItsOwnApp } from "../../shared/platform";
+import { runsOnAndroid, theGameIsItsOwnApp } from "../../shared/platform";
 import "./shell.css";
 
 // Mirrors `MIN_SIDEBAR_WIDTH` / `MAX_SIDEBAR_WIDTH` / `SIDEBAR_RAIL_BELOW` in
@@ -222,7 +222,7 @@ export function AppShell() {
           <span className="brand-mark"><BrandMark size={38} /></span>
           <span className="brand-copy">
             <strong>FAForever</strong>
-            <small>{t("shell.sidebar.desktopClient")}</small>
+            <small>{t(runsOnAndroid() ? "shell.sidebar.androidClient" : "shell.sidebar.desktopClient")}</small>
           </span>
         </div>
 

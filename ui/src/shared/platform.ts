@@ -103,3 +103,13 @@ export function runsOnAndroid(): boolean {
 function userAgent(): string {
   return typeof navigator === "undefined" ? "" : navigator.userAgent;
 }
+
+/**
+ * Whether the client can generate a map: the generator is a Java program it
+ * starts. Not on Android, which starts no program beside the client, and
+ * whose game app could not fetch a generated map either: FAF's content server
+ * has none.
+ */
+export function mapsCanBeGenerated(): boolean {
+  return !theGameIsItsOwnApp();
+}
