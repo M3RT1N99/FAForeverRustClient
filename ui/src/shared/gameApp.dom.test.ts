@@ -90,7 +90,7 @@ it("asks every few seconds while the game app's setup runs, and stops after it",
   expect(gameAppStatus).toHaveBeenCalledTimes(1);
 
   await act(async () => {
-    vi.advanceTimersByTime(3000);
+    vi.advanceTimersByTime(2000);
     await Promise.resolve();
   });
   expect(gameAppStatus).toHaveBeenCalledTimes(2);
