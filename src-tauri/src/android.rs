@@ -29,7 +29,66 @@ pub(crate) struct Diagnostics(PluginHandle<Wry>);
 /// The app's `GameAppPlugin`: the FAF game app's status, setup and start.
 pub(crate) struct GameApp(PluginHandle<Wry>);
 
-/// Sign-in's browser, and the diagnostics and game app plugins.
+/// One Tauri plugin for each of the app's Kotlin plugin classes. Tauri keeps
+/// a mobile plugin under its Tauri plugin's name, so classes registered under
+/// one name shared a slot, and every call went to whichever registered last.
+pub(crate) fn plugins(builder: tauri::Builder<Wry>) -> tauri::Builder<Wry> {
+    builder
+        // Before anything reads a secret: keyring builds an entry's
+        // credential from the store set when the entry is made.
+        .plugin(kotlin_plugin(
+            "android-secure-store",
+            "SecureStorePlugin",
+            |_, store| {
+                keyring::set_default_credential_builder(Box::new(
+                    crate::keystore::KeystoreCredentials(store),
+                ));
+                Ok(())
+            },
+        ))
+        .plugin(kotlin_plugin(
+            "android-browser-wait",
+            "BrowserWaitPlugin",
+            open_browser_with,
+        ))
+        .plugin(kotlin_plugin(
+            "android-diagnostics",
+            "DiagnosticsPlugin",
+            |app, diagnostics| {
+                app.manage(Diagnostics(diagnostics));
+                Ok(())
+            },
+        ))
+        .plugin(kotlin_plugin(
+            "android-game-app",
+            "GameAppPlugin",
+            |app, game_app| {
+                faf_app::infra::game_app::set_game_app(Arc::new(GameAppLauncher {
+                    plugin: game_app.clone(),
+                    replays: app.path().app_cache_dir()?.join("replays"),
+                }));
+                app.manage(GameApp(game_app));
+                app.manage(GameAppUpdates::faf());
+                Ok(())
+            },
+        ))
+}
+
+/// A Tauri plugin of its own name for the Kotlin plugin `class`, handed to
+/// `setup` once Android has it.
+fn kotlin_plugin(
+    name: &'static str,
+    class: &'static str,
+    setup: impl FnOnce(&tauri::AppHandle<Wry>, PluginHandle<Wry>) -> Result<(), Box<dyn std::error::Error>>
+        + Send
+        + 'static,
+) -> TauriPlugin<Wry> {
+    Builder::new(name)
+        .setup(move |app, api| setup(app, api.register_android_plugin(APP_PACKAGE, class)?))
+        .build()
+}
+
+/// Sign-in's browser.
 ///
 /// Android has no launcher command for a URL, only the intent the opener
 /// plugin sends. It also freezes a process whose page the browser covers,
@@ -37,48 +96,29 @@ pub(crate) struct GameApp(PluginHandle<Wry>);
 /// back. So the client is first kept running (a short foreground service the
 /// Kotlin ends once the player is back), then the page opens in a Custom Tab,
 /// which closing returns from to the client.
-pub(crate) fn init() -> TauriPlugin<Wry> {
-    Builder::new("android")
-        .setup(|app, api| {
-            // Before anything reads a secret: keyring builds an entry's
-            // credential from the store set when the entry is made.
-            keyring::set_default_credential_builder(Box::new(
-                crate::keystore::KeystoreCredentials(
-                    api.register_android_plugin(APP_PACKAGE, "SecureStorePlugin")?,
-                ),
-            ));
-            let wait = api.register_android_plugin(APP_PACKAGE, "BrowserWaitPlugin")?;
-            app.manage(Diagnostics(
-                api.register_android_plugin(APP_PACKAGE, "DiagnosticsPlugin")?,
-            ));
-            let game_app = api.register_android_plugin(APP_PACKAGE, "GameAppPlugin")?;
-            faf_app::infra::game_app::set_game_app(Arc::new(GameAppLauncher {
-                plugin: game_app.clone(),
-                replays: app.path().app_cache_dir()?.join("replays"),
-            }));
-            app.manage(GameApp(game_app));
-            app.manage(GameAppUpdates::faf());
-            let app = app.clone();
-            faf_app::infra::set_browser_opener(move |url| {
-                // Before the browser covers the page: Android starts a
-                // foreground service only for an app in the foreground.
-                if let Err(error) = wait.run_mobile_plugin::<()>("hold", ()) {
-                    tracing::warn!(%error, "could not keep the client running for the browser");
-                }
-                let opened = app
-                    .opener()
-                    .open_url(url, Some("inAppBrowser"))
-                    .map_err(std::io::Error::other);
-                // No browser, so the client stays in front and never comes
-                // back to end the wait: it ends here.
-                if opened.is_err() {
-                    let _ = wait.run_mobile_plugin::<()>("release", ());
-                }
-                opened
-            });
-            Ok(())
-        })
-        .build()
+fn open_browser_with(
+    app: &tauri::AppHandle<Wry>,
+    wait: PluginHandle<Wry>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let app = app.clone();
+    faf_app::infra::set_browser_opener(move |url| {
+        // Before the browser covers the page: Android starts a foreground
+        // service only for an app in the foreground.
+        if let Err(error) = wait.run_mobile_plugin::<()>("hold", ()) {
+            tracing::warn!(%error, "could not keep the client running for the browser");
+        }
+        let opened = app
+            .opener()
+            .open_url(url, Some("inAppBrowser"))
+            .map_err(std::io::Error::other);
+        // No browser, so the client stays in front and never comes back to
+        // end the wait: it ends here.
+        if opened.is_err() {
+            let _ = wait.run_mobile_plugin::<()>("release", ());
+        }
+        opened
+    });
+    Ok(())
 }
 
 /// What `DiagnosticsPlugin.deviceInfo` answers.
