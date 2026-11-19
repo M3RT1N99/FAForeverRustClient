@@ -388,6 +388,22 @@ pub(super) async fn latest_release(
     })
 }
 
+/// The version `latest` is for `featured_mod` right now, which a preparation
+/// would install and stamp: [`latest_release`]'s, for a game that keeps its
+/// own files and is told the version instead. The mod's id is asked once a
+/// session and the file list once in ten minutes, as for an install.
+pub async fn latest_version(
+    http: &reqwest::Client,
+    token: &str,
+    api_base: &str,
+    featured_mod: &str,
+    exe_name: &str,
+) -> Result<i32, String> {
+    latest_release(http, token, api_base, featured_mod, exe_name, &|_| {})
+        .await
+        .map(|release| release.version)
+}
+
 /// What one [`install_featured_mod`] pass put on disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct InstalledMod {

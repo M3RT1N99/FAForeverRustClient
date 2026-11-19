@@ -11,6 +11,8 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 
+use super::process::{GameExit, GameMod, Rejoin};
+
 /// One start in the game app: what it plays, and what it needs ready for it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GameAppStart {
@@ -24,16 +26,26 @@ pub struct GameAppStart {
     /// FAF's map folder name, which the game app fetches where it lacks the
     /// map; see [`contract_map_name`].
     pub map: Option<String>,
+    /// The simulation mods the game needs, in order (`MODS` and
+    /// `MOD_FILES`), which the game app fetches where it lacks them.
+    pub mods: Vec<GameMod>,
+    /// The game offers to come back after a crash (`REJOIN_OFFER`), as every
+    /// game on its own links does. The game app adds the switches for it.
+    pub rejoin_offer: bool,
+    /// The seat a game coming back to its match takes (`REJOIN_PEERS` and
+    /// `REJOIN_SOURCE`); needs [`Self::rejoin_offer`].
+    pub rejoin: Option<Rejoin>,
     /// A replay file in SCFA's format, which the game app is handed to read.
     pub replay: Option<PathBuf>,
 }
 
 /// A start the game app took: its game runs.
 pub struct GameAppRun {
-    /// Resolves when the game is over: `Ok` once it ran and ended, `Err` with
-    /// why when the game app gave it up (a map it could not fetch, say).
-    /// Dropped by a caller that does not wait for the end.
-    pub ended: tokio::sync::oneshot::Receiver<Result<(), String>>,
+    /// Resolves when the game is over: `Ok` with how it ended once it ran,
+    /// `Err` with why when the game app gave it up before it ran (a map it
+    /// could not fetch, say). Dropped by a caller that stops waiting for the
+    /// end, which also lets the client be frozen in the back again.
+    pub ended: tokio::sync::oneshot::Receiver<Result<GameExit, String>>,
 }
 
 #[async_trait]

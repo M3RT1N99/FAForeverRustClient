@@ -199,7 +199,8 @@ fn party_join_refusal(
     if game_is_running(state, ctx) {
         return Some("Close Forged Alliance before joining a party.");
     }
-    if ctx.ports.process.game_install_dir().is_none() {
+    // A game that keeps its own files needs no install of the client's.
+    if !ctx.ports.process.keeps_own_files() && ctx.ports.process.game_install_dir().is_none() {
         return Some("Locate ForgedAlliance.exe in Settings → Paths before joining a party.");
     }
     if !state

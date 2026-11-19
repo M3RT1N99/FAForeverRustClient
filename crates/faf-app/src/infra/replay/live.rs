@@ -386,24 +386,29 @@ impl LiveStreamer {
                 let url = |name: &str| {
                     format!("gpgnet://127.0.0.1:{port}/{}/{name}.SCFAreplay", target.uid)
                 };
+                // The game app's game, served for as long as the relay runs:
+                // the client keeps running in the back while it is waited for.
+                let mut served = None;
                 let accepted = match &game_app {
                     // The game app may fetch the map first, so it connects
                     // once its game has loaded, or it gives up.
                     Some(game_app) => {
-                        let run = game_app
-                            .start(GameAppStart {
-                                arguments: vec![
-                                    "/replay".to_owned(),
-                                    url(&contract_replay_name(&player)),
-                                ],
-                                featured_mod: Some(mod_name.clone()),
-                                map: contract_map_name(&target.map),
-                                ..GameAppStart::default()
-                            })
-                            .await?;
+                        let run = served.insert(
+                            game_app
+                                .start(GameAppStart {
+                                    arguments: vec![
+                                        "/replay".to_owned(),
+                                        url(&contract_replay_name(&player)),
+                                    ],
+                                    featured_mod: Some(mod_name.clone()),
+                                    map: contract_map_name(&target.map),
+                                    ..GameAppStart::default()
+                                })
+                                .await?,
+                        );
                         tokio::select! {
                             accepted = tokio::time::timeout(GAME_APP_READY_TIMEOUT, listener.accept()) => accepted,
-                            ended = run.ended => {
+                            ended = &mut run.ended => {
                                 return Err(match ended {
                                     Ok(Err(reason)) => reason,
                                     _ => "the game app ended before it connected".to_owned(),
@@ -420,7 +425,12 @@ impl LiveStreamer {
                     .map_err(|_| "timed out waiting for the game to connect".to_string())?
                     .map_err(|e| format!("accept failed: {e}"))?;
 
-                tokio::spawn(relay_session(stream, write, read, first));
+                tokio::spawn(async move {
+                    relay_session(stream, write, read, first).await;
+                    // Served to its end: the game app's game needs the client
+                    // no more, which stops waiting for it.
+                    drop(served);
+                });
             }
             #[cfg(windows)]
             LiveTransport::Pipe => {

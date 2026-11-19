@@ -137,6 +137,22 @@ impl GameUpdaterClient {
 
 #[async_trait]
 impl GameUpdaterPort for GameUpdaterClient {
+    async fn current_version(&self, featured_mod: &str) -> Result<Option<i32>, String> {
+        let token = self
+            .tokens
+            .get()
+            .ok_or_else(|| "not logged in".to_string())?;
+        game_updater::latest_version(
+            &self.http,
+            &token,
+            &self.config.api_base,
+            featured_mod,
+            &self.config.exe_name,
+        )
+        .await
+        .map(Some)
+    }
+
     fn set_force_affinity(&self, enabled: bool) {
         game_updater::set_force_affinity(enabled);
     }

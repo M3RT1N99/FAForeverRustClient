@@ -16,6 +16,10 @@
 //! A game that runs its own links (faf-re's native mode) and crashes in its
 //! match is started again to take its seat back (#275), while the session and
 //! the lobby relay go on as they were: see `rejoin_after_crash`.
+//!
+//! Where the game keeps its own files (FAF's game app on Android,
+//! `ProcessPort::keeps_own_files`), nothing is patched or downloaded for a
+//! game: the launch names what the game needs instead (`game_content`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -29,8 +33,9 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::ports::{
-    GameExit, GameLaunchParams, GameLinks, GameNetwork, GamePreparation, IceParams, ModPrepFailure,
-    Ports, PreparationPhase, RelayMsg, ReplayMetadata, UpdateProgress, DEFAULT_LOCAL_REPLAY_LIMIT,
+    GameContent, GameExit, GameLaunchParams, GameLinks, GameMod, GameNetwork, GamePreparation,
+    IceParams, ModPrepFailure, Ports, PreparationPhase, RelayMsg, ReplayMetadata, UpdateProgress,
+    DEFAULT_LOCAL_REPLAY_LIMIT,
 };
 use crate::runtime::{EventSink, RunningGame, ServiceCtx};
 use crate::services::notifications;
@@ -123,6 +128,7 @@ pub async fn start(
         already_prepared || hosted_game.as_ref().is_some_and(|hosted| hosted.prepared);
     let hosted = hosted_game.is_some();
     let started = std::time::Instant::now();
+    let own_files = ctx.ports.process.keeps_own_files();
 
     // 0. Reproduce a generated map.
     //
@@ -149,7 +155,9 @@ pub async fn start(
     // after the other, a match on a generated map waited for the sum of both.
     // Both run to their end before either answer is read, so a failed
     // generation never drops an update half-way through the game's files.
-    if !already_prepared {
+    //
+    // Neither for a game that keeps its own files: it is told what to fetch.
+    if !already_prepared && !own_files {
         let (generated, installed) = tokio::join!(
             ensure_generated_map(&launch.mapname, ctx, out),
             prepare_install(launch, ctx, out),
@@ -176,6 +184,15 @@ pub async fn start(
         milliseconds = started.elapsed().as_millis() as u64,
         "launch: the install is ready"
     );
+    let content = if own_files {
+        let hosted_map = hosted_game.as_ref().map(|hosted| hosted.map.as_str());
+        match game_content(launch, hosted_map, ctx, out).await {
+            Ok(content) => content,
+            Err(reason) => return fail(ctx, out, reason),
+        }
+    } else {
+        GameContent::default()
+    };
 
     // 2. Bring up the connectivity backend (it picks its own ports / control plane).
     //
@@ -226,6 +243,7 @@ pub async fn start(
             },
             GameLinks::Adapter => GameNetwork::Adapter { rebuilt_engine },
         },
+        content,
     };
     // What the game is started with again if it crashes in its match.
     let first_launch = game_params.clone();
@@ -284,15 +302,18 @@ pub async fn start(
     tokio::spawn(async move {
         tracing::debug!("launcher: game exit watcher started");
         let mut returns = 0;
-        loop {
+        let refused = loop {
             let exit = exit_ports.process.wait_for_exit().await;
+            if let GameExit::Refused(reason) = exit {
+                break Some(reason);
+            }
             if returns == MAX_RETURNS
                 || !rejoin_after_crash(exit, &first_launch, &exit_ports, &exit_running_game).await
             {
-                break;
+                break None;
             }
             returns += 1;
-        }
+        };
         tracing::info!("the game process exited; releasing the launch");
         tracing::debug!("sending GameState Ended to the server");
         exit_ports
@@ -301,10 +322,18 @@ pub async fn start(
         tracing::debug!("stopping ICE adapter");
         exit_ports.ice.stop();
         exit_running_game.clear();
-        // A game stopped because its ICE session failed already reported
-        // the failure, and "terminated" would take it off the screen.
-        if !exit_stopped_by_failure.load(Ordering::SeqCst) {
-            exit_sink.emit(LobbyEvent::GameTerminated);
+        match refused {
+            // FAF's game app gave the start up before its game ran (a map it
+            // could not fetch, say): the launch failed, for its reason.
+            Some(reason) => report_failure_on(
+                &exit_ports,
+                &exit_sink,
+                format!("game launch: {reason}"),
+            ),
+            // A game stopped because its ICE session failed already reported
+            // the failure, and "terminated" would take it off the screen.
+            None if exit_stopped_by_failure.load(Ordering::SeqCst) => {}
+            None => exit_sink.emit(LobbyEvent::GameTerminated),
         }
 
         // The replay the game just streamed to the local recorder is on disk
@@ -427,12 +456,18 @@ async fn rejoin_after_crash(
 /// Prepare a selected custom game before asking the server for a seat. Java's
 /// `prepareAndLaunchGameWhenReady` does this in the same order so a large patch,
 /// map, or simulation-mod download cannot consume the server's launch window.
+///
+/// Nothing to prepare for a game that keeps its own files: the launch names
+/// them, and the game fetches them itself.
 pub(crate) async fn prepare_custom_join(
     game: &Game,
     ctx: &ServiceCtx,
     out: &EventSink,
     replace_mods: bool,
 ) -> Result<(), ModPrepFailure> {
+    if ctx.ports.process.keeps_own_files() {
+        return Ok(());
+    }
     // Validate this before generating or downloading anything. Apart from
     // producing a much more useful error, this prevents spending minutes on
     // preparation for a game that cannot possibly be launched.
@@ -487,6 +522,10 @@ pub(crate) async fn prepare_host(
     ctx: &ServiceCtx,
     out: &EventSink,
 ) -> Result<(), String> {
+    // The launch names the map to a game that keeps its own files.
+    if ctx.ports.process.keeps_own_files() {
+        return Ok(());
+    }
     // Same reasoning as the join path: a missing install makes everything
     // below pointless, and says so far more clearly than a failed launch.
     if ctx.ports.process.game_install_dir().is_none() {
@@ -620,6 +659,64 @@ async fn ensure_generated_map(
     // in the game: the folder was on disk and nothing had looked again.
     super::map_generator::record_generated_maps(&generated, ctx, out).await;
     outcome
+}
+
+/// What a game that keeps its own files needs named for `launch`
+/// (`ProcessPort::keeps_own_files`): the featured mod's current version, as
+/// the updater would install it, so that the game plays no other; the map;
+/// and the simulation mods with their files, which the game fetches itself.
+///
+/// A matchmaker order names its map. A custom game's is in the host's own
+/// request (`hosted_map`) or, for a join, in the lobby's listing, which has
+/// its simulation mods too; a host's game picks its own.
+async fn game_content(
+    launch: &GameLaunch,
+    hosted_map: Option<&str>,
+    ctx: &ServiceCtx,
+    out: &EventSink,
+) -> Result<GameContent, String> {
+    let (listed_map, sim_mods) = out
+        .with_state(|state| {
+            state
+                .lobby
+                .games
+                .iter()
+                .find(|game| game.id == launch.uid)
+                .map(|game| (game.map.clone(), game.sim_mods.clone()))
+        })
+        .unwrap_or_default();
+    let map = [
+        launch.mapname.as_str(),
+        hosted_map.unwrap_or_default(),
+        listed_map.as_str(),
+    ]
+    .into_iter()
+    .find(|map| !map.is_empty())
+    .map(str::to_owned);
+    let game_version = ctx
+        .ports
+        .updater
+        .current_version(&launch.mod_name)
+        .await
+        .map_err(|reason| {
+            format!(
+                "could not ask which version of {} is current: {reason}",
+                launch.mod_name
+            )
+        })?;
+    let mut mods = Vec::with_capacity(sim_mods.len());
+    for uid in sim_mods.keys() {
+        let file = ctx.ports.mods.mod_file(uid).await?;
+        mods.push(GameMod {
+            uid: uid.clone(),
+            file,
+        });
+    }
+    Ok(GameContent {
+        game_version,
+        map,
+        mods,
+    })
 }
 
 /// Patch the featured mod to the current build and download the map, narrating
@@ -797,6 +894,11 @@ pub(crate) async fn prepare_search(
 ) -> Result<(), String> {
     use faf_domain::protocol::map_generator::is_generated_map;
 
+    // A game that keeps its own files fetches the match's map itself, when
+    // the match is made.
+    if ctx.ports.process.keeps_own_files() {
+        return Ok(());
+    }
     if ctx.ports.process.game_install_dir().is_none() {
         return Err(
             "no game install configured: locate ForgedAlliance.exe in Settings → Paths".to_string(),

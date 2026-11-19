@@ -74,8 +74,8 @@ pub use notification_sounds::NotificationSoundsPort;
 pub use paths::PathsPort;
 pub use player_card::PlayerCardPort;
 pub use process::{
-    DiscoveredInstallPaths, GameExit, GameLaunchParams, GameNetwork, InstallPresence, ProcessPort,
-    Rejoin, RejoinSeat, ReplayMetadata,
+    DiscoveredInstallPaths, GameContent, GameExit, GameLaunchParams, GameMod, GameNetwork,
+    InstallPresence, ProcessPort, Rejoin, RejoinSeat, ReplayMetadata,
 };
 pub use replay::{
     PreparationSink, ReplayDetailsPort, ReplayLibraryPort, ReplayPlaybackPort, ReplayVaultPort,

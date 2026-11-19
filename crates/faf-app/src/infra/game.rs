@@ -21,6 +21,10 @@
 //! added by `services::launcher` before the launch reaches this file, and the
 //! install, including `init_<mod>.lua` and `fa_path.lua`, is staged by
 //! `infra::game_updater`.
+//!
+//! Where the game is an app of its own (FAF's game app on Android), an online
+//! game starts there instead, by its launcher contract, and no executable is
+//! spawned: see `in_game_app`.
 
 use std::collections::HashSet;
 use std::fs::File;
@@ -38,10 +42,12 @@ use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, Notify};
 
 use crate::infra::companions::{Companions, LaunchId};
+use crate::ports::game_app::{contract_replay_name, GameAppPort};
 use crate::ports::{
     DiscoveredInstallPaths, GameExit, GameLaunchParams, GameNetwork, InstallPresence, ProcessPort,
-    RejoinSeat,
 };
+
+mod in_game_app;
 
 const MANAGED_EXE: &str = "ForgedAlliance.exe";
 const MAX_REFERENCE_CONFIG_BYTES: u64 = 2 * 1024 * 1024;
@@ -183,17 +189,26 @@ pub struct GameProcess {
     /// holds its companions until the next replay has taken them over, or
     /// the replacement is given up (`ProcessPort::release_replay_replacement`).
     pending_replacement: Mutex<Option<LaunchId>>,
+    /// FAF's game app, where a test gives one; otherwise the one the shell
+    /// handed over, if any ([`crate::infra::game_app`]).
+    game_app: Option<Arc<dyn GameAppPort>>,
+    /// The game app's game, while one runs: online games start there, where
+    /// there is a game app, and no executable is spawned.
+    in_game_app: in_game_app::GameAppGame,
 }
 
 impl GameProcess {
     pub fn new(config: GameConfig) -> Self {
+        let exited = Arc::new(Notify::new());
+        let game_exit = Arc::new(Mutex::new(GameExit::Stopped));
         Self {
             launching: Mutex::new(()),
             config: Mutex::new(config),
             game_child: Arc::new(Mutex::new(None)),
             replay_child: Arc::new(Mutex::new(None)),
-            exited: Arc::new(Notify::new()),
-            game_exit: Arc::new(Mutex::new(GameExit::Stopped)),
+            in_game_app: in_game_app::GameAppGame::new(exited.clone(), game_exit.clone()),
+            exited,
+            game_exit,
             replay_recorder: Mutex::new(None),
             replay_relay: None,
             steam_presence: AtomicBool::new(false),
@@ -201,6 +216,7 @@ impl GameProcess {
             companions: Arc::new(Companions::system()),
             next_launch: AtomicU64::new(1),
             pending_replacement: Mutex::new(None),
+            game_app: None,
         }
     }
 
@@ -217,6 +233,79 @@ impl GameProcess {
     pub fn uploading_replays(mut self, tokens: crate::infra::session::TokenStore) -> Self {
         self.replay_relay = Some(crate::infra::replay_relay::ReplayRelayConfig::faf(tokens));
         self
+    }
+
+    /// Start online games in `game_app` rather than in the one the shell
+    /// handed over: for a test, which hands over none.
+    pub fn with_game_app(mut self, game_app: Arc<dyn GameAppPort>) -> Self {
+        self.game_app = Some(game_app);
+        self
+    }
+
+    fn game_app(&self) -> Option<Arc<dyn GameAppPort>> {
+        self.game_app
+            .clone()
+            .or_else(crate::infra::game_app::game_app)
+    }
+
+    /// The recorder for the replay of the game `params` starts, before the
+    /// game, so the port in `/savereplay` is already listening when the game
+    /// connects to it. A recorder that cannot bind is not a reason to refuse
+    /// the launch: the game is playable, it just leaves no replay behind,
+    /// which is what happened on every launch before this.
+    ///
+    /// None for a game coming back to its match: the stream of its replay
+    /// ended with the crash, and the recorder still sending that one to FAF
+    /// is kept rather than replaced, which would cut it off. The Java client
+    /// starts a returning game without one too.
+    async fn start_recorder(
+        &self,
+        params: &GameLaunchParams,
+    ) -> Option<crate::infra::replay_recorder::ReplayRecorder> {
+        let returning = matches!(
+            &params.network,
+            GameNetwork::Native {
+                rejoin: Some(_),
+                ..
+            }
+        );
+        if returning {
+            return None;
+        }
+        match crate::infra::replay_recorder::ReplayRecorder::start(
+            crate::infra::replay::local_replays_dir(),
+            params.replay.clone(),
+            self.replay_relay.clone(),
+        )
+        .await
+        {
+            Ok(recorder) => Some(recorder),
+            Err(error) => {
+                tracing::warn!(%error, "starting without replay recording");
+                None
+            }
+        }
+    }
+
+    /// [`ProcessPort::launch_game`] in FAF's game app: the start its
+    /// contract takes, the replay recorded as on the desktop. Returns once
+    /// the game app took the start, or with why it did not.
+    async fn launch_in_game_app(
+        &self,
+        game_app: &dyn GameAppPort,
+        params: GameLaunchParams,
+    ) -> Result<(), String> {
+        let recorder = self.start_recorder(&params).await;
+        let savereplay = recorder.as_ref().map(|recorder| {
+            recorder.savereplay_url(params.game_id, &contract_replay_name(&params.player_login))
+        });
+        let start = in_game_app::start_for(&params, savereplay.as_deref())?;
+        let run = game_app.start(start).await?;
+        self.in_game_app.track(run);
+        if let Some(recorder) = recorder {
+            *self.replay_recorder.lock().unwrap() = Some(recorder);
+        }
+        Ok(())
     }
 }
 
@@ -600,7 +689,7 @@ impl ProcessPort for GameProcess {
     }
 
     fn game_running(&self) -> bool {
-        self.game_child.lock().unwrap().is_some()
+        self.game_child.lock().unwrap().is_some() || self.in_game_app.running()
     }
 
     fn supports_game_attention(&self) -> bool {
@@ -645,44 +734,14 @@ impl ProcessPort for GameProcess {
 
     async fn launch_game(&self, params: GameLaunchParams) -> Result<(), String> {
         require_init_name(&params.featured_mod)?;
+        if let Some(game_app) = self.game_app() {
+            return self.launch_in_game_app(game_app.as_ref(), params).await;
+        }
         let path = self.config.lock().unwrap().game_path.clone();
         // Before the game can rewrite it on exit (issue 750).
         crate::infra::game_prefs_backup::backup_if_due();
         let log_path = crate::infra::game_logs::next_path("game", Some(params.game_id))?;
-
-        // Started before the game, so the port in `/savereplay` is already
-        // listening when FA connects to it. A recorder that cannot bind is not
-        // a reason to refuse the launch: the game is playable, it just leaves no
-        // replay behind, which is what happened on every launch before this.
-        //
-        // None for a game coming back to its match: the stream of its replay
-        // ended with the crash, and the recorder still sending that one to
-        // FAF is kept rather than replaced, which would cut it off. The Java
-        // client starts a returning game without one too.
-        let returning = matches!(
-            &params.network,
-            GameNetwork::Native {
-                rejoin: Some(_),
-                ..
-            }
-        );
-        let recorder = if returning {
-            None
-        } else {
-            match crate::infra::replay_recorder::ReplayRecorder::start(
-                crate::infra::replay::local_replays_dir(),
-                params.replay.clone(),
-                self.replay_relay.clone(),
-            )
-            .await
-            {
-                Ok(recorder) => Some(recorder),
-                Err(error) => {
-                    tracing::warn!(%error, "starting without replay recording");
-                    None
-                }
-            }
-        };
+        let recorder = self.start_recorder(&params).await;
         let savereplay = recorder
             .as_ref()
             .map(|recorder| recorder.savereplay_url(params.game_id, &params.player_login));
@@ -772,6 +831,10 @@ impl ProcessPort for GameProcess {
             let _ = running.child.start_kill();
             end_launch(self.companions.clone(), running.launch);
         }
+        // A game in FAF's game app cannot be ended from here, as Android lets
+        // no app end another's: it is marked stopped and no longer waited
+        // for, and goes on until its player leaves it.
+        self.in_game_app.stop();
     }
 
     async fn wait_for_exit(&self) -> GameExit {
@@ -780,13 +843,17 @@ impl ProcessPort for GameProcess {
         let exited = self.exited.notified();
         tokio::pin!(exited);
         exited.as_mut().enable();
-        if self.game_child.lock().unwrap().is_some() {
+        if self.game_child.lock().unwrap().is_some() || self.in_game_app.running() {
             exited.await;
         }
-        *self.game_exit.lock().unwrap()
+        self.game_exit.lock().unwrap().clone()
     }
 
     async fn game_is_rebuilt_engine(&self) -> bool {
+        // FAF's game app plays faf-re's engine.
+        if self.game_app().is_some() {
+            return true;
+        }
         let path = self.config.lock().unwrap().game_path.clone();
         if path.is_empty() {
             return false;
@@ -797,6 +864,10 @@ impl ProcessPort for GameProcess {
             .ok()
             .flatten()
             .is_some_and(|name| name == pe_version::REBUILT_ENGINE_PRODUCT)
+    }
+
+    fn keeps_own_files(&self) -> bool {
+        self.game_app().is_some()
     }
 
     fn set_paths(&self, game_path: String, replay_game_path: String) {
@@ -1498,7 +1569,7 @@ fn network_arguments(network: &GameNetwork, rejoin_key: Option<&str>) -> Vec<Str
             if let Some(rejoin) = rejoin {
                 args.extend([
                     "/rejoin".into(),
-                    seats_argument(&rejoin.seats),
+                    rejoin.peers(),
                     rejoin.source.to_string(),
                     "0".into(),
                 ]);
@@ -1506,15 +1577,6 @@ fn network_arguments(network: &GameNetwork, rejoin_key: Option<&str>) -> Vec<Str
         }
     }
     args
-}
-
-/// `player id=source,...`, as `/rejoin` takes it.
-fn seats_argument(seats: &[RejoinSeat]) -> String {
-    seats
-        .iter()
-        .map(|seat| format!("{}={}", seat.player_id, seat.source))
-        .collect::<Vec<_>>()
-        .join(",")
 }
 
 /// Where a game on its own links keeps the key that proves its seat in a
@@ -1801,6 +1863,7 @@ mod tests {
             network: GameNetwork::Adapter {
                 rebuilt_engine: false,
             },
+            content: Default::default(),
         }
     }
 
@@ -1871,11 +1934,11 @@ mod tests {
                 force_relay: false,
                 rejoin: Some(crate::ports::Rejoin {
                     seats: vec![
-                        RejoinSeat {
+                        crate::ports::RejoinSeat {
                             player_id: 101,
                             source: 0,
                         },
-                        RejoinSeat {
+                        crate::ports::RejoinSeat {
                             player_id: 103,
                             source: 2,
                         },
