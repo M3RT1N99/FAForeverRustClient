@@ -1969,6 +1969,8 @@ export const en = {
   "settings.game.openReleaseNotes": "Open {name} on GitHub",
   "settings.connectivity.connectivityAdapter": "Joining games",
   "settings.connectivity.connectivityAdapterHint": "Dynamic uses whatever adapter the host uses: Go for a lobby with [go-adapter] in its title, Exp Java for one with [exp-java-adapter], Java for everything else. Applies from your next game.",
+  "settings.connectivity.gameNetwork": "The game's own network",
+  "settings.connectivity.gameNetworkHint": "On Android the game connects to the other players by itself, with no adapter program to choose. Games come with a later version of this client.",
   "settings.connectivity.hostAdapter": "Hosting games",
   "settings.connectivity.hostAdapterHint": "Hosting on Go or Exp Java adds [go-adapter] or [exp-java-adapter] to your game's title: players on Dynamic in this client then join on the same adapter by themselves, everybody else has to switch to it. Applies from your next game.",
   "settings.connectivity.dynamic": "Dynamic (follows the host, recommended)",

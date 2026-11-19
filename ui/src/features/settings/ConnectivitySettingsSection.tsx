@@ -5,6 +5,7 @@ import { recordEntries } from "../../shared/records";
 import { SettingRow, SettingsGroup } from "./SettingControls";
 import type { MessageKey } from "../../i18n";
 import { useTranslation } from "../../i18n/useTranslation";
+import { startsProgramsBesideTheGame } from "../../shared/platform";
 
 const save = (patch: ConnectivityPreferencesPatch) =>
   ipc.send({
@@ -34,6 +35,29 @@ export function ConnectivitySettingsSection() {
   const preferences = useAppStore((state) => state.state.settings.connectivity);
   const change = (next: ConnectivityPreferencesPatch) =>
     void save({ ...next, selectionVersion: 2 });
+
+  // Android has no adapter program to start: the game there connects by
+  // itself. The row says so, fixed, rather than offering adapters that are not
+  // in the app; there is nothing to host with either.
+  if (!startsProgramsBesideTheGame()) {
+    return (
+      <SettingsGroup>
+        <SettingRow
+          label={t("settings.connectivity.connectivityAdapter")}
+          hint={t("settings.connectivity.gameNetworkHint")}
+        >
+          <select
+            className="settings-select"
+            value="game"
+            disabled
+            aria-label={t("settings.connectivity.connectivityAdapter")}
+          >
+            <option value="game">{t("settings.connectivity.gameNetwork")}</option>
+          </select>
+        </SettingRow>
+      </SettingsGroup>
+    );
+  }
 
   return (
     <SettingsGroup>

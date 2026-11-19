@@ -117,6 +117,14 @@ pub struct AdapterLogTail {
 
 #[async_trait]
 pub trait ConnectivityPort: Send + Sync {
+    /// Whether games here go through an adapter program the client starts,
+    /// Java's or Go's. Not on Android (`infra::connectivity`), where neither
+    /// is in the app, so the check has no adapter, runtime or adapter log to
+    /// look at there.
+    fn has_adapter_programs(&self) -> bool {
+        true
+    }
+
     /// The Java runtime and its version, the Java adapter's jar, and the
     /// Pioneer executable, as the launch would find them.
     async fn adapter_inventory(&self) -> AdapterInventory;

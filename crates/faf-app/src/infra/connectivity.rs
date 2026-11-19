@@ -173,6 +173,12 @@ impl ConnectivityProbe {
 
 #[async_trait]
 impl ConnectivityPort for ConnectivityProbe {
+    fn has_adapter_programs(&self) -> bool {
+        // The app has neither adapter: games on Android will connect through
+        // the game itself (native mode), which no adapter program takes part in.
+        !cfg!(target_os = "android")
+    }
+
     async fn adapter_inventory(&self) -> AdapterInventory {
         // The same resolution the launch uses, so the check cannot vouch for
         // a runtime or an adapter the launch would not find.

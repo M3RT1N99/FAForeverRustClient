@@ -1656,6 +1656,8 @@ export const de: Partial<Record<MessageKey, Message>> = {
   "settings.game.openReleaseNotes": "{name} auf GitHub öffnen",
   "settings.connectivity.connectivityAdapter": "Spielen beitreten mit",
   "settings.connectivity.connectivityAdapterHint": "Dynamisch nimmt den Adapter des Hosts: Go bei einer Lobby mit [go-adapter] im Titel, Exp Java bei einer mit [exp-java-adapter], sonst Java. Gilt ab dem nächsten Spiel.",
+  "settings.connectivity.gameNetwork": "Netzwerk des Spiels",
+  "settings.connectivity.gameNetworkHint": "Auf Android verbindet sich das Spiel selbst mit den anderen Spielern, ohne ein Adapterprogramm zur Wahl. Spiele kommen mit einer späteren Version dieses Clients.",
   "settings.connectivity.hostAdapter": "Spiele hosten mit",
   "settings.connectivity.hostAdapterHint": "Mit Go oder Exp Java bekommt dein Spieltitel [go-adapter] bzw. [exp-java-adapter]: Spieler mit Dynamisch in diesem Client treten dann von selbst mit demselben Adapter bei, alle anderen müssen umstellen. Gilt ab dem nächsten Spiel.",
   "settings.connectivity.dynamic": "Dynamisch (folgt dem Host, empfohlen)",

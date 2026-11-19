@@ -6,7 +6,7 @@ import { Button } from "../../design-system/Button";
 import { useAppStore } from "../../store/store";
 import { useTranslation } from "../../i18n/useTranslation";
 import { SettingRow, SettingsGroup, SettingsSwitch } from "./SettingControls";
-import { gameNeedsALaunchWrapper, runsOnWindows } from "../../shared/platform";
+import { gameNeedsALaunchWrapper, runsOnWindows, startsProgramsBesideTheGame } from "../../shared/platform";
 import { LinuxRuntimeSettings } from "./LinuxRuntimeSettings";
 import { CompanionProgramsSettings } from "./CompanionProgramsSettings";
 
@@ -291,7 +291,8 @@ export function GameSettingsSection() {
           </div>
         </div>
       </SettingsGroup>
-      <CompanionProgramsSettings />
+      {/* Programs started beside the game, which an Android app cannot do. */}
+      {startsProgramsBesideTheGame() && <CompanionProgramsSettings />}
     </>
   );
 }

@@ -28,6 +28,8 @@ use crate::support;
 
 /// A machine and a network, as the check would find them.
 struct Scripted {
+    /// False for a platform whose games go through no adapter program.
+    adapter_programs: bool,
     inventory: AdapterInventory,
     relay_list: Result<Vec<RelayServer>, RelayListError>,
     addresses: KnownRelayAddresses,
@@ -40,6 +42,7 @@ struct Scripted {
 impl Default for Scripted {
     fn default() -> Self {
         Self {
+            adapter_programs: true,
             inventory: AdapterInventory {
                 forced: None,
                 java_runtime: Ok(JavaRuntimeInfo {
@@ -88,6 +91,10 @@ impl Default for Scripted {
 
 #[async_trait]
 impl ConnectivityPort for Scripted {
+    fn has_adapter_programs(&self) -> bool {
+        self.adapter_programs
+    }
+
     async fn adapter_inventory(&self) -> AdapterInventory {
         self.inventory.clone()
     }
@@ -227,6 +234,47 @@ async fn everything_reachable_passes_line_by_line() {
             ..
         }
     ));
+}
+
+/// Android's games go through no adapter program, so the check has no Java,
+/// adapter or adapter log to ask for there: a missing one would fail a line
+/// nothing on the phone can fix, and send the player to the adapter choice.
+/// The relays are still checked.
+#[tokio::test]
+async fn a_platform_without_adapter_programs_is_not_asked_for_one() {
+    let app = with(Scripted {
+        adapter_programs: false,
+        inventory: AdapterInventory {
+            forced: None,
+            java_runtime: Err(JavaRuntimeProblem {
+                path: "java".into(),
+                reason: "not found".into(),
+            }),
+            java_adapter: None,
+            pioneer: None,
+        },
+        log: None,
+        ..Scripted::default()
+    });
+    let (status, steps) = run(&app).await;
+
+    let ids: Vec<&str> = steps.iter().map(|step| step.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "relayList",
+            "relayAddresses",
+            "server:0",
+            "server:1",
+            "reachability"
+        ]
+    );
+    assert_eq!(
+        status,
+        CheckStatus::Finished {
+            verdict: CheckOutcome::Pass
+        }
+    );
 }
 
 #[tokio::test]

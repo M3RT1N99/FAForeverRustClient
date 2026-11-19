@@ -27,7 +27,7 @@ use faf_domain::state::{
 };
 use futures_util::future::join_all;
 
-use crate::ports::{KnownRelayAddresses, ProbeAnswer, RelayListError};
+use crate::ports::{ConnectivityPort, KnownRelayAddresses, ProbeAnswer, RelayListError};
 use crate::runtime::{EventSink, ServiceCtx};
 
 pub async fn handle(cmd: ConnectivityCommand, ctx: &ServiceCtx, out: &EventSink) {
@@ -115,7 +115,107 @@ async fn run_check(ctx: &ServiceCtx, out: &EventSink) {
     };
     let port = &ctx.ports.connectivity;
 
-    // 1. The adapters.
+    // 1. The adapters, where games go through one. Android's go through
+    // none (`ConnectivityPort::has_adapter_programs`), and asking for Java
+    // or Pioneer there would fail lines that nothing can fix.
+    let adapters = port.has_adapter_programs();
+    if adapters {
+        check_adapters(port.as_ref(), out, &mut report).await;
+    }
+
+    // 2. The API's relay list. A warning rather than a failure when it cannot
+    // be had: the list names relays, it does not carry a game, and a game's
+    // own session can still work without it.
+    match port.relay_list().await {
+        Ok(servers) => {
+            let mut regions: Vec<String> = Vec::new();
+            for server in &servers {
+                let region = server.region.trim();
+                if !region.is_empty() && !regions.iter().any(|held| held == region) {
+                    regions.push(region.to_string());
+                }
+            }
+            let outcome = if servers.is_empty() {
+                CheckOutcome::Warn
+            } else {
+                CheckOutcome::Pass
+            };
+            report.line(
+                "relayList",
+                outcome,
+                CheckFinding::RelayList {
+                    count: count(servers.len()),
+                    regions,
+                },
+            );
+        }
+        Err(RelayListError::NeedsSignIn) => report.line(
+            "relayList",
+            CheckOutcome::Warn,
+            CheckFinding::RelayListNeedsSignIn,
+        ),
+        Err(RelayListError::Unavailable(reason)) => report.line(
+            "relayList",
+            CheckOutcome::Warn,
+            CheckFinding::RelayListUnavailable { reason },
+        ),
+    }
+
+    // 3. Each relay.
+    match port.relay_addresses().await {
+        KnownRelayAddresses::None => report.line(
+            "relayAddresses",
+            CheckOutcome::Warn,
+            CheckFinding::NoRelayAddresses,
+        ),
+        KnownRelayAddresses::Unavailable { game_id, reason } => report.line(
+            "relayAddresses",
+            CheckOutcome::Warn,
+            CheckFinding::RelayAddressesUnavailable { game_id, reason },
+        ),
+        KnownRelayAddresses::Known(addresses) => {
+            let outcome = if addresses.urls.is_empty() {
+                CheckOutcome::Warn
+            } else {
+                CheckOutcome::Info
+            };
+            report.line(
+                "relayAddresses",
+                outcome,
+                CheckFinding::RelayAddresses {
+                    game_id: addresses.game_id,
+                    count: count(addresses.urls.len()),
+                },
+            );
+            probe_relays(ctx, &mut report, addresses.urls).await;
+        }
+    }
+
+    // 4. The adapter's own words, where there is an adapter.
+    if adapters {
+        match port.adapter_log().await {
+            Some(log) => report.line(
+                "adapterLog",
+                CheckOutcome::Info,
+                CheckFinding::AdapterLog {
+                    file_name: log.file_name,
+                    modified_at: log.modified_at,
+                    tail: log.tail,
+                    truncated: log.truncated,
+                },
+            ),
+            None => report.line("adapterLog", CheckOutcome::Info, CheckFinding::NoAdapterLog),
+        }
+    }
+
+    out.emit(ConnectivityEvent::CheckFinished {
+        verdict: verdict(&report.steps),
+    });
+}
+
+/// Step 1 of the check: the adapters the preferences ask for, and what each
+/// needs to start.
+async fn check_adapters(port: &dyn ConnectivityPort, out: &EventSink, report: &mut Report<'_>) {
     let (join, host) = out.with_state(|state| {
         let preferences = state.settings.connectivity;
         (preferences.adapter, preferences.host_adapter)
@@ -194,93 +294,6 @@ async fn run_check(ctx: &ServiceCtx, out: &EventSink) {
             ),
         }
     }
-
-    // 2. The API's relay list. A warning rather than a failure when it cannot
-    // be had: the list names relays, it does not carry a game, and a game's
-    // own session can still work without it.
-    match port.relay_list().await {
-        Ok(servers) => {
-            let mut regions: Vec<String> = Vec::new();
-            for server in &servers {
-                let region = server.region.trim();
-                if !region.is_empty() && !regions.iter().any(|held| held == region) {
-                    regions.push(region.to_string());
-                }
-            }
-            let outcome = if servers.is_empty() {
-                CheckOutcome::Warn
-            } else {
-                CheckOutcome::Pass
-            };
-            report.line(
-                "relayList",
-                outcome,
-                CheckFinding::RelayList {
-                    count: count(servers.len()),
-                    regions,
-                },
-            );
-        }
-        Err(RelayListError::NeedsSignIn) => report.line(
-            "relayList",
-            CheckOutcome::Warn,
-            CheckFinding::RelayListNeedsSignIn,
-        ),
-        Err(RelayListError::Unavailable(reason)) => report.line(
-            "relayList",
-            CheckOutcome::Warn,
-            CheckFinding::RelayListUnavailable { reason },
-        ),
-    }
-
-    // 3. Each relay.
-    match port.relay_addresses().await {
-        KnownRelayAddresses::None => report.line(
-            "relayAddresses",
-            CheckOutcome::Warn,
-            CheckFinding::NoRelayAddresses,
-        ),
-        KnownRelayAddresses::Unavailable { game_id, reason } => report.line(
-            "relayAddresses",
-            CheckOutcome::Warn,
-            CheckFinding::RelayAddressesUnavailable { game_id, reason },
-        ),
-        KnownRelayAddresses::Known(addresses) => {
-            let outcome = if addresses.urls.is_empty() {
-                CheckOutcome::Warn
-            } else {
-                CheckOutcome::Info
-            };
-            report.line(
-                "relayAddresses",
-                outcome,
-                CheckFinding::RelayAddresses {
-                    game_id: addresses.game_id,
-                    count: count(addresses.urls.len()),
-                },
-            );
-            probe_relays(ctx, &mut report, addresses.urls).await;
-        }
-    }
-
-    // 4. The adapter's own words.
-    match port.adapter_log().await {
-        Some(log) => report.line(
-            "adapterLog",
-            CheckOutcome::Info,
-            CheckFinding::AdapterLog {
-                file_name: log.file_name,
-                modified_at: log.modified_at,
-                tail: log.tail,
-                truncated: log.truncated,
-            },
-        ),
-        None => report.line("adapterLog", CheckOutcome::Info, CheckFinding::NoAdapterLog),
-    }
-
-    out.emit(ConnectivityEvent::CheckFinished {
-        verdict: verdict(&report.steps),
-    });
 }
 
 /// Ask every relay URL at once, report each as it answers, then the summary.

@@ -3,6 +3,7 @@ import { ipc } from "../../ipc/client";
 import { useAppStore } from "../../store/store";
 import { SettingRow, SettingsGroup, SettingsSwitch } from "./SettingControls";
 import { useTranslation } from "../../i18n/useTranslation";
+import { startsProgramsBesideTheGame } from "../../shared/platform";
 
 const save = (patch: DebugPreferencesPatch) =>
   ipc.send({
@@ -34,6 +35,9 @@ function useDebugPreferences() {
 export function IceDebugWindowsSection() {
   const { t } = useTranslation();
   const { preferences, set } = useDebugPreferences();
+
+  // No adapter, no windows of its own (Android).
+  if (!startsProgramsBesideTheGame()) return null;
 
   return (
     <SettingsGroup title={t("settings.section.debugWindows.title")}>
