@@ -54,7 +54,9 @@ android {
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "com.faforever.rustclient"
-        minSdk = 24
+        // Android 8.0, which FAF's faf-uid for Android is built for. The Rust library is linked
+        // for the same level, by tauri.android.conf.json's bundle.android.minSdkVersion.
+        minSdk = 26
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")

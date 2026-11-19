@@ -5,6 +5,9 @@
   },
   "bundle": {
     "resources": null,
-    "fileAssociations": null
+    "fileAssociations": null,
+    "android": {
+      "minSdkVersion": 26
+    }
   }
 }
