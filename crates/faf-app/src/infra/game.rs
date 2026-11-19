@@ -384,15 +384,7 @@ impl GameProcess {
             through_launch_command = !wrapper.is_empty(),
             "launching Forged Alliance"
         );
-        let arguments = one_console_switch(
-            config
-                .additional_arguments
-                .iter()
-                .chain(&prefs)
-                .chain(args)
-                .cloned()
-                .collect(),
-        );
+        let arguments = game_arguments(&config.additional_arguments, &prefs, args);
 
         // Without a launch command of the player's own, a Linux machine runs
         // the game through the runtime the client installed (see
@@ -1554,6 +1546,26 @@ fn product_name_of(exe: &Path) -> Option<String> {
     pe_version::product_name_in(&section, &bytes)
 }
 
+/// The game's arguments: the player's launch options, the prefs file chosen
+/// in Settings, then the launch's own.
+///
+/// A launch that brings console commands of its own, which only faf-re's
+/// game is given (`network_arguments`), shares one `/con` with the player's
+/// ([`one_console_switch`]). Every other launch goes as the player wrote
+/// it, two `/con` and all: nothing changes for the original game, an
+/// offline game or a replay.
+fn game_arguments(options: &[String], prefs: &[String], launch: &[String]) -> Vec<String> {
+    let arguments = options.iter().chain(prefs).chain(launch).cloned().collect();
+    if launch
+        .iter()
+        .any(|argument| argument.eq_ignore_ascii_case("/con"))
+    {
+        one_console_switch(arguments)
+    } else {
+        arguments
+    }
+}
+
 /// The command line with one `/con`: the game reads the first one only, so
 /// the console commands of a second would be lost. The client's own
 /// (`network_arguments`) come after the player's launch options, which may
@@ -1922,6 +1934,46 @@ mod tests {
         );
         let untouched = args(&["/init", "init_faf.lua", "/con"]);
         assert_eq!(one_console_switch(untouched.clone()), untouched);
+    }
+
+    #[test]
+    fn only_faf_res_game_shares_the_players_console_switch() {
+        let args = |list: &[&str]| list.iter().map(|a| a.to_string()).collect::<Vec<_>>();
+        let options = args(&["/con", "ren_ShadowSize=2048", "/con", "ui_Scale=1.5"]);
+        let prefs = args(&["/prefs", "C:/prefs/game.prefs"]);
+        let consoles = |line: &[String]| line.iter().filter(|a| *a == "/con").count();
+
+        // The original game, and a game started for anything but a match:
+        // the player's two `/con` stay as they were written.
+        for launch in [
+            build_arguments(&params(), "game.log", None, None),
+            offline_arguments("faf", "scmp_009", "offline.log"),
+        ] {
+            let line = game_arguments(&options, &prefs, &launch);
+            assert_eq!(line[..4], options[..], "{launch:?}");
+            assert_eq!(&line[4..6], &prefs[..]);
+            assert_eq!(line[6..], launch[..]);
+        }
+
+        // faf-re's game brings its own, which join the player's first.
+        let rebuilt = build_arguments(
+            &on(GameNetwork::Native {
+                force_relay: false,
+                rejoin: None,
+            }),
+            "game.log",
+            None,
+            Some("seat.key"),
+        );
+        let line = game_arguments(&options, &prefs, &rebuilt);
+        assert_eq!(consoles(&line), 1);
+        assert_eq!(
+            line[..2],
+            args(&[
+                "/con",
+                "ren_ShadowSize=2048;ui_Scale=1.5;net_PeerFeatures=1;net_RejoinAccept=1",
+            ])[..]
+        );
     }
 
     #[tokio::test]
