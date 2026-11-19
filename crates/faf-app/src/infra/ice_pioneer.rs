@@ -262,9 +262,16 @@ impl IcePort for PioneerAdapter {
                     let _ =
                         create_lobby_sink.send(create_lobby(init_mode, &player_login, player_id));
                 }
+                let Some(args) = json_from_gpg_args(&message.args) else {
+                    tracing::debug!(
+                        command = %message.command,
+                        "pioneer bridge: a game message that carries data is not for the lobby"
+                    );
+                    continue;
+                };
                 let relay_msg = RelayMsg {
                     command: message.command,
-                    args: json_from_gpg_args(&message.args),
+                    args,
                 };
                 if to_lobby_tx.send(relay_msg).await.is_err() {
                     tracing::debug!(
@@ -406,11 +413,15 @@ fn int_arg(value: &Value) -> Option<GpgArg> {
     i32::try_from(value).ok().map(GpgArg::Int)
 }
 
-pub(crate) fn json_from_gpg_args(args: &[GpgArg]) -> Vec<Value> {
+/// A game message's arguments as the lobby server takes them. None for one
+/// that carries data (`ProcessNatPacket`): bytes the game's lobby port read
+/// off the network, which JSON has no type for and the server no use.
+pub(crate) fn json_from_gpg_args(args: &[GpgArg]) -> Option<Vec<Value>> {
     args.iter()
         .map(|arg| match arg {
-            GpgArg::Int(n) => Value::from(*n),
-            GpgArg::Str(s) => Value::from(s.clone()),
+            GpgArg::Int(n) => Some(Value::from(*n)),
+            GpgArg::Str(s) => Some(Value::from(s.clone())),
+            GpgArg::Data(_) => None,
         })
         .collect()
 }
@@ -454,8 +465,10 @@ mod tests {
         let gpg = vec![GpgArg::Int(42), GpgArg::Str("peer".into())];
         assert_eq!(
             json_from_gpg_args(&gpg),
-            vec![Value::from(42), Value::from("peer")]
+            Some(vec![Value::from(42), Value::from("peer")])
         );
+        let nat_packet = vec![GpgArg::Str("127.0.0.1:6000".into()), GpgArg::Data(vec![8])];
+        assert_eq!(json_from_gpg_args(&nat_packet), None, "no JSON for bytes");
     }
 
     #[test]

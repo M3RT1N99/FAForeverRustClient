@@ -15,7 +15,9 @@
 //!   `IceMsg` included. GPGNet has no booleans, so `ConnectToPeer`'s offer
 //!   goes as 0 or 1.
 //! - Every game message goes to the lobby, the game's `IceMsg [receiver,
-//!   text]` included, which the server passes on to the receiver's game.
+//!   text]` included, which the server passes on to the receiver's game;
+//!   all but a datagram the game's lobby port read (`ProcessNatPacket`),
+//!   whose bytes JSON cannot carry.
 //!
 //! A game that crashes in its match can take its seat back (#275). Its links
 //! die with it, so the client keeps what the server says only once, the
@@ -299,6 +301,7 @@ impl RejoinOffer {
         let source = match source {
             GpgArg::Int(source) => *source,
             GpgArg::Str(text) => number(text)?,
+            GpgArg::Data(_) => return None,
         };
         let GpgArg::Str(seats) = seats else {
             return None;
@@ -368,9 +371,19 @@ impl Bridge {
                             if !self.note(&message) {
                                 continue;
                             }
+                            let Some(args) = json_from_gpg_args(&message.args) else {
+                                // The engine's `ProcessNatPacket`: a datagram
+                                // on its lobby port, of no use to links that
+                                // are the game's own.
+                                tracing::debug!(
+                                    command = %message.command,
+                                    "a game message that carries data is not for the lobby; dropped"
+                                );
+                                continue;
+                            };
                             let relay = RelayMsg {
                                 command: message.command,
-                                args: json_from_gpg_args(&message.args),
+                                args,
                             };
                             if self.to_lobby.send(relay).await.is_err() {
                                 break; // the launcher is gone
