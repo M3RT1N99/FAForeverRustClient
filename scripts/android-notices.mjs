@@ -337,6 +337,48 @@ function generateNotice({ librariesPath, rustTargets, release }) {
   return { notice, counts: { crates: crates.length, npm: page.unlisted ? null : page.packages.length, android: android.libraries.length } };
 }
 
+// The versions pnpm-lock.yaml holds of each package, from its `packages:` part.
+function lockedNpmPackages() {
+  const locked = new Map();
+  let inPackages = false;
+  for (const line of readText(join(root, "pnpm-lock.yaml")).split("\n")) {
+    if (/^\S/.test(line)) inPackages = line === "packages:";
+    const key = inPackages ? /^ {2}'?((?:@[^/@\s]+\/)?[^@'\s]+)@([^'\s(]+)'?:$/.exec(line) : null;
+    if (key) locked.set(key[1], (locked.get(key[1]) ?? new Set()).add(key[2]));
+  }
+  return locked;
+}
+
+// What CI can check without the Android build, on every pull request: every crate of
+// the native library has a licence text or an override; no crate override names a crate
+// the library no longer has, at that version; and no npm override names a version of a
+// package other than the ones pnpm-lock.yaml holds. A package a build tool carries inside
+// itself (Rolldown's Oxc helpers) is in no lockfile and is left to the release build, as
+// are the page's other packages and the Android libraries: only those builds list them.
+function checkWithoutBuild(rustTargets) {
+  const crates = rustCrates(rustTargets);
+  const overrides = loadOverrides();
+  const missing = [];
+  applyOverrides([...crates].sort(byPackage), overrides, missing);
+  const problems = missing.map((pkg) => `  ${KINDS[pkg.kind]} ${label(pkg)} ships no licence text and has no override.`);
+  const locked = lockedNpmPackages();
+  for (const [key, override] of overrides) {
+    const id = key.slice(key.indexOf(" ") + 1);
+    if (key.startsWith("crates ") && !override.used) {
+      problems.push(`  ${override.where} supplies the crate ${id}, which the native library no longer has, or which ships a licence text of its own.`);
+    } else if (key.startsWith("npm ")) {
+      const [name, version] = id.split(" ");
+      if (locked.has(name) && !locked.get(name).has(version)) {
+        problems.push(`  ${override.where} supplies the npm package ${id}, while pnpm-lock.yaml holds ${[...locked.get(name)].join(", ")}.`);
+      }
+    }
+  }
+  if (problems.length > 0) {
+    throw new NoticeError(["The Android app's licence notice would not build:", ...problems].join("\n"));
+  }
+  return crates.length;
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   const { values } = parseArgs({
     options: {
@@ -344,10 +386,23 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
       "android-libraries": { type: "string" },
       "rust-target": { type: "string", multiple: true },
       release: { type: "boolean", default: false },
+      check: { type: "boolean", default: false },
     },
   });
+  if (values.check) {
+    try {
+      const crates = checkWithoutBuild(values["rust-target"] ?? ["aarch64-linux-android"]);
+      console.log(`[android-notices] ${crates} crates have their licence texts, and the overrides match the lockfiles.`);
+      process.exit(0);
+    } catch (error) {
+      if (!(error instanceof NoticeError)) throw error;
+      console.error(`[android-notices] ${error.message}`);
+      process.exit(1);
+    }
+  }
   if (!values.out || !values["android-libraries"]) {
     console.error("Usage: node scripts/android-notices.mjs --out <NOTICE.txt> --android-libraries <json> [--rust-target <triple>]... [--release]");
+    console.error("   or: node scripts/android-notices.mjs --check [--rust-target <triple>]...");
     process.exit(2);
   }
   try {

@@ -169,6 +169,14 @@ jobs:
       - name: cargo deny
         run: cargo deny check licenses bans sources
 
+      # The Android app's licence notice (scripts/android-notices.mjs) needs a
+      # text for every crate it ships, and its reviewed overrides go stale when
+      # a dependency moves to another version. Caught here rather than at the
+      # next release build, which is still what guards the page's npm packages
+      # and the Android libraries: only those builds can list them.
+      - name: Android licence notice
+        run: node scripts/android-notices.mjs --check
+
   # GitHub lists every author and co-author on the default branch as a
   # contributor, so a commit co-authored by an AI assistant or a bot account
   # puts that account on the repository's page. Caught here, at the pull
