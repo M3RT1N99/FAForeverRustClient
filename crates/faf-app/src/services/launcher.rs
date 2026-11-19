@@ -325,11 +325,9 @@ pub async fn start(
         match refused {
             // FAF's game app gave the start up before its game ran (a map it
             // could not fetch, say): the launch failed, for its reason.
-            Some(reason) => report_failure_on(
-                &exit_ports,
-                &exit_sink,
-                format!("game launch: {reason}"),
-            ),
+            Some(reason) => {
+                report_failure_on(&exit_ports, &exit_sink, format!("game launch: {reason}"))
+            }
             // A game stopped because its ICE session failed already reported
             // the failure, and "terminated" would take it off the screen.
             None if exit_stopped_by_failure.load(Ordering::SeqCst) => {}

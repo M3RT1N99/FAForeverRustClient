@@ -2095,7 +2095,8 @@ mod tests {
     #[test]
     fn a_mod_file_is_the_last_segment_of_its_download_link_as_spelled() {
         assert_eq!(
-            download_file_name("https://content.example.invalid/mods/uveso-ai.v0154.zip").as_deref(),
+            download_file_name("https://content.example.invalid/mods/uveso-ai.v0154.zip")
+                .as_deref(),
             Some("uveso-ai.v0154.zip")
         );
         // Left encoded: the content server's folder and this name make the
@@ -2105,7 +2106,10 @@ mod tests {
                 .as_deref(),
             Some("Score%20Board.v0019.zip")
         );
-        assert_eq!(download_file_name("https://content.example.invalid/mods/"), None);
+        assert_eq!(
+            download_file_name("https://content.example.invalid/mods/"),
+            None
+        );
         assert_eq!(download_file_name("not a link"), None);
     }
 

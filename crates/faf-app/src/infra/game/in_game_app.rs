@@ -53,7 +53,11 @@ pub(super) fn start_for(
 /// desktop command line, which also has the install's switches (`/init`,
 /// `/log`, `/prefs`, the player's launch options) and the ones the game app
 /// adds itself.
-fn arguments(params: &GameLaunchParams, savereplay: Option<&str>, force_relay: bool) -> Vec<String> {
+fn arguments(
+    params: &GameLaunchParams,
+    savereplay: Option<&str>,
+    force_relay: bool,
+) -> Vec<String> {
     let mut arguments = params.args.clone();
     if let Some(url) = savereplay {
         arguments.extend(["/savereplay".to_owned(), url.to_owned()]);
@@ -169,8 +173,22 @@ mod tests {
             player_login: "Ada".into(),
             // What `services::launcher` hands over for a matchmaker game.
             args: [
-                "/numgames", "12", "/mean", "1500", "/deviation", "500", "/country", "DE",
-                "/clan", "FAF", "/team", "2", "/players", "2", "/startspot", "1",
+                "/numgames",
+                "12",
+                "/mean",
+                "1500",
+                "/deviation",
+                "500",
+                "/country",
+                "DE",
+                "/clan",
+                "FAF",
+                "/team",
+                "2",
+                "/players",
+                "2",
+                "/startspot",
+                "1",
             ]
             .map(String::from)
             .to_vec(),
@@ -287,18 +305,39 @@ mod tests {
                 "/nativenetrelay",
             ]
         );
-        for refused in ["/init", "/log", "/con", "/rejoinoffer", "/rejoin", "/nobugreport"] {
-            assert!(!start.arguments.iter().any(|argument| argument == refused), "{refused}");
+        for refused in [
+            "/init",
+            "/log",
+            "/con",
+            "/rejoinoffer",
+            "/rejoin",
+            "/nobugreport",
+        ] {
+            assert!(
+                !start.arguments.iter().any(|argument| argument == refused),
+                "{refused}"
+            );
         }
     }
 
     #[test]
     fn the_whitelist_check_refuses_what_the_game_app_refuses() {
         let check = |arguments: &[&str]| {
-            whitelisted(&arguments.iter().map(|argument| argument.to_string()).collect::<Vec<_>>())
+            whitelisted(
+                &arguments
+                    .iter()
+                    .map(|argument| argument.to_string())
+                    .collect::<Vec<_>>(),
+            )
         };
-        assert!(check(&["/gpgnet", "127.0.0.1:6112 /nativenet"]).is_err(), "two in one");
-        assert!(check(&["/gpgnet", "game.invalid:6112"]).is_err(), "off the loopback");
+        assert!(
+            check(&["/gpgnet", "127.0.0.1:6112 /nativenet"]).is_err(),
+            "two in one"
+        );
+        assert!(
+            check(&["/gpgnet", "game.invalid:6112"]).is_err(),
+            "off the loopback"
+        );
         assert!(check(&["/nativenet", "/nativenet"]).is_err(), "twice");
         assert!(check(&["/uef"]).is_err(), "not on it yet");
         assert!(check(&["/numgames", "10000"]).is_err());
@@ -310,12 +349,19 @@ mod tests {
         let start = start_for(&params(native(false, None)), None).unwrap();
         assert_eq!(start.game_version, Some(3841));
         assert_eq!(start.featured_mod.as_deref(), Some("faf"));
-        assert_eq!(start.map.as_deref(), Some("scmp_009"), "as the contract spells it");
+        assert_eq!(
+            start.map.as_deref(),
+            Some("scmp_009"),
+            "as the contract spells it"
+        );
         assert_eq!(start.mods, params(native(false, None)).content.mods);
         assert!(start.rejoin_offer);
         assert_eq!(start.rejoin, None);
         assert_eq!(start.replay, None);
-        assert!(!start.arguments.contains(&"/savereplay".to_owned()), "no recorder");
+        assert!(
+            !start.arguments.contains(&"/savereplay".to_owned()),
+            "no recorder"
+        );
         assert!(!start.arguments.contains(&"/nativenetrelay".to_owned()));
     }
 
@@ -362,7 +408,10 @@ mod tests {
     async fn the_answer_is_how_the_game_ended() {
         for (answer, expected) in [
             (Ok(GameExit::Crashed), GameExit::Crashed),
-            (Err("no such map (NO_MAP)".to_owned()), GameExit::Refused("no such map (NO_MAP)".into())),
+            (
+                Err("no such map (NO_MAP)".to_owned()),
+                GameExit::Refused("no such map (NO_MAP)".into()),
+            ),
         ] {
             let (game, exited, exit) = game();
             let (end, ended) = oneshot::channel();

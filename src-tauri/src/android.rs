@@ -394,7 +394,10 @@ async fn outcome_of(
                         None
                     }
                 };
-                Ok(crate::game_app::exit_from(last_game.as_ref(), started_after))
+                Ok(crate::game_app::exit_from(
+                    last_game.as_ref(),
+                    started_after,
+                ))
             }
             GameAppEnd::Failed { failure, message } => {
                 Err(crate::game_app::failure_reason(&failure, &message))

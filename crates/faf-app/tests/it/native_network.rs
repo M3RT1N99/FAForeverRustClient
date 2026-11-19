@@ -813,7 +813,9 @@ impl Phone {
         // As the Android shell does: a phone has no adapter to run.
         ice.force_native_network();
         let ports = Ports {
-            process: Arc::new(GameProcess::new(GameConfig::default()).with_game_app(game_app.clone())),
+            process: Arc::new(
+                GameProcess::new(GameConfig::default()).with_game_app(game_app.clone()),
+            ),
             ice: Arc::new(ice),
             updater: Arc::new(CurrentVersion),
             ..fake_ports()
@@ -856,7 +858,10 @@ impl Phone {
 
 /// The value after `switch` in a start's arguments.
 fn switch_value<'a>(start: &'a GameAppStart, switch: &str) -> Option<&'a str> {
-    let at = start.arguments.iter().position(|argument| argument == switch)?;
+    let at = start
+        .arguments
+        .iter()
+        .position(|argument| argument == switch)?;
     start.arguments.get(at + 1).map(String::as_str)
 }
 
@@ -1680,28 +1685,48 @@ async fn phones_host_and_join_through_the_game_app_on_the_games_own_links() {
         assert_eq!(start.featured_mod.as_deref(), Some("faf"));
         assert_eq!(start.map.as_deref(), Some(MAP));
         assert!(start.mods.is_empty(), "the game has no simulation mods");
-        assert!(start.rejoin_offer, "every game on its own links offers to come back");
+        assert!(
+            start.rejoin_offer,
+            "every game on its own links offers to come back"
+        );
         assert_eq!(start.rejoin, None);
         assert_eq!(start.replay, None);
         assert!(start.arguments.contains(&"/nativenet".to_owned()));
         assert!(!start.arguments.contains(&"/nativenetrelay".to_owned()));
         let savereplay = switch_value(start, "/savereplay").expect("the replay is recorded");
-        assert!(savereplay.starts_with("gpgnet://127.0.0.1:"), "{savereplay}");
+        assert!(
+            savereplay.starts_with("gpgnet://127.0.0.1:"),
+            "{savereplay}"
+        );
         assert!(savereplay.contains(&format!("/{game_id}/")), "{savereplay}");
-        for own in ["/init", "/log", "/nobugreport", "/con", "/rejoinoffer", "/rejoinkeyfile"] {
-            assert!(!start.arguments.contains(&own.to_owned()), "{own} is the game app's");
+        for own in [
+            "/init",
+            "/log",
+            "/nobugreport",
+            "/con",
+            "/rejoinoffer",
+            "/rejoinkeyfile",
+        ] {
+            assert!(
+                !start.arguments.contains(&own.to_owned()),
+                "{own} is the game app's"
+            );
         }
     }
     assert_eq!(switch_value(&ada_start, "/numgames"), Some("12"));
     assert_eq!(switch_value(&ada_start, "/mean"), Some("1500"));
 
     // The games link through what the server routes between them.
-    ada_game.send("IceMsg", vec![int(102), text("ada's offer")]).await;
+    ada_game
+        .send("IceMsg", vec![int(102), text("ada's offer")])
+        .await;
     assert_eq!(
         bert_game.next().await,
         message("IceMsg", vec![int(101), text("ada's offer")])
     );
-    bert_game.send("IceMsg", vec![int(101), text("bert's answer")]).await;
+    bert_game
+        .send("IceMsg", vec![int(101), text("bert's answer")])
+        .await;
     assert_eq!(
         ada_game.next().await,
         message("IceMsg", vec![int(102), text("bert's answer")])
@@ -1738,13 +1763,20 @@ async fn a_game_that_crashes_in_the_game_app_comes_back_to_its_match() {
         }),
         "REJOIN_PEERS and REJOIN_SOURCE: the player still in the match, and its own source"
     );
-    assert!(back.rejoin_offer, "a return needs the offer on the same start");
+    assert!(
+        back.rejoin_offer,
+        "a return needs the offer on the same start"
+    );
     assert_eq!(
         switch_value(&back, "/gpgnet"),
         switch_value(&bert_start, "/gpgnet"),
         "the same port"
     );
-    assert_eq!(switch_value(&back, "/savereplay"), None, "the first stream is kept");
+    assert_eq!(
+        switch_value(&back, "/savereplay"),
+        None,
+        "the first stream is kept"
+    );
     assert_eq!(
         (back.game_version, &back.map),
         (bert_start.game_version, &bert_start.map),
@@ -1814,7 +1846,10 @@ async fn a_start_the_game_app_refuses_fails_the_launch_with_its_reason() {
             if reason.starts_with("game launch: FAF's game app did not start it") && reason.ends_with("(ARGUMENTS)"))
     })
     .await;
-    support::eventually("the seat was given back", || server.said_its_game_ended(101)).await;
+    support::eventually("the seat was given back", || {
+        server.said_its_game_ended(101)
+    })
+    .await;
     assert!(ada.started.try_recv().is_err(), "no game ran");
 
     // Or once the game app has taken it, before its game runs: a map it
@@ -1830,6 +1865,12 @@ async fn a_start_the_game_app_refuses_fails_the_launch_with_its_reason() {
         matches!(&state.lobby.join, JoinState::LaunchFailed { reason } if reason.ends_with("(NO_MAP)"))
     })
     .await;
-    support::eventually("the seat was given back", || server.said_its_game_ended(102)).await;
-    assert!(bert.started.try_recv().is_err(), "a game that never ran does not come back");
+    support::eventually("the seat was given back", || {
+        server.said_its_game_ended(102)
+    })
+    .await;
+    assert!(
+        bert.started.try_recv().is_err(),
+        "a game that never ran does not come back"
+    );
 }
