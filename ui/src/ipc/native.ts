@@ -16,6 +16,9 @@ import { t } from "../i18n";
 import { filesCanBePicked, foldersCanBePicked } from "../shared/platform";
 import type {
   ClientNotification,
+  GameAppEnd,
+  GameAppLaunch,
+  GameAppStatus,
   LogPreview,
   MapAnalysis,
   MarkedMapPreview,
@@ -32,6 +35,10 @@ import type {
 // definitions like the rest of `bindings.ts`, and handed on from here so
 // feature code keeps one import for the native boundary.
 export type {
+  GameAppData,
+  GameAppEnd,
+  GameAppLaunch,
+  GameAppStatus,
   LogIssue,
   LogPreview,
   MapAnalysis,
@@ -240,6 +247,27 @@ export const native = {
   /** Android only: which build on which device, for a problem report. */
   reportContext(): Promise<ReportContext> {
     return invoke<ReportContext>("report_context");
+  },
+
+  /** Android only: the FAF game app, the game the client starts there. */
+  gameAppStatus(): Promise<GameAppStatus> {
+    return invoke<GameAppStatus>("game_app_status");
+  },
+
+  /**
+   * Android only: the game app's own screen that sets up its game data.
+   * Settles when the player is back from it.
+   */
+  gameAppSetup(step: "scfa" | "game_files"): Promise<GameAppEnd> {
+    return invoke<GameAppEnd>("game_app_setup", { step });
+  },
+
+  /**
+   * Android only: start a game in the game app. Settles when the game has
+   * ended, or at once when the game app says why it did not start one.
+   */
+  gameAppPlay(launch: GameAppLaunch): Promise<GameAppEnd> {
+    return invoke<GameAppEnd>("game_app_play", { launch });
   },
 
   revealReplay(path: string): Promise<void> {

@@ -25,8 +25,8 @@ use specta::Types;
 use specta_typescript::Typescript;
 
 use shell::{
-    FrontendMessage, LogPreview, NotificationDisplay, NotificationPopupBatch, PickRequest,
-    ReportContext, VersionedSnapshot, WebviewEngine,
+    FrontendMessage, GameAppEnd, GameAppLaunch, GameAppStatus, LogPreview, NotificationDisplay,
+    NotificationPopupBatch, PickRequest, ReportContext, VersionedSnapshot, WebviewEngine,
 };
 
 pub const HEADER: &str = "\
@@ -59,6 +59,9 @@ pub fn typescript_bindings() -> Result<String, specta_typescript::Error> {
         .register::<VersionedSnapshot>()
         .register::<LogPreview>()
         .register::<ReportContext>()
+        .register::<GameAppStatus>()
+        .register::<GameAppLaunch>()
+        .register::<GameAppEnd>()
         .register::<WebviewEngine>()
         .register::<NotificationPopupBatch>()
         .register::<NotificationDisplay>()

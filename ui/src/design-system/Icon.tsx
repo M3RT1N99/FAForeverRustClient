@@ -137,7 +137,9 @@ export type IconName =
   // Something failed: the icon errors carry, so the colour is not the only sign.
   | "alert"
   // Keyboard shortcuts.
-  | "keyboard";
+  | "keyboard"
+  // The phone itself: the Android app's own settings.
+  | "smartphone";
 
 interface IconProps extends SVGProps<SVGSVGElement> {
   name: IconName;
@@ -266,6 +268,8 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
     alert: <><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></>,
     // Lucide `keyboard`.
     keyboard: <><path d="M10 8h.01" /><path d="M12 12h.01" /><path d="M14 8h.01" /><path d="M16 12h.01" /><path d="M18 8h.01" /><path d="M6 8h.01" /><path d="M7 16h10" /><path d="M8 12h.01" /><rect width="20" height="16" x="2" y="4" rx="2" /></>,
+    // Lucide `smartphone`.
+    smartphone: <><rect width="14" height="20" x="5" y="2" rx="2" ry="2" /><path d="M12 18h.01" /></>,
     github: <><path d="M15 22v-3.3c0-1.1-.4-1.9-1-2.3 3.3-.4 6.7-1.6 6.7-7.1 0-1.6-.6-2.9-1.6-3.9.2-.4.7-1.9-.2-3.8 0 0-1.3-.4-4.1 1.5a14 14 0 0 0-7.5 0C4.5 1.2 3.2 1.6 3.2 1.6c-.9 1.9-.4 3.4-.2 3.8-1 1-1.6 2.3-1.6 3.9 0 5.5 3.4 6.7 6.7 7.1-.6.4-1 1.1-1 2.3V22" /><path d="M7.1 18.3c-3 .9-3-1.4-4.2-1.8" /></>,
     // The Twitch glyph, drawn in this set's outline style.
     twitch: <><path d="M4 3h16v11l-5 5h-4l-3 3v-3H4Z" /><path d="M11 8v4M16 8v4" /></>,

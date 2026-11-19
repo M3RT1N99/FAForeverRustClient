@@ -7,6 +7,12 @@
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
+    <!-- The FAF game app (GameAppPlugin): Android 11 and later show this app
+         another app's provider and activities only when it is named here. -->
+    <queries>
+        <package android:name="io.github.m3rt1n99.fafre" />
+    </queries>
+
     <application
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"

@@ -13,6 +13,7 @@ import { StatusNotice } from "../../design-system/StatusNotice";
 import { ACCOUNT_LINKS, openExternalUrl } from "../../shared/externalLinks";
 import { plainError } from "../../shared/plainError";
 import { theGameIsItsOwnApp } from "../../shared/platform";
+import { GAME_APP_NEED_TEXT, gameAppNeed, playOfflineInGameApp, useGameAppStatus } from "../../shared/gameApp";
 import { useTranslation } from "../../i18n/useTranslation";
 
 /**
@@ -108,6 +109,12 @@ export function LoginView() {
   // offline game, and a retry that opened the browser would answer nothing.
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const busy = auth.status === "loggingIn";
+  // On Android the game is FAF's game app: what it still needs replaces the
+  // note about an install, and Play offline starts it there.
+  const ownApp = theGameIsItsOwnApp();
+  const gameApp = useGameAppStatus();
+  const appNeed = gameApp.status ? gameAppNeed(gameApp.status) : null;
+  const [appFailure, setAppFailure] = useState<string | null>(null);
 
   const login = () => {
     setAttempt("login");
@@ -127,6 +134,13 @@ export function LoginView() {
   // The game itself, into its own menu, as the Java client's button does
   // (#397). Opening this client offline is the archive button beside it.
   const launchOfflineGame = () => {
+    if (ownApp) {
+      setAppFailure(null);
+      void playOfflineInGameApp()
+        .catch((error: unknown) => setAppFailure(error instanceof Error ? error.message : String(error)))
+        .finally(gameApp.refresh);
+      return;
+    }
     setAttempt("offlineGame");
     ipc.send({ kind: "Auth", command: { type: "launchOfflineGame" } });
   };
@@ -175,7 +189,11 @@ export function LoginView() {
             already on this disk is the whole of what most people want here,
             and naming it is what makes that visible from the login screen. */}
         <div className="login-offline-row">
-          <Button className="login-offline-button" onClick={launchOfflineGame} disabled={busy}>
+          <Button
+            className="login-offline-button"
+            onClick={launchOfflineGame}
+            disabled={busy || (ownApp && appNeed !== null && appNeed !== "ready")}
+          >
             <Icon name="play" size={15} /> {t("auth.playOffline")}
           </Button>
           <Button className="login-offline-button" onClick={openLocalReplays} disabled={busy}>
@@ -183,18 +201,25 @@ export function LoginView() {
           </Button>
         </div>
         {/* The button stays: the install may have arrived since the last
-            look, and the click checks again and says why if not. */}
-        {/* On Android the game is its own app, with no game path or folder
-            here to set up, so the notice says where games run instead. */}
-        {gameMissing && (
-          <StatusNotice tone="info" className="login-offline-setup">
-            {t(
-              theGameIsItsOwnApp()
-                ? "auth.offlineOwnApp"
-                : gamePending
-                  ? "auth.offlineSetupPending"
-                  : "auth.offlineSetupMissing",
-            )}
+            look, and the click checks again and says why if not. On Android
+            the game is its own app, with no game path or folder here to set
+            up: the notice says what it still needs, and the button waits for
+            it, since the status is asked again whenever the player comes
+            back from the game app. */}
+        {ownApp
+          ? appNeed && appNeed !== "ready" && (
+            <StatusNotice tone="info" className="login-offline-setup">
+              {t(GAME_APP_NEED_TEXT[appNeed].title)}
+            </StatusNotice>
+          )
+          : gameMissing && (
+            <StatusNotice tone="info" className="login-offline-setup">
+              {t(gamePending ? "auth.offlineSetupPending" : "auth.offlineSetupMissing")}
+            </StatusNotice>
+          )}
+        {appFailure && (
+          <StatusNotice tone="error" className="login-offline-setup">
+            {appFailure}
           </StatusNotice>
         )}
         <p className="login-hint">{t("auth.playOfflineHint")}</p>

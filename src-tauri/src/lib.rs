@@ -23,6 +23,7 @@ mod android;
 mod commands;
 mod diagnostics;
 mod exit;
+mod game_app;
 mod navigation;
 mod notification_popup;
 mod picked_paths;
@@ -214,6 +215,12 @@ pub fn run() {
                 android::share_client_logs,
                 #[cfg(target_os = "android")]
                 android::report_context,
+                #[cfg(target_os = "android")]
+                android::game_app_status,
+                #[cfg(target_os = "android")]
+                android::game_app_setup,
+                #[cfg(target_os = "android")]
+                android::game_app_play,
                 commands::webview_engine,
                 commands::system_date_pattern,
                 commands::map_generator_automatic_instances,

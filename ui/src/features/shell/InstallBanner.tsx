@@ -26,6 +26,7 @@ import { t } from "../../i18n";
 import { useTranslation } from "../../i18n/useTranslation";
 import { pickOriginalGameFolder, setOriginalGameDir } from "../../shared/originalGame";
 import { theGameIsItsOwnApp } from "../../shared/platform";
+import { GAME_APP_NEED_TEXT, gameAppNeed, gameAppNeedAction, useGameAppStatus } from "../../shared/gameApp";
 
 const openSettings = () =>
   ipc.send({ kind: "Nav", command: { type: "select", payload: { tab: "settings" } } });
@@ -183,22 +184,37 @@ function OriginalGameMissing({ onDismiss }: { onDismiss: () => void }) {
 
 /**
  * Android: the game is FAF's game app, not a file or a folder on this device,
- * so nothing here can locate or choose it. Says so, until a later version of
- * the client starts that app itself; closing it is all there is to do.
+ * so nothing here can locate or choose it. The banner says what the game app
+ * still needs, with the one press that answers it (its releases, or its own
+ * setup), and is gone once it is ready.
  */
 function GameIsItsOwnApp({ onDismiss }: { onDismiss: () => void }) {
   const { t } = useTranslation();
+  const { status, refresh } = useGameAppStatus();
+  if (!status) return null;
+  const need = gameAppNeed(status);
+  if (need === "ready") return null;
+  const text = GAME_APP_NEED_TEXT[need];
+  const action = gameAppNeedAction(need);
 
   return (
     <div className="install-banner" role="status">
       <span className="install-banner-icon" aria-hidden="true">
-        <Icon name="info" size={16} />
+        <Icon name={need === "busy" ? "refresh" : "info"} size={16} />
       </span>
       <div className="install-banner-copy">
-        <strong>{t("shell.install.ownApp")}</strong>
-        <span className="muted">{t("shell.install.ownAppHint")}</span>
+        <strong>{t(text.title)}</strong>
+        {text.hint && <span className="muted">{t(text.hint)}</span>}
+        {need === "busy" && status.gameData?.jobStep && (
+          <span className="muted">{t("android.gameApp.busy", { step: status.gameData.jobStep })}</span>
+        )}
       </div>
       <div className="install-banner-actions">
+        {action && (
+          <Button variant="primary" onClick={() => ipc.run(action.run().finally(refresh))}>
+            {t(action.label)}
+          </Button>
+        )}
         <button
           type="button"
           className="install-banner-close"

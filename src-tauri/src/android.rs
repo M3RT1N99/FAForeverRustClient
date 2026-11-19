@@ -1,10 +1,10 @@
 //! What the client needs from Android itself, through its own Kotlin in
-//! `gen/android`: the browser for sign-in, and the share sheet and the
-//! device's make for the logs and a problem report.
+//! `gen/android`: the browser for sign-in, the share sheet and the device's
+//! make for the logs and a problem report, and the FAF game app.
 
 use faf_app::infra::log_export::export_client_logs;
 use faf_app::infra::log_scrub::Scrubber;
-use faf_ipc::shell::ReportContext;
+use faf_ipc::shell::{GameAppEnd, GameAppLaunch, GameAppStatus, ReportContext};
 use serde::{Deserialize, Serialize};
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
 use tauri::{Manager, Wry};
@@ -16,7 +16,10 @@ const APP_PACKAGE: &str = "com.faforever.rustclient";
 /// The app's `DiagnosticsPlugin`: the share sheet and the device's make.
 pub(crate) struct Diagnostics(PluginHandle<Wry>);
 
-/// Sign-in's browser, and the diagnostics plugin.
+/// The app's `GameAppPlugin`: the FAF game app's status, setup and start.
+pub(crate) struct GameApp(PluginHandle<Wry>);
+
+/// Sign-in's browser, and the diagnostics and game app plugins.
 ///
 /// Android has no launcher command for a URL, only the intent the opener
 /// plugin sends. It also freezes a process whose page the browser covers,
@@ -30,6 +33,9 @@ pub(crate) fn init() -> TauriPlugin<Wry> {
             let wait = api.register_android_plugin(APP_PACKAGE, "BrowserWaitPlugin")?;
             app.manage(Diagnostics(
                 api.register_android_plugin(APP_PACKAGE, "DiagnosticsPlugin")?,
+            ));
+            app.manage(GameApp(
+                api.register_android_plugin(APP_PACKAGE, "GameAppPlugin")?,
             ));
             let app = app.clone();
             faf_app::infra::set_browser_opener(move |url| {
@@ -168,4 +174,65 @@ pub(crate) async fn share_client_logs(
     })
     .await
     .map_err(|_| "the log export stopped".to_string())?
+}
+
+/// The FAF game app: whether it is there, whether it lets this client in, and
+/// its game data.
+#[tauri::command]
+pub(crate) async fn game_app_status(
+    game_app: tauri::State<'_, GameApp>,
+) -> Result<GameAppStatus, String> {
+    let plugin = game_app.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let raw = plugin
+            .run_mobile_plugin::<serde_json::Value>("status", ())
+            .map_err(|error| format!("could not ask the game app: {error}"))?;
+        crate::game_app::status_from(raw)
+    })
+    .await
+    .map_err(|_| "the game app lookup stopped".to_string())?
+}
+
+/// Open the game app's own screen for its game data, `scfa`, the player's
+/// Supreme Commander, or `game_files`, FAF's newest, and wait until the
+/// player is back from it.
+#[tauri::command]
+pub(crate) async fn game_app_setup(
+    step: String,
+    game_app: tauri::State<'_, GameApp>,
+) -> Result<GameAppEnd, String> {
+    if !matches!(step.as_str(), "scfa" | "game_files") {
+        return Err(format!("no such setup step: {step}"));
+    }
+    let plugin = game_app.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        #[derive(Serialize)]
+        struct Setup {
+            step: String,
+        }
+        plugin
+            .run_mobile_plugin::<serde_json::Value>("setup", Setup { step })
+            .map(crate::game_app::end_from)
+            .map_err(|error| format!("could not open the game app's setup: {error}"))
+    })
+    .await
+    .map_err(|_| "the game app's setup stopped".to_string())?
+}
+
+/// Start a game in the game app and wait until it ends, or until the game
+/// app says why it did not start one.
+#[tauri::command]
+pub(crate) async fn game_app_play(
+    launch: GameAppLaunch,
+    game_app: tauri::State<'_, GameApp>,
+) -> Result<GameAppEnd, String> {
+    let plugin = game_app.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        plugin
+            .run_mobile_plugin::<serde_json::Value>("play", launch)
+            .map(crate::game_app::end_from)
+            .map_err(|error| format!("could not start the game app: {error}"))
+    })
+    .await
+    .map_err(|_| "the game stopped answering".to_string())?
 }

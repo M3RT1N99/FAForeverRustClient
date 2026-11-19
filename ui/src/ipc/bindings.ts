@@ -3538,6 +3538,98 @@ export type Game = {
 	simMods: { [key in string]: string },
 };
 
+/**  Whether the installed game app can be started from this client. */
+export type GameAppContract =
+/**  Not installed, or a version from before the launcher contract. */
+"none" |
+/**
+ *  It has the contract, but does not allow this client: its signing
+ *  certificate is not on the game app's list.
+ */
+"refused" | "open";
+
+/**
+ *  The game app's `game_data`: what the game needs, and how much of it is
+ *  there.
+ */
+export type GameAppData = {
+	/**
+	 *  The player's Supreme Commander: how many of its archives, fonts, sound
+	 *  banks and movies the game app holds. None of a kind is a setup to do.
+	 */
+	scfaArchives: number,
+	scfaFonts: number,
+	scfaSoundBanks: number,
+	scfaMovies: number,
+	/**  FAF's game versions it has ready, oldest first. */
+	gameVersions: number[],
+	/**  FAF's newest version at its last check, if it checked. */
+	newestKnown: number | null,
+	/**  What its setup is doing now, if anything. */
+	jobStep: string | null,
+	gameRunning: boolean,
+	engineCommit: string,
+};
+
+/**  How a game the game app was asked for ended, or its setup screen. */
+export type GameAppEnd =
+/**  It ran, and it is over; or the player is back from the setup. */
+{ kind: "ended" } |
+/**
+ *  It did not run: the game app's code (`NO_SCFA`, `CALLER`, ...) and its
+ *  reason in words.
+ */
+{ kind: "failed"; failure: string; message: string };
+
+/**  The game app's `last_game`. */
+export type GameAppLastGame = {
+	/**  When it started, in milliseconds since 1970. */
+	startedAt: number | null,
+	ended: boolean,
+	exitCode: number | null,
+	crashed: boolean,
+	/**  The report's last line, the game's own words on how it ended. */
+	end: string | null,
+};
+
+/**
+ *  How to start a game in the game app (its `.action.PLAY`). Every field may
+ *  be left out: an offline game with the newest version is none of them.
+ */
+export type GameAppLaunch = {
+	gameVersion: number | null,
+	featuredMod: string | null,
+	/**  The game's switches, each a word of its own. */
+	arguments: string[] | null,
+	/**  FAF's map folder name, which the game app fetches when the phone lacks it. */
+	map: string | null,
+	/**  The uids of the mods the game needs. */
+	mods: string[] | null,
+	/**
+	 *  Each of `mods`' file on FAF's content server, in their order: the game
+	 *  app has no way to look a mod up by its uid.
+	 */
+	modFiles: string[] | null,
+	rejoinOffer?: boolean,
+	rejoinPeers: string | null,
+	rejoinSource: number | null,
+};
+
+/**
+ *  The FAF game app on Android (`io.github.m3rt1n99.fafre`), the game this
+ *  client starts there, as its launcher contract answers.
+ */
+export type GameAppStatus = {
+	installed: boolean,
+	versionName: string,
+	versionCode: number,
+	contract: GameAppContract,
+	/**  Its game data, when it answers this client. */
+	gameData: GameAppData | null,
+	/**  The last game it ran, when it answers this client and ran one. */
+	lastGame: GameAppLastGame | null,
+};
+
 export type GameCacheInfo = {
 	totalSizeBytes: number | null,
 	totalFiles: number,
@@ -10906,7 +10998,12 @@ export type SettingsEvent = { type: "loaded"; payload: {
  *  can use this type as its key and a new section cannot be added on one side
  *  only.
  */
-export type SettingsSection = "general" | "appearance" | "chat" | "notifications" | "account" | "game" | "paths" | "cache" | "connectivity" | "diagnostics";
+export type SettingsSection = "general" | "appearance" | "chat" | "notifications" | "account" | "game" | "paths" | "cache" | "connectivity" | "diagnostics" |
+/**
+ *  The Android app's own: the FAF game app it starts. The page lists it
+ *  on Android only.
+ */
+"android";
 
 /**
  *  Persisted preferences. `#[serde(default)]` is essential for forward

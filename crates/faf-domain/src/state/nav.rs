@@ -95,6 +95,9 @@ pub enum SettingsSection {
     Cache,
     Connectivity,
     Diagnostics,
+    /// The Android app's own: the FAF game app it starts. The page lists it
+    /// on Android only.
+    Android,
 }
 
 /// The list open inside Changelog: FAForever's game patches, this client's own

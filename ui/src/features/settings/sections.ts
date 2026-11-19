@@ -19,7 +19,9 @@ import type { ComponentType } from "react";
 import type { IconName } from "../../design-system/Icon";
 import type { MessageKey } from "../../i18n";
 import type { SettingsSection } from "../../ipc/bindings";
+import { theGameIsItsOwnApp } from "../../shared/platform";
 import { AccountSupportSettingsSection } from "./AccountSupportSettingsSection";
+import { AndroidSettingsSection } from "./AndroidSettingsSection";
 import { AppearanceSettingsSection } from "./AppearanceSettingsSection";
 import { ChatSettingsSection } from "./ChatSettingsSection";
 import { ConnectivityDiagnosticsSection } from "./ConnectivityDiagnosticsSection";
@@ -133,9 +135,21 @@ export const SECTIONS: Record<SectionKey, SectionDef> = {
     icon: "activity",
     panels: [DiagnosticsSettingsSection, MapGeneratorWindowSection],
   },
+  android: {
+    title: "settings.page.android.title",
+    description: "settings.page.android.description",
+    keywords: "settings.section.android.keywords",
+    icon: "smartphone",
+    panels: [AndroidSettingsSection],
+  },
 };
 
+/**
+ * The sidebar's order. Android's own section only on Android, and first
+ * there: without the game app it describes, nothing else on the phone plays.
+ */
 export const SECTION_ORDER: readonly SectionKey[] = [
+  ...(theGameIsItsOwnApp() ? (["android"] as const) : []),
   "general",
   "appearance",
   "chat",

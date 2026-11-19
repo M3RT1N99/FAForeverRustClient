@@ -35,6 +35,8 @@ import { NotificationCenter } from "../notifications/NotificationCenter";
 import { ProfileMenu, type ProfileMenuTarget } from "./ProfileMenu";
 import { PlayerName } from "../../shared/components/nameColors";
 import { useLinkRequests } from "../../shared/deepLinks";
+import { playOfflineInGameApp } from "../../shared/gameApp";
+import { theGameIsItsOwnApp } from "../../shared/platform";
 import "./shell.css";
 
 // Mirrors `MIN_SIDEBAR_WIDTH` / `MAX_SIDEBAR_WIDTH` / `SIDEBAR_RAIL_BELOW` in
@@ -91,6 +93,12 @@ export function AppShell() {
   const [profileMenu, setProfileMenu] = useState<ProfileMenuTarget | null>(null);
   const logOut = () =>
     ipc.send({ kind: "Auth", command: { type: auth.mode === "account" ? "logout" : "logoutTest" } });
+  // The game into its own menu. On Android the game is FAF's game app, which
+  // starts it itself; why it did not comes back as the reason, in words.
+  const playOffline = () =>
+    theGameIsItsOwnApp()
+      ? ipc.run(playOfflineInGameApp())
+      : ipc.send({ kind: "Auth", command: { type: "launchOfflineGame" } });
   // The signed-in account's own entry in the live player directory, which is
   // where the avatar the lobby knows about lives.
   const ownProfile = player ? findPlayer(social, player.name) : null;
@@ -263,7 +271,7 @@ export function AppShell() {
               name={player.name}
               onCopyName={() => void navigator.clipboard?.writeText(player.name)}
               onContacts={openContacts}
-              onPlayOffline={() => ipc.send({ kind: "Auth", command: { type: "launchOfflineGame" } })}
+              onPlayOffline={playOffline}
               onLogOut={logOut}
               onClose={() => setProfileMenu(null)}
             />

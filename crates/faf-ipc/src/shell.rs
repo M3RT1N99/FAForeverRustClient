@@ -79,6 +79,100 @@ pub struct ReportContext {
     pub device: String,
 }
 
+/// The FAF game app on Android (`io.github.m3rt1n99.fafre`), the game this
+/// client starts there, as its launcher contract answers.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GameAppStatus {
+    pub installed: bool,
+    pub version_name: String,
+    pub version_code: i32,
+    pub contract: GameAppContract,
+    /// Its game data, when it answers this client.
+    pub game_data: Option<GameAppData>,
+    /// The last game it ran, when it answers this client and ran one.
+    pub last_game: Option<GameAppLastGame>,
+}
+
+/// Whether the installed game app can be started from this client.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum GameAppContract {
+    /// Not installed, or a version from before the launcher contract.
+    None,
+    /// It has the contract, but does not allow this client: its signing
+    /// certificate is not on the game app's list.
+    Refused,
+    Open,
+}
+
+/// The game app's `game_data`: what the game needs, and how much of it is
+/// there.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GameAppData {
+    /// The player's Supreme Commander: how many of its archives, fonts, sound
+    /// banks and movies the game app holds. None of a kind is a setup to do.
+    pub scfa_archives: i32,
+    pub scfa_fonts: i32,
+    pub scfa_sound_banks: i32,
+    pub scfa_movies: i32,
+    /// FAF's game versions it has ready, oldest first.
+    pub game_versions: Vec<i32>,
+    /// FAF's newest version at its last check, if it checked.
+    pub newest_known: Option<i32>,
+    /// What its setup is doing now, if anything.
+    pub job_step: Option<String>,
+    pub game_running: bool,
+    pub engine_commit: String,
+}
+
+/// The game app's `last_game`.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GameAppLastGame {
+    /// When it started, in milliseconds since 1970.
+    pub started_at: f64,
+    pub ended: bool,
+    pub exit_code: Option<i32>,
+    pub crashed: bool,
+    /// The report's last line, the game's own words on how it ended.
+    pub end: Option<String>,
+}
+
+/// How to start a game in the game app (its `.action.PLAY`). Every field may
+/// be left out: an offline game with the newest version is none of them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GameAppLaunch {
+    pub game_version: Option<i32>,
+    pub featured_mod: Option<String>,
+    /// The game's switches, each a word of its own.
+    pub arguments: Option<Vec<String>>,
+    /// FAF's map folder name, which the game app fetches when the phone lacks it.
+    pub map: Option<String>,
+    /// The uids of the mods the game needs.
+    pub mods: Option<Vec<String>>,
+    /// Each of `mods`' file on FAF's content server, in their order: the game
+    /// app has no way to look a mod up by its uid.
+    pub mod_files: Option<Vec<String>>,
+    #[serde(default)]
+    pub rejoin_offer: bool,
+    pub rejoin_peers: Option<String>,
+    pub rejoin_source: Option<i32>,
+}
+
+/// How a game the game app was asked for ended, or its setup screen.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum GameAppEnd {
+    /// It ran, and it is over; or the player is back from the setup.
+    Ended,
+    /// It did not run: the game app's code (`NO_SCFA`, `CALLER`, ...) and its
+    /// reason in words.
+    Failed { failure: String, message: String },
+}
+
 /// Which rendering engine the client actually ended up in.
 ///
 /// Facts only. Which release is new enough is deliberately a frontend
