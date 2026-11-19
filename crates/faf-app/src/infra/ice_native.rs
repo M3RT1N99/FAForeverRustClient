@@ -13,7 +13,9 @@
 //!   list changes, as it does when the session comes after the game's `Idle`.
 //! - Every lobby message for the game goes to it as the server sent it,
 //!   `IceMsg` included. GPGNet has no booleans, so `ConnectToPeer`'s offer
-//!   goes as 0 or 1.
+//!   goes as 0 or 1. What comes while a game set up without a list still
+//!   waits for one is held until the list, as the Java adapter's lobby
+//!   messages are, and let go as it is if the session fails.
 //! - Every game message goes to the lobby, the game's `IceMsg [receiver,
 //!   text]` included, which the server passes on to the receiver's game;
 //!   all but a datagram the game's lobby port read (`ProcessNatPacket`),
@@ -339,6 +341,72 @@ struct Connected {
     /// It was sent its servers and `CreateLobby`: from here a new list goes
     /// to it as soon as there is one.
     set_up: bool,
+    /// The lobby's messages for it while it waits for its first list, in
+    /// the order they came: see [`Servers::awaited`].
+    held: Vec<GpgMessage>,
+}
+
+impl Connected {
+    fn send(&self, message: GpgMessage) {
+        // Refused only once the connection is gone, which the bridge hears
+        // of next.
+        let _ = self.to_game.send(message);
+    }
+
+    /// A lobby message for the game: at once, or kept with the others while
+    /// the game waits for its servers. Nothing goes ahead of what is kept.
+    fn deliver(&mut self, message: GpgMessage, servers: &Servers) {
+        if self.set_up && servers.awaited() {
+            self.held.push(message);
+            return;
+        }
+        self.release();
+        self.send(message);
+    }
+
+    /// What was kept for the game, in the order it came.
+    fn release(&mut self) {
+        for message in std::mem::take(&mut self.held) {
+            self.send(message);
+        }
+    }
+}
+
+/// This game's ICE servers, as far as the bridge has read them.
+struct Servers {
+    updates: watch::Receiver<Option<String>>,
+    /// The list read last.
+    list: Option<String>,
+    /// The session is still being fetched.
+    fetching: bool,
+}
+
+impl Servers {
+    fn new(updates: watch::Receiver<Option<String>>) -> Self {
+        Self {
+            updates,
+            list: None,
+            fetching: true,
+        }
+    }
+
+    /// A game set up now has no list, and one is still to come. What the
+    /// lobby says meanwhile waits for it, as the Java adapter's `RelayGate`
+    /// holds it: a link begun before the list has no STUN or TURN until it
+    /// tries again, some 11 s later, and under `/nativenetrelay` no
+    /// candidates at all.
+    fn awaited(&self) -> bool {
+        self.list.is_none() && self.fetching
+    }
+
+    /// The latest list, read as seen: one that came just before a game's
+    /// `Idle` goes with its set up, and not once more for having changed.
+    fn latest(&mut self) -> Option<String> {
+        if let Some(list) = self.updates.borrow_and_update().clone() {
+            self.list = Some(list);
+        }
+        self.list.clone()
+    }
 }
 
 impl Bridge {
@@ -346,11 +414,11 @@ impl Bridge {
         self,
         mut games: mpsc::Receiver<GameConnection>,
         mut from_lobby: mpsc::Receiver<RelayMsg>,
-        mut servers: watch::Receiver<Option<String>>,
+        servers: watch::Receiver<Option<String>>,
     ) {
+        let mut servers = Servers::new(servers);
         let mut connected: Option<Connected> = None;
         let mut lobby_open = true;
-        let mut servers_open = true;
         loop {
             tokio::select! {
                 event = games.recv() => {
@@ -358,14 +426,18 @@ impl Bridge {
                     let Some(event) = event else { break };
                     match event {
                         GameConnection::Connected(to_game) => {
-                            let mut game = Connected { to_game, set_up: false };
-                            self.welcome_back(&mut game, &servers);
+                            let mut game = Connected {
+                                to_game,
+                                set_up: false,
+                                held: Vec::new(),
+                            };
+                            self.welcome_back(&mut game, &mut servers);
                             connected = Some(game);
                         }
                         GameConnection::Message(message) => {
                             if is_game_state(&message, "Idle") {
                                 if let Some(game) = connected.as_mut() {
-                                    self.set_up(game, &servers);
+                                    self.set_up(game, &mut servers);
                                 }
                             }
                             if !self.note(&message) {
@@ -389,6 +461,8 @@ impl Bridge {
                                 break; // the launcher is gone
                             }
                         }
+                        // What was kept for it was meant for it alone; what
+                        // a game coming back needs is kept in the match.
                         GameConnection::Closed => connected = None,
                     }
                 }
@@ -397,11 +471,11 @@ impl Bridge {
                         lobby_open = false;
                         continue;
                     };
+                    // Kept for a return as it comes, whether or not the game
+                    // has it yet.
                     self.game.lock().unwrap().remember(&message);
-                    match &connected {
-                        Some(game) => {
-                            let _ = game.to_game.send(gpg_message(&message));
-                        }
+                    match connected.as_mut() {
+                        Some(game) => game.deliver(gpg_message(&message), &servers),
                         // `IceMsg` among them: the links that sent those try
                         // again, and what the game needs of the rest is kept.
                         None => tracing::debug!(
@@ -410,36 +484,42 @@ impl Bridge {
                         ),
                     }
                 }
-                changed = servers.changed(), if servers_open => {
+                changed = servers.updates.changed(), if servers.fetching => {
                     if changed.is_err() {
-                        // The session ended, with or without servers.
-                        servers_open = false;
+                        // The session ended, after its list or without one:
+                        // then the game makes do with what it has, which is
+                        // enough on one network.
+                        servers.fetching = false;
+                    }
+                    let list = servers.latest();
+                    let Some(game) = connected.as_mut().filter(|game| game.set_up) else {
                         continue;
+                    };
+                    if let (Ok(()), Some(list)) = (changed, list) {
+                        game.send(ice_servers(list));
                     }
-                    let list = servers.borrow().clone();
-                    if let (Some(game), Some(list)) =
-                        (connected.as_ref().filter(|game| game.set_up), list)
-                    {
-                        let _ = game.to_game.send(ice_servers(list));
-                    }
+                    game.release();
                 }
             }
         }
     }
 
     /// `IceServers` with the list known so far, then `CreateLobby`.
-    fn set_up(&self, game: &mut Connected, servers: &watch::Receiver<Option<String>>) {
-        let list = servers.borrow().clone().unwrap_or_else(|| "[]".into());
-        let _ = game.to_game.send(ice_servers(list));
-        let lobby = create_lobby(self.init_mode, &self.player_login, self.player_id);
-        let _ = game.to_game.send(lobby);
+    fn set_up(&self, game: &mut Connected, servers: &mut Servers) {
+        let list = servers.latest().unwrap_or_else(|| "[]".into());
+        game.send(ice_servers(list));
+        game.send(create_lobby(
+            self.init_mode,
+            &self.player_login,
+            self.player_id,
+        ));
         game.set_up = true;
     }
 
     /// A game coming back to its match gets what the first one got, at once:
     /// it reports no `GameState`, because the server would take a host's
     /// `Idle` for its game going back to a lobby.
-    fn welcome_back(&self, game: &mut Connected, servers: &watch::Receiver<Option<String>>) {
+    fn welcome_back(&self, game: &mut Connected, servers: &mut Servers) {
         let peers = {
             let mut kept = self.game.lock().unwrap();
             if !std::mem::take(&mut kept.returning) {
@@ -456,7 +536,7 @@ impl Bridge {
         );
         self.set_up(game, servers);
         for message in peers {
-            let _ = game.to_game.send(message);
+            game.deliver(message, servers);
         }
     }
 
@@ -783,22 +863,50 @@ mod tests {
         network.stop();
     }
 
-    #[tokio::test]
-    async fn a_session_later_than_the_game_is_sent_when_it_arrives() {
-        let (arrive, arrived) = oneshot::channel::<()>();
-        let arrived = Arc::new(Mutex::new(Some(arrived)));
+    /// A network whose one session comes, or fails, when the test answers.
+    fn with_a_late_session() -> (NativeNetwork, oneshot::Sender<Result<IceServers, String>>) {
+        let (answer, answered) = oneshot::channel();
+        let answered = Arc::new(Mutex::new(Some(answered)));
         let network = NativeNetwork::from_sessions(Box::new(move |_| {
-            let arrived = arrived.lock().unwrap().take().expect("one session");
+            let answered = answered.lock().unwrap().take().expect("one session");
             Ok(Box::pin(async move {
-                let _ = arrived.await;
-                Ok(IceServers {
-                    servers: vec![json!({"urls": "turn:late.test"})],
-                    force_relay: false,
-                })
+                answered
+                    .await
+                    .unwrap_or_else(|_| Err("the test gave no answer".into()))
             }))
         }));
-        let mut session = network.start(params()).await.unwrap();
-        let mut game = Game::connect(session.game_port).await;
+        (network, answer)
+    }
+
+    fn late_list() -> IceServers {
+        IceServers {
+            servers: vec![json!({"urls": "turn:late.test"})],
+            force_relay: false,
+        }
+    }
+
+    fn late_list_message() -> GpgMessage {
+        GpgMessage::new("IceServers", vec![text(r#"[{"urls":"turn:late.test"}]"#)])
+    }
+
+    /// Until the bridge has taken everything the lobby sent it. It deals with
+    /// each message before it waits for the next, and this test's runtime has
+    /// one thread, so then it has dealt with them all.
+    async fn taken(from_lobby: &mpsc::Sender<RelayMsg>) {
+        let all_taken = async {
+            while from_lobby.capacity() < from_lobby.max_capacity() {
+                tokio::task::yield_now().await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(5), all_taken)
+            .await
+            .expect("the bridge takes what the lobby says");
+    }
+
+    /// A game at its `Idle`, before its session came: it is set up with no
+    /// servers.
+    async fn idle_without_servers(port: u16) -> Game {
+        let mut game = Game::connect(port).await;
         game.send(idle()).await;
         assert_eq!(
             game.next().await,
@@ -806,11 +914,19 @@ mod tests {
             "the game does not wait for its session"
         );
         assert_eq!(game.next().await.command, "CreateLobby");
+        game
+    }
 
-        arrive.send(()).unwrap();
+    #[tokio::test]
+    async fn a_session_later_than_the_game_is_sent_when_it_arrives() {
+        let (network, answer) = with_a_late_session();
+        let mut session = network.start(params()).await.unwrap();
+        let mut game = idle_without_servers(session.game_port).await;
+
+        assert!(answer.send(Ok(late_list())).is_ok());
         assert_eq!(
             game.next().await,
-            GpgMessage::new("IceServers", vec![text(r#"[{"urls":"turn:late.test"}]"#)]),
+            late_list_message(),
             "and gets the list once there is one"
         );
         assert!(
@@ -818,6 +934,102 @@ mod tests {
             "a session that arrived fails nothing"
         );
         network.stop();
+    }
+
+    /// What the lobby says to a game set up before its session came waits
+    /// for the list, then follows it as it came. A link begun without the
+    /// list would have no STUN or TURN until it tried again.
+    #[tokio::test]
+    async fn what_the_lobby_says_before_the_list_waits_for_it() {
+        let (network, answer) = with_a_late_session();
+        let session = network.start(params()).await.unwrap();
+        let mut game = idle_without_servers(session.game_port).await;
+
+        for message in [
+            relay("JoinGame", vec![json!("Bert"), json!(102)]),
+            relay(
+                "ConnectToPeer",
+                vec![json!("Cleo"), json!(103), json!(true)],
+            ),
+            relay("IceMsg", vec![json!(102), json!("offer")]),
+        ] {
+            session.from_lobby.send(message).await.unwrap();
+        }
+        taken(&session.from_lobby).await;
+        assert!(answer.send(Ok(late_list())).is_ok());
+
+        assert_eq!(game.next().await, late_list_message());
+        assert_eq!(
+            game.next().await,
+            GpgMessage::new("JoinGame", vec![text("Bert"), GpgArg::Int(102)])
+        );
+        assert_eq!(
+            game.next().await,
+            GpgMessage::new(
+                "ConnectToPeer",
+                vec![text("Cleo"), GpgArg::Int(103), GpgArg::Int(1)]
+            )
+        );
+        assert_eq!(
+            game.next().await,
+            GpgMessage::new("IceMsg", vec![GpgArg::Int(102), text("offer")])
+        );
+
+        session
+            .from_lobby
+            .send(relay("IceMsg", vec![json!(103), json!("answer")]))
+            .await
+            .unwrap();
+        assert_eq!(
+            game.next().await,
+            GpgMessage::new("IceMsg", vec![GpgArg::Int(103), text("answer")]),
+            "from then on at once"
+        );
+        network.stop();
+    }
+
+    /// A session that cannot be had lets go of what waited for it: the game
+    /// keeps its empty list, and links on one network need none.
+    #[tokio::test]
+    async fn a_session_that_fails_lets_go_of_what_waited_for_it() {
+        let (network, answer) = with_a_late_session();
+        let mut session = network.start(params()).await.unwrap();
+        let mut game = idle_without_servers(session.game_port).await;
+
+        session
+            .from_lobby
+            .send(relay("JoinGame", vec![json!("Bert"), json!(102)]))
+            .await
+            .unwrap();
+        taken(&session.from_lobby).await;
+        assert!(answer.send(Err("the API is down".into())).is_ok());
+
+        assert_eq!(
+            game.next().await,
+            GpgMessage::new("JoinGame", vec![text("Bert"), GpgArg::Int(102)])
+        );
+        assert_eq!(
+            session.late_failure.take().unwrap().await.unwrap(),
+            "the API is down"
+        );
+        network.stop();
+    }
+
+    /// A list that came just before the game's `Idle` goes with its set up,
+    /// and is not sent once more for having come.
+    #[test]
+    fn a_list_read_for_a_set_up_is_read_as_seen() {
+        let (list, updates) = watch::channel(None);
+        let mut servers = Servers::new(updates);
+        assert!(servers.awaited());
+        list.send(Some("[]".to_string())).unwrap();
+
+        assert_eq!(servers.latest().as_deref(), Some("[]"));
+        assert!(!servers.awaited());
+        assert!(
+            !servers.updates.has_changed().unwrap(),
+            "the change that brought it is read with it"
+        );
     }
 
     #[tokio::test]
