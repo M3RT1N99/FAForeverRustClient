@@ -1669,6 +1669,7 @@ export const en = {
   "lobby.mode.galacticWar": "Galactic War",
 
   "shell.sidebar.desktopClient": "Desktop client",
+  "shell.sidebar.androidClient": "Android client",
   "shell.sidebar.online": "Online",
   "shell.sidebar.offline": "Offline",
   "shell.sidebar.connecting": "Connecting",

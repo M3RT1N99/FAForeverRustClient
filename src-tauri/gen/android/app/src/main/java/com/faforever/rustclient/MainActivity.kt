@@ -27,9 +27,10 @@ class MainActivity : TauriActivity() {
     }
   }
 
-  // The page is laid out at the width its viewport names, which the interface
-  // scale sets on Android (App.tsx), and drawn at the screen's: the desktop
-  // layout shows whole instead of being laid out anew for a phone.
+  // The page is laid out at the width its viewport names and drawn at the
+  // scale it names, which App.tsx sets from the webview's own width
+  // (shared/androidLayout): the makers' responsive layout at the phone's
+  // width wherever every page fits it, and drawn smaller below that.
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
     webView.settings.useWideViewPort = true

@@ -159,7 +159,9 @@ pub fn run_helper_if_asked(arguments: &[String]) -> Option<i32> {
 }
 
 /// What the helper's exit code says. Only [`Exit::GameEnded`] ever showed a
-/// status; the rest are the reasons it could not.
+/// status; the rest are the reasons it could not. Only the helper, on Windows
+/// and Linux, exits with them; elsewhere the client says `Unsupported` alone.
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(i32)]
 enum Exit {

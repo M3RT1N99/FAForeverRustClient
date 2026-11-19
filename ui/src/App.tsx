@@ -20,26 +20,38 @@ import {
   clearLegacyBrowsingPreferences,
   migrateLegacyBrowsingPreferences,
 } from "./shared/browsingPreferences";
+import { androidLayoutWidth } from "./shared/androidLayout";
 import { runsOnAndroid } from "./shared/platform";
 
 /**
- * The width the page is laid out at on Android, at 100%: its first window on
- * the desktop is 1100 wide. A phone lying down is about 830 CSS px wide, so the
- * desktop layout shows whole, drawn at three quarters, rather than laid out anew.
+ * The webview's own width in CSS px at 100 %: the screen less what the system
+ * keeps beside it (a camera cutout, the navigation bar), which `screen.width`
+ * still counts. The visual viewport is the laid-out width drawn at its scale,
+ * so their product is the webview's width whatever the layout width is.
  */
-const ANDROID_LAYOUT_WIDTH = 1100;
+function webviewWidth(): number {
+  const viewport = window.visualViewport;
+  return viewport && viewport.scale > 0 ? viewport.width * viewport.scale : window.screen.width;
+}
 
 /** Never let a zoom failure take the shell down with it; the UI is still usable
  *  at 100%, and there is nothing the user could do about it here anyway. */
 async function applyInterfaceScale(scale: number): Promise<void> {
   // Android's webview has no zoom (wry's does nothing there). Its wide viewport
-  // (MainActivity) scales the page's layout width to the screen instead, so the
-  // scale goes into that width: a larger scale is a narrower layout, shown
-  // larger, in the one coordinate space the webview zoom keeps on the desktop.
+  // (MainActivity) lays the page out at the width the viewport names instead,
+  // so the scale goes into that width (`shared/androidLayout`): a larger scale
+  // is a narrower layout, shown larger, in the one coordinate space the webview
+  // zoom keeps on the desktop. The page is drawn across the webview at a scale
+  // held there: the webview fits a page to its width only when it loads, and a
+  // page wider than its layout scrolls rather than shrinking any further. Set
+  // only when it changes: a new width resizes the page.
   if (runsOnAndroid()) {
-    document
-      .querySelector('meta[name="viewport"]')
-      ?.setAttribute("content", `width=${Math.round((ANDROID_LAYOUT_WIDTH * 100) / scale)}`);
+    const available = webviewWidth();
+    const width = androidLayoutWidth(available, scale);
+    const drawn = (available / width).toFixed(4);
+    const content = `width=${width}, initial-scale=${drawn}, minimum-scale=${drawn}, maximum-scale=${drawn}`;
+    const viewport = document.querySelector('meta[name="viewport"]');
+    if (viewport && viewport.getAttribute("content") !== content) viewport.setAttribute("content", content);
     return;
   }
   try {
@@ -116,6 +128,17 @@ export function App() {
     uiScale.current = appearance.uiScale;
     void applyInterfaceScale(appearance.uiScale);
   }, [appearance.uiScale]);
+
+  // Android: a phone turned round, or a window made narrower, is a webview of
+  // another width, which the layout width follows. Its own change of width
+  // comes back here too, and leaves the width as it is.
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!runsOnAndroid() || !viewport) return undefined;
+    const resized = () => void applyInterfaceScale(uiScale.current);
+    viewport.addEventListener("resize", resized);
+    return () => viewport.removeEventListener("resize", resized);
+  }, []);
 
   // Keep webview layout and DOM container dimensions synchronized with native
   // window resizing. The zoom is applied again once a resize settles: the CSS

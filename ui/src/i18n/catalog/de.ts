@@ -1369,6 +1369,7 @@ export const de: Partial<Record<MessageKey, Message>> = {
   "lobby.mode.galacticWar": "Galactic War",
 
   "shell.sidebar.desktopClient": "Desktop-Client",
+  "shell.sidebar.androidClient": "Android-Client",
   "shell.sidebar.online": "Online",
   "shell.sidebar.offline": "Offline",
   "shell.sidebar.connecting": "Verbinde",
