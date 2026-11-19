@@ -42,6 +42,26 @@ describe("plainError", () => {
     expect(plainError("folders cannot be picked on Android")).toBe(en["errors.cause.notOnAndroid"]);
   });
 
+  it("says a refusal of the FAF game app's in the player's words, by its code", () => {
+    // `failure_reason` in src-tauri/src/game_app.rs, around the game app's own words.
+    const refused =
+      "FAF's game app did not start it: no game files of the featured mod \"coop\": the game has FAF's own (faf) only (NO_GAME_FILES)";
+    expect(plainError(refused)).toBe(en["android.gameApp.failure.noGameFiles"]);
+    expect(plainError("FAF's game app did not start it (NO_MAP)")).toBe(en["android.gameApp.failure.noMap"]);
+    // A code this client does not know yet keeps the game app's words.
+    expect(plainError("FAF's game app did not start it: something new (NEW_CODE)")).toBe(
+      "FAF's game app did not start it: something new (NEW_CODE).",
+    );
+  });
+
+  it("says what the game app still needs when the shell did not hand a start over", () => {
+    // `refusal_before_start` in src-tauri/src/game_app.rs.
+    expect(plainError("FAF's game app is not installed")).toBe(en["android.gameApp.need.install"]);
+    expect(plainError("FAF's game app is too old to start games from the client")).toBe(en["android.gameApp.need.update"]);
+    expect(plainError("FAF's game app does not accept this client")).toBe(en["android.gameApp.need.allow"]);
+    expect(plainError("a game is already running in FAF's game app")).toBe(en["android.gameApp.failure.running"]);
+  });
+
   it("tidies what it does not recognise: no long paths, no snake case, a full stop", () => {
     expect(plainError("game_not_found")).toBe("Game not found.");
     expect(plainError("could not read D:\\Games\\FA\\maps\\scmp_009\\scmp_009_scenario.lua: bad header")).toBe(

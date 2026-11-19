@@ -320,7 +320,7 @@ export const de: Partial<Record<MessageKey, Message>> = {
   "android.gameApp.need.gameFilesHint": "Ihre Einrichtung lädt die neueste FAF-Version.",
   "android.gameApp.need.busy": "Die FAF-Spiel-App richtet sich ein",
   "android.gameApp.failure.noScfa": "Der Spiel-App fehlen die Dateien deines Supreme Commander. Richte sie in der Spiel-App ein.",
-  "android.gameApp.failure.noGameFiles": "Die Spiel-App hat für dieses Spiel noch keine FAF-Spieldateien. Hol sie in ihrer Einrichtung.",
+  "android.gameApp.failure.noGameFiles": "Der Spiel-App fehlen die FAF-Spieldateien, die dieses Spiel braucht.",
   "android.gameApp.failure.broken": "Die Spiel-App konnte das Spiel nicht vorbereiten. Installiere sie neu, wenn das wieder passiert.",
   "android.gameApp.failure.storage": "Die Spiel-App konnte ihren Speicher auf diesem Handy nicht nutzen. Prüfe den freien Platz und versuche es noch einmal.",
   "android.gameApp.failure.arguments": "Die Spiel-App hat abgelehnt, wie der Client das Spiel angefordert hat. Aktualisiere beide Apps.",
@@ -331,6 +331,7 @@ export const de: Partial<Record<MessageKey, Message>> = {
   "android.gameApp.failure.noMod": "Eine Mod, die das Spiel braucht, liegt nicht auf FAFs Inhaltsserver.",
   "android.gameApp.failure.download": "Die Spiel-App konnte die Karte oder die Mods nicht laden.",
   "android.gameApp.failure.replay": "Die Spiel-App konnte das Replay nicht lesen.",
+  "android.gameApp.failure.cancelled": "Der Start wurde in der Spiel-App abgebrochen.",
   "android.gameApp.failure.unknown": "Die Spiel-App hat das Spiel nicht gestartet ({code}).",
 
   "auth.welcome": "Willkommen bei FAForever",

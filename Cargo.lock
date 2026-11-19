@@ -1230,6 +1230,7 @@ dependencies = [
 name = "faforever-rust-client"
 version = "1.0.0"
 dependencies = [
+ "async-trait",
  "faf-app",
  "faf-domain",
  "faf-ipc",

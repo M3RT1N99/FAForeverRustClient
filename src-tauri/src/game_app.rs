@@ -129,6 +129,33 @@ pub(crate) fn status_from(raw: serde_json::Value) -> Result<GameAppStatus, Strin
     })
 }
 
+/// Why a start cannot be handed to the game app as it is now: it is missing,
+/// too old for the launcher contract, refuses this client, or runs a game.
+pub(crate) fn refusal_before_start(status: &GameAppStatus) -> Option<&'static str> {
+    if !status.installed {
+        return Some("FAF's game app is not installed");
+    }
+    match status.contract {
+        GameAppContract::None => Some("FAF's game app is too old to start games from the client"),
+        GameAppContract::Refused => Some("FAF's game app does not accept this client"),
+        GameAppContract::Open => status
+            .game_data
+            .as_ref()
+            .is_some_and(|data| data.game_running)
+            .then_some("a game is already running in FAF's game app"),
+    }
+}
+
+/// A refusal of the game app's, as the reason a launch failed: its own
+/// words, with the code that names the case.
+pub(crate) fn failure_reason(failure: &str, message: &str) -> String {
+    if message.is_empty() {
+        format!("FAF's game app did not start it ({failure})")
+    } else {
+        format!("FAF's game app did not start it: {message} ({failure})")
+    }
+}
+
 /// Whether a release `version` is newer than the game app on this device. A
 /// version name that is no release version, a build of one's own, is never
 /// offered one.
@@ -232,6 +259,32 @@ mod tests {
                 crashed: false,
                 end: Some("END ok".into()),
             })
+        );
+    }
+
+    #[test]
+    fn a_start_waits_for_a_game_app_that_can_take_it() {
+        let open = |running: i64| {
+            status_from(json!({
+                "installed": true,
+                "contract": "open",
+                "gameData": { "scfa_archives": 1, "scfa_fonts": 1, "game_running": running }
+            }))
+            .unwrap()
+        };
+        assert_eq!(refusal_before_start(&open(0)), None);
+        assert!(
+            refusal_before_start(&open(1)).is_some_and(|reason| reason.contains("already running"))
+        );
+        let old = status_from(json!({ "installed": true, "contract": "none" })).unwrap();
+        assert!(refusal_before_start(&old).is_some_and(|reason| reason.contains("too old")));
+        let missing = status_from(json!({ "installed": false })).unwrap();
+        assert!(
+            refusal_before_start(&missing).is_some_and(|reason| reason.contains("not installed"))
+        );
+        assert_eq!(
+            failure_reason("NO_GAME_FILES", "no game files of version 3800"),
+            "FAF's game app did not start it: no game files of version 3800 (NO_GAME_FILES)"
         );
     }
 

@@ -30,6 +30,7 @@ use tokio::sync::Mutex;
 use crate::infra::session::TokenStore;
 use crate::infra::vault_install::MAX_DOWNLOAD_BYTES;
 use crate::infra::{cache_dir, game_updater};
+use crate::ports::game_app::{contract_map_name, GameAppPort, GameAppStart};
 use crate::ports::{
     MapGeneratorPort, PreparationPhase, PreparationSink, PreparationStep, ProcessPort,
     ReplayPlaybackPort,
@@ -168,6 +169,11 @@ impl ReplayPlayback {
         self.live.end_session().await;
         let replay = prepare_scfareplay(&path).await?;
         let mod_name = normalize_mod(&replay.mod_name);
+        // Where the game is an app of its own (Android), it plays the replay
+        // with its own files: nothing here is staged or activated for it.
+        if let Some(game_app) = crate::infra::game_app::game_app() {
+            return start_in_game_app(game_app.as_ref(), &replay, &mod_name).await;
+        }
         let mut warning = None;
 
         let target = self.preparation.install_dir();
@@ -342,6 +348,39 @@ impl ReplayPlayback {
         }
         Ok(warning)
     }
+}
+
+/// Hand `replay` to the game app, with the version it was recorded with and
+/// its map, which the game app fetches where it lacks it. Not its sim mods:
+/// the game app takes mods by their files on FAF's content server, which a
+/// replay does not name, so a replay with mods plays without them, and the
+/// warning says so.
+async fn start_in_game_app(
+    game_app: &dyn GameAppPort,
+    replay: &ScfaReplay,
+    mod_name: &str,
+) -> Result<Option<String>, String> {
+    let start = GameAppStart {
+        game_version: replay.game_version,
+        featured_mod: Some(mod_name.to_owned()),
+        arguments: Vec::new(),
+        map: replay.map_folder.as_deref().and_then(contract_map_name),
+        replay: Some(replay.path.clone()),
+    };
+    // Its end is the game app's own business, as a replay window's is.
+    game_app.start(start).await?;
+    if replay.sim_mods.is_empty() {
+        return Ok(None);
+    }
+    let names: Vec<&str> = replay
+        .sim_mods
+        .iter()
+        .map(|(_, name)| name.as_str())
+        .collect();
+    Ok(Some(format!(
+        "the game app plays this replay without its mods: {}",
+        names.join(", ")
+    )))
 }
 
 /// Everything extracted from a `.fafreplay`/`.scfareplay` source needed to
@@ -545,6 +584,91 @@ async fn read_replay_prefix(path: &Path) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::game_app::GameAppRun;
+
+    /// A game app that takes every start, or refuses each with `refusal`.
+    struct RecordingGameApp {
+        starts: std::sync::Mutex<Vec<GameAppStart>>,
+        refusal: Option<String>,
+    }
+
+    #[async_trait]
+    impl GameAppPort for RecordingGameApp {
+        async fn start(&self, start: GameAppStart) -> Result<GameAppRun, String> {
+            self.starts.lock().unwrap().push(start);
+            if let Some(refusal) = &self.refusal {
+                return Err(refusal.clone());
+            }
+            let (_, ended) = tokio::sync::oneshot::channel();
+            Ok(GameAppRun { ended })
+        }
+    }
+
+    fn scfa_replay(sim_mods: Vec<(String, String)>) -> ScfaReplay {
+        ScfaReplay {
+            path: PathBuf::from("replay_00ff.scfareplay"),
+            mod_name: "faf".into(),
+            uid: Some(25_000_000),
+            game_version: Some(3841),
+            featured_mod_version: None,
+            map_folder: Some("SCMP_009".into()),
+            sim_mods,
+            git_sha: None,
+            git_short_sha: None,
+            build_signature: None,
+            version_name: None,
+            launched_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn the_game_app_gets_the_replay_with_its_version_and_map() {
+        let game_app = RecordingGameApp {
+            starts: std::sync::Mutex::default(),
+            refusal: None,
+        };
+        let warning = start_in_game_app(&game_app, &scfa_replay(Vec::new()), "faf").await;
+        assert_eq!(warning, Ok(None));
+        assert_eq!(
+            game_app.starts.lock().unwrap().as_slice(),
+            [GameAppStart {
+                game_version: Some(3841),
+                featured_mod: Some("faf".into()),
+                arguments: Vec::new(),
+                map: Some("scmp_009".into()),
+                replay: Some(PathBuf::from("replay_00ff.scfareplay")),
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_replay_with_mods_plays_without_them_and_says_so() {
+        let game_app = RecordingGameApp {
+            starts: std::sync::Mutex::default(),
+            refusal: None,
+        };
+        let mods = vec![("a1b2c3d4-uid".into(), "Supreme Score Board".into())];
+        let warning = start_in_game_app(&game_app, &scfa_replay(mods), "faf").await;
+        assert_eq!(
+            warning,
+            Ok(Some(
+                "the game app plays this replay without its mods: Supreme Score Board".into()
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn the_game_app_s_refusal_is_the_launch_s_failure() {
+        let game_app = RecordingGameApp {
+            starts: std::sync::Mutex::default(),
+            refusal: Some("No FAF game files of version 3841 (NO_GAME_FILES)".into()),
+        };
+        let result = start_in_game_app(&game_app, &scfa_replay(Vec::new()), "faf").await;
+        assert_eq!(
+            result,
+            Err("No FAF game files of version 3841 (NO_GAME_FILES)".into())
+        );
+    }
 
     #[test]
     fn an_overlay_revision_is_the_highest_featured_mod_version() {

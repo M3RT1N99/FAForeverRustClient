@@ -352,7 +352,7 @@ export const en = {
   "android.gameApp.need.gameFilesHint": "Its setup downloads FAF's newest version.",
   "android.gameApp.need.busy": "The FAF game app is setting up",
   "android.gameApp.failure.noScfa": "The game app is missing your Supreme Commander's files. Set them up in the game app.",
-  "android.gameApp.failure.noGameFiles": "The game app has no FAF game files for this game yet. Get them in its setup.",
+  "android.gameApp.failure.noGameFiles": "The game app does not have the FAF game files this game needs.",
   "android.gameApp.failure.broken": "The game app could not prepare the game. Reinstall it if this keeps happening.",
   "android.gameApp.failure.storage": "The game app could not use its storage on this phone. Check the free space and try again.",
   "android.gameApp.failure.arguments": "The game app refused how the client asked for the game. Update both apps.",
@@ -363,6 +363,7 @@ export const en = {
   "android.gameApp.failure.noMod": "A mod the game needs is not on FAF's content server.",
   "android.gameApp.failure.download": "The game app could not download the map or the mods.",
   "android.gameApp.failure.replay": "The game app could not read the replay.",
+  "android.gameApp.failure.cancelled": "The start was cancelled in the game app.",
   "android.gameApp.failure.unknown": "The game app did not start the game ({code}).",
 
   // Login screen.

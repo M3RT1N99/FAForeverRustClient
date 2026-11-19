@@ -3,11 +3,14 @@
 //! make for the logs and a problem report, and the FAF game app with its
 //! updates.
 
-use std::sync::{Mutex, PoisonError};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use faf_app::infra::game_app_release::{GameAppRelease, GameAppReleases};
 use faf_app::infra::log_export::export_client_logs;
 use faf_app::infra::log_scrub::Scrubber;
+use faf_app::ports::game_app::{GameAppPort, GameAppRun, GameAppStart};
 use faf_ipc::shell::{
     GameAppEnd, GameAppInstall, GameAppLaunch, GameAppStatus, GameAppUpdate, ReportContext,
 };
@@ -41,9 +44,12 @@ pub(crate) fn init() -> TauriPlugin<Wry> {
             app.manage(Diagnostics(
                 api.register_android_plugin(APP_PACKAGE, "DiagnosticsPlugin")?,
             ));
-            app.manage(GameApp(
-                api.register_android_plugin(APP_PACKAGE, "GameAppPlugin")?,
-            ));
+            let game_app = api.register_android_plugin(APP_PACKAGE, "GameAppPlugin")?;
+            faf_app::infra::game_app::set_game_app(Arc::new(GameAppLauncher {
+                plugin: game_app.clone(),
+                replays: app.path().app_cache_dir()?.join("replays"),
+            }));
+            app.manage(GameApp(game_app));
             app.manage(GameAppUpdates::faf());
             let app = app.clone();
             faf_app::infra::set_browser_opener(move |url| {
@@ -250,6 +256,126 @@ pub(crate) async fn game_app_play(
         .await
         .map(crate::game_app::end_from)
         .map_err(|error| format!("could not start the game app: {error}"))
+}
+
+/// The game app as `faf_app` starts replays in it: its PLAY, with a replay
+/// file handed over through this app's file provider.
+struct GameAppLauncher {
+    plugin: PluginHandle<Wry>,
+    /// Where a replay waits for the game app to read it: the cache, which the
+    /// file provider shares (`res/xml/file_paths.xml`).
+    replays: PathBuf,
+}
+
+/// How often the game app's status is asked while a start is handed over.
+const TAKEOVER_POLL: Duration = Duration::from_millis(500);
+/// How long a start may take to be handed over before the client stops
+/// waiting: the game app's game process is up within a second or two.
+const TAKEOVER_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// What `GameAppPlugin.play` takes for a start of `faf_app`'s.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlayStart {
+    game_version: Option<i32>,
+    featured_mod: Option<String>,
+    arguments: Option<Vec<String>>,
+    map: Option<String>,
+    replay_path: Option<String>,
+}
+
+impl GameAppLauncher {
+    /// Copy `replay` where the file provider shares it, as the only replay
+    /// there: the game app copies it when its game starts, and no start is
+    /// handed over while a game runs.
+    async fn hand_over(&self, replay: &Path) -> Result<String, String> {
+        let _ = tokio::fs::remove_dir_all(&self.replays).await;
+        tokio::fs::create_dir_all(&self.replays)
+            .await
+            .map_err(|error| format!("could not make the replay's folder: {error}"))?;
+        let copy = self.replays.join("replay.scfareplay");
+        tokio::fs::copy(replay, &copy)
+            .await
+            .map_err(|error| format!("could not hand the replay over: {error}"))?;
+        Ok(copy.to_string_lossy().into_owned())
+    }
+
+    async fn game_running(&self) -> bool {
+        let status: Result<serde_json::Value, String> = call(&self.plugin, "status", ()).await;
+        status
+            .and_then(crate::game_app::status_from)
+            .is_ok_and(|status| status.game_data.is_some_and(|data| data.game_running))
+    }
+}
+
+/// How a PLAY ended, as `faf_app` reads it: over, or why not.
+fn outcome_of(
+    answered: Result<Result<serde_json::Value, String>, tokio::task::JoinError>,
+) -> Result<(), String> {
+    match answered {
+        Ok(Ok(raw)) => match crate::game_app::end_from(raw) {
+            GameAppEnd::Ended => Ok(()),
+            GameAppEnd::Failed { failure, message } => {
+                Err(crate::game_app::failure_reason(&failure, &message))
+            }
+        },
+        Ok(Err(error)) => Err(format!("could not start FAF's game app: {error}")),
+        Err(_) => Err("the start in FAF's game app stopped".to_owned()),
+    }
+}
+
+#[async_trait::async_trait]
+impl GameAppPort for GameAppLauncher {
+    /// The start is the game app's once its game process runs, which its
+    /// status says, or once it answered, which it does at once when it
+    /// refuses. The answer that ends the game resolves the run's `ended`.
+    async fn start(&self, start: GameAppStart) -> Result<GameAppRun, String> {
+        let raw = call(&self.plugin, "status", ())
+            .await
+            .map_err(|error| format!("could not ask FAF's game app: {error}"))?;
+        if let Some(refusal) =
+            crate::game_app::refusal_before_start(&crate::game_app::status_from(raw)?)
+        {
+            return Err(refusal.to_owned());
+        }
+        let replay_path = match &start.replay {
+            Some(replay) => Some(self.hand_over(replay).await?),
+            None => None,
+        };
+        let play = PlayStart {
+            game_version: start.game_version,
+            featured_mod: start.featured_mod,
+            arguments: (!start.arguments.is_empty()).then_some(start.arguments),
+            map: start.map,
+            replay_path,
+        };
+        let plugin = self.plugin.clone();
+        let mut answer = tokio::spawn(async move { call(&plugin, "play", play).await });
+        let (sender, ended) = tokio::sync::oneshot::channel();
+        let deadline = tokio::time::Instant::now() + TAKEOVER_TIMEOUT;
+        loop {
+            tokio::select! {
+                answered = &mut answer => {
+                    // Refused, or over before its game was seen running.
+                    outcome_of(answered)?;
+                    let _ = sender.send(Ok(()));
+                    return Ok(GameAppRun { ended });
+                }
+                () = tokio::time::sleep(TAKEOVER_POLL) => {
+                    if self.game_running().await || tokio::time::Instant::now() >= deadline {
+                        tokio::spawn(async move {
+                            let outcome = outcome_of(answer.await);
+                            if let Err(reason) = &outcome {
+                                tracing::warn!(%reason, "the game app gave a start up");
+                            }
+                            let _ = sender.send(outcome);
+                        });
+                        return Ok(GameAppRun { ended });
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// The game app's releases, and the newest the last check found, which is

@@ -73,6 +73,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::infra::session::TokenStore;
 use crate::infra::{fetch_access_url, validated_ws_url};
+use crate::ports::game_app::{contract_map_name, contract_replay_name, GameAppStart};
 use crate::ports::ProcessPort;
 
 use super::names::normalize_mod;
@@ -84,6 +85,10 @@ type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 /// How long to wait for the replay server's first byte, or for FA to connect
 /// to the local TCP proxy, before giving up.
 const READY_TIMEOUT: Duration = Duration::from_secs(20);
+/// The same for FAF's game app (Android), which fetches a map it lacks
+/// before its game loads, trying again for about ten minutes when the
+/// network drops.
+const GAME_APP_READY_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 /// The pipe FA is pointed at when the "Live Replays Workaround" is on. Fixed
 /// rather than per-game, and the same name the Python client uses, so the two
@@ -266,6 +271,9 @@ impl LiveStreamer {
             .ok_or_else(|| "not logged in".to_string())?;
 
         let mod_name = normalize_mod(&target.mod_name);
+        // Where the game is an app of its own (Android), it keeps its own
+        // files and fetches the map itself: nothing is prepared here.
+        let game_app = crate::infra::game_app::game_app();
 
         // Preparation runs before the stream is opened, deliberately. The
         // replay server starts sending the moment the handshake lands, and FA
@@ -273,7 +281,7 @@ impl LiveStreamer {
         // download between those two points would be spent buffering a live
         // stream nobody is reading yet.
         let mut warning = None;
-        match preparation.install_dir() {
+        match preparation.install_dir().filter(|_| game_app.is_none()) {
             Some(target_dir) => {
                 // The gap behind "Ack! Unable to load replay from gpgnet".
                 // Live spectating never updated the install it launches, so
@@ -310,6 +318,7 @@ impl LiveStreamer {
                     warning = Some(warn);
                 }
             }
+            None if game_app.is_some() => {}
             None => {
                 tracing::warn!(
                     "no replay install is configured, so the engine version and map \
@@ -374,15 +383,40 @@ impl LiveStreamer {
                     .map_err(|e| format!("could not bind local replay proxy: {e}"))?
                     .port();
 
-                process
-                    .launch_replay(launch_args(format!(
-                        "gpgnet://127.0.0.1:{port}/{}/{player}.SCFAreplay",
-                        target.uid
-                    )))
-                    .await?;
-
-                let (stream, _) = tokio::time::timeout(READY_TIMEOUT, listener.accept())
-                    .await
+                let url = |name: &str| {
+                    format!("gpgnet://127.0.0.1:{port}/{}/{name}.SCFAreplay", target.uid)
+                };
+                let accepted = match &game_app {
+                    // The game app may fetch the map first, so it connects
+                    // once its game has loaded, or it gives up.
+                    Some(game_app) => {
+                        let run = game_app
+                            .start(GameAppStart {
+                                arguments: vec![
+                                    "/replay".to_owned(),
+                                    url(&contract_replay_name(&player)),
+                                ],
+                                featured_mod: Some(mod_name.clone()),
+                                map: contract_map_name(&target.map),
+                                ..GameAppStart::default()
+                            })
+                            .await?;
+                        tokio::select! {
+                            accepted = tokio::time::timeout(GAME_APP_READY_TIMEOUT, listener.accept()) => accepted,
+                            ended = run.ended => {
+                                return Err(match ended {
+                                    Ok(Err(reason)) => reason,
+                                    _ => "the game app ended before it connected".to_owned(),
+                                });
+                            }
+                        }
+                    }
+                    None => {
+                        process.launch_replay(launch_args(url(&player))).await?;
+                        tokio::time::timeout(READY_TIMEOUT, listener.accept()).await
+                    }
+                };
+                let (stream, _) = accepted
                     .map_err(|_| "timed out waiting for the game to connect".to_string())?
                     .map_err(|e| format!("accept failed: {e}"))?;
 

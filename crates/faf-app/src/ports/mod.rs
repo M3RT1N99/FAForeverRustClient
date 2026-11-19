@@ -17,6 +17,7 @@ pub mod discord;
 pub mod error;
 pub mod events;
 pub mod galactic_war;
+pub mod game_app;
 pub mod game_cache;
 pub mod game_logs;
 pub mod guides;

@@ -11,6 +11,7 @@ import type { MessageKey } from "../i18n";
 import { t } from "../i18n";
 import { native, type GameAppStatus } from "../ipc/native";
 import { openHttpsUrl } from "./externalLinks";
+import { GAME_APP_FAILURES } from "./gameAppFailures";
 import { theGameIsItsOwnApp } from "./platform";
 
 /** Where the game app is published. */
@@ -66,30 +67,12 @@ export function gameAppNeedAction(need: GameAppNeed): { label: MessageKey; run: 
   }
 }
 
-/** The game app's failure codes, as the player reads them. */
-const FAILURES: Record<string, MessageKey> = {
-  NO_SCFA: "android.gameApp.failure.noScfa",
-  NO_FONTS: "android.gameApp.failure.noScfa",
-  NO_GAME_FILES: "android.gameApp.failure.noGameFiles",
-  INIT_FILE: "android.gameApp.failure.broken",
-  ENVIRONMENT: "android.gameApp.failure.broken",
-  STORAGE: "android.gameApp.failure.storage",
-  ARGUMENTS: "android.gameApp.failure.arguments",
-  RUNNING: "android.gameApp.failure.running",
-  PROCESS_ENDED: "android.gameApp.failure.processEnded",
-  CALLER: "android.gameApp.failure.caller",
-  NO_MAP: "android.gameApp.failure.noMap",
-  NO_MOD: "android.gameApp.failure.noMod",
-  DOWNLOAD: "android.gameApp.failure.download",
-  REPLAY: "android.gameApp.failure.replay",
-};
-
 /**
  * Why the game app did not start a game, in the player's language. A code
  * this client does not know yet falls back to the game app's own words.
  */
 export function gameAppFailureText(failure: string, message: string): string {
-  const key = FAILURES[failure];
+  const key = GAME_APP_FAILURES[failure];
   if (key) return t(key);
   return message || t("android.gameApp.failure.unknown", { code: failure });
 }

@@ -16,6 +16,7 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.result.ActivityResult
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.content.IntentCompat
 import androidx.core.content.pm.PackageInfoCompat
 import app.tauri.annotation.ActivityCallback
@@ -65,6 +66,7 @@ class PlayArgs {
   var rejoinOffer: Boolean = false
   var rejoinPeers: String? = null
   var rejoinSource: Int? = null
+  var replayPath: String? = null
 }
 
 @InvokeArg
@@ -135,6 +137,11 @@ class GameAppPlugin(private val activity: Activity) : Plugin(activity) {
     if (args.rejoinOffer) intent.putExtra("${EXTRA}REJOIN_OFFER", true)
     args.rejoinPeers?.let { intent.putExtra("${EXTRA}REJOIN_PEERS", it) }
     args.rejoinSource?.let { intent.putExtra("${EXTRA}REJOIN_SOURCE", it) }
+    // A replay goes as the intent's data, which the game app is let read.
+    args.replayPath?.let { path ->
+      intent.setData(FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", File(path)))
+      intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
     try {
       startActivityForResult(invoke, intent, "ended")
     } catch (missing: ActivityNotFoundException) {
