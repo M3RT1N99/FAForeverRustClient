@@ -26,7 +26,8 @@
 //! `JoinGame` and `ConnectToPeer` for this game, keeps the port open, drops
 //! the `IceMsg` for the game while none is connected, and sends a game
 //! started again with `/rejoin` what the first one had: see
-//! [`IcePort::begin_rejoin`].
+//! [`IcePort::begin_rejoin`]. Only from an offer that Android's game app
+//! would start a return with: it refuses any other start.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -320,7 +321,33 @@ impl RejoinOffer {
             .collect::<Option<Vec<_>>>()?;
         Some(Self { source, seats })
     }
+
+    /// Whether a return can be started with it: one the game app takes
+    /// (its `REJOIN_SOURCE` and `REJOIN_PEERS`), rather than a start it
+    /// refuses. Every source is a command source, 0 to 255; a player id is
+    /// 0 or more, and as an `i32` then within the 10 digits it may have; and
+    /// the other players are at most 16.
+    fn can_return(&self, own_player_id: i32) -> bool {
+        let source = |source: i32| (0..=MAX_SOURCE).contains(&source);
+        let others = self
+            .seats
+            .iter()
+            .filter(|seat| seat.player_id != own_player_id)
+            .count();
+        source(self.source)
+            && others <= MAX_OTHER_SEATS
+            && self
+                .seats
+                .iter()
+                .all(|seat| seat.player_id >= 0 && source(seat.source))
+    }
 }
+
+/// The highest command source a return takes.
+const MAX_SOURCE: i32 = 255;
+
+/// The most other players a return takes.
+const MAX_OTHER_SEATS: usize = 16;
 
 /// One game's messages, between its GPGNet connection and the lobby.
 ///
@@ -546,7 +573,7 @@ impl Bridge {
         match message.command.as_str() {
             "RejoinOffer" => {
                 match RejoinOffer::parse(&message.args) {
-                    Some(offer) => {
+                    Some(offer) if offer.can_return(self.player_id) => {
                         tracing::info!(
                             source = offer.source,
                             players = offer.seats.len(),
@@ -554,6 +581,10 @@ impl Bridge {
                         );
                         self.game.lock().unwrap().offer = Some(offer);
                     }
+                    Some(_) => tracing::warn!(
+                        args = ?message.args,
+                        "ignoring a RejoinOffer that no return can be started with"
+                    ),
                     None => tracing::warn!(
                         args = ?message.args,
                         "ignoring a RejoinOffer that cannot be read"
@@ -706,6 +737,38 @@ mod tests {
             vec![text("1"), GpgArg::Int(101)],
         ] {
             assert_eq!(RejoinOffer::parse(&broken), None, "{broken:?}");
+        }
+    }
+
+    /// The game app refuses a return it cannot start, so no return is
+    /// started with an offer outside what it takes.
+    #[test]
+    fn an_offer_no_return_can_be_started_with_is_refused() {
+        let offer = |source: &str, seats: &str| RejoinOffer::parse(&[text(source), text(seats)]);
+        // This game's own seat, then `others` more.
+        let seats = |others: usize| {
+            std::iter::once("101=0".to_string())
+                .chain((1..=others).map(|n| format!("{}={n}", 200 + n)))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        for (source, seats) in [
+            ("255", seats(16)),
+            ("0", "101=255,2147483647=0".to_string()),
+        ] {
+            let offer = offer(source, &seats).unwrap();
+            assert!(offer.can_return(101), "{source} {seats}");
+        }
+        for (source, seats) in [
+            ("0", seats(17)),
+            ("256", seats(1)),
+            ("-1", seats(1)),
+            ("0", "101=0,102=256".to_string()),
+            ("0", "101=0,102=-1".to_string()),
+            ("0", "101=0,-102=1".to_string()),
+        ] {
+            let offer = offer(source, &seats).unwrap();
+            assert!(!offer.can_return(101), "{source} {seats}");
         }
     }
 
