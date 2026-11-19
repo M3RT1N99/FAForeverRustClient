@@ -19,10 +19,33 @@
 //! the URL either way.
 
 use std::io;
+use std::sync::OnceLock;
+
+/// What opens a URL where no launcher command can. See [`set_browser_opener`].
+type Opener = Box<dyn Fn(&str) -> io::Result<()> + Send + Sync>;
+
+static OPENER: OnceLock<Opener> = OnceLock::new();
+
+/// Have `opener` open every URL from now on, for a platform whose browser only
+/// the shell can reach: Android has no launcher command, only the intent its
+/// activity sends. Set once at start-up; a later call is ignored.
+pub fn set_browser_opener(opener: impl Fn(&str) -> io::Result<()> + Send + Sync + 'static) {
+    let _ = OPENER.set(Box::new(opener));
+}
 
 /// Open `url` in the user's browser.
 pub(crate) fn open_url(url: &str) -> io::Result<()> {
-    #[cfg(all(unix, not(target_os = "macos")))]
+    if let Some(opener) = OPENER.get() {
+        return opener(url);
+    }
+    #[cfg(target_os = "android")]
+    {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "no browser opener is set up on this platform",
+        ))
+    }
+    #[cfg(all(unix, not(target_os = "macos"), not(target_os = "android")))]
     {
         linux::open_url(url)
     }
@@ -32,7 +55,7 @@ pub(crate) fn open_url(url: &str) -> io::Result<()> {
     }
 }
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(unix, not(target_os = "macos"), not(target_os = "android")))]
 mod linux {
     use std::ffi::{OsStr, OsString};
     use std::io;
@@ -177,7 +200,7 @@ mod linux {
     }
 }
 
-#[cfg(all(test, unix, not(target_os = "macos")))]
+#[cfg(all(test, unix, not(target_os = "macos"), not(target_os = "android")))]
 mod tests {
     use super::linux::environment_outside;
     use std::ffi::OsString;

@@ -18,6 +18,8 @@ use std::sync::Arc;
 use faf_app::App;
 use tauri::Manager;
 
+#[cfg(target_os = "android")]
+mod android;
 mod commands;
 mod diagnostics;
 mod exit;
@@ -89,6 +91,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init());
+    // Sign-in's browser, which on Android only the app's own Kotlin reaches.
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(android::init());
     // Where the window was, how big, on which monitor, and whether it was
     // maximised. Restored on the next start, and it belongs here rather
     // than in the settings store: it is a property of the shell, not of the

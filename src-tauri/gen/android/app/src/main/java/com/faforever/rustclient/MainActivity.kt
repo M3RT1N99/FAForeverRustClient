@@ -35,4 +35,12 @@ class MainActivity : TauriActivity() {
     webView.settings.useWideViewPort = true
     webView.settings.loadWithOverviewMode = true
   }
+
+  // Back from the browser: a client in front needs no service to keep it
+  // running (BrowserWaitService). Here rather than in the plugin, because
+  // Tauri never hands a plugin the app's onResume.
+  override fun onResume() {
+    super.onResume()
+    BrowserWaitService.stop(this)
+  }
 }

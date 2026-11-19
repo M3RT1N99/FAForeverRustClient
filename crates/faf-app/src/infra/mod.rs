@@ -146,6 +146,7 @@ pub mod web_link;
 pub use interrupted_work::recover_interrupted_work;
 
 pub use auth::FakeAuth;
+pub use browser::set_browser_opener;
 pub use changelog::{ChangelogClient, ChangelogConfig, FakeChangelog};
 pub use chat_fake::FakeChat;
 pub use clan::{ClanClient, ClanConfig, FakeClan};

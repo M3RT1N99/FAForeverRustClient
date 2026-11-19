@@ -1,4 +1,7 @@
 <resources>
     <string name="app_name">FAForever Client</string>
     <string name="main_activity_title">FAForever Client</string>
+    <string name="browser_wait_channel">Browser</string>
+    <string name="browser_wait_title">Waiting for the browser</string>
+    <string name="browser_wait_text">The client keeps running until you are back.</string>
 </resources>
