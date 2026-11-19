@@ -1,0 +1,8 @@
+Source:
+LICENSE is the licence file of FAF's faf-uid, the program the Android app runs to sign in
+to FAF's lobby (scripts/ensure-faf-uid-android.mjs), from its repository FAForever/uid at
+v4.0.7, unchanged: the GNU General Public License, version 3.
+https://raw.githubusercontent.com/FAForever/uid/v4.0.7/LICENSE
+FAF's Android build comes from the same repository (FAForever/uid#18). When the pin in
+crates/faf-app/src/infra/lobby_ws/android_uid_pin.json names a release, check this text
+against that release's LICENSE.

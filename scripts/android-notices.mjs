@@ -1,9 +1,10 @@
 // The Android app's licence notice, assets/NOTICE.txt. The Gradle build
 // (src-tauri/gen/android/app/build.gradle.kts) runs this for every APK, on what that
 // build compiled, so the notice cannot drift from the app: section 1 is the client's
-// own licence, 2 the Rust crates in its native library, 3 the npm packages in its page
-// and 4 the Android libraries on its classpath. Each distinct text is printed once,
-// after the list of the packages it covers.
+// own licence, 2 the Rust crates in its native library, 3 the npm packages in its page,
+// 4 the Android libraries on its classpath and 5, when the APK ships it, faf-uid
+// (scripts/ensure-faf-uid-android.mjs). Each distinct text is printed once, after the
+// list of the packages it covers.
 //
 // A package that ships no licence text of its own fails the build, unless
 // scripts/android-notices/ holds a reviewed override for it: a directory
@@ -20,6 +21,8 @@ import { parseArgs } from "node:util";
 
 const root = resolve(import.meta.dirname, "..");
 const overrideRoot = join(import.meta.dirname, "android-notices");
+// faf-uid's licence, the GNU GPL version 3, with where it comes from beside it.
+const FAF_UID_LICENCE = join(overrideRoot, "faf-uid", "LICENSE");
 
 // Where the Android build's page build (scripts/android-page-build.mjs) has
 // vite.config.ts list the npm packages in the bundle. Beside the Gradle build's output
@@ -245,6 +248,25 @@ function applyOverrides(packages, overrides, missing) {
   }
 }
 
+function fafUidLicence() {
+  const where = repositoryPath(FAF_UID_LICENCE);
+  if (!existsSync(FAF_UID_LICENCE)) {
+    throw new NoticeError(`${where} is missing: faf-uid's licence text, for the APKs that ship faf-uid.`);
+  }
+  const text = readText(FAF_UID_LICENCE);
+  if (!text.includes("GNU GENERAL PUBLIC LICENSE") || !text.includes("Version 3, 29 June 2007")) {
+    throw new NoticeError(`${where} is not the GNU General Public License, version 3, faf-uid's licence.`);
+  }
+  return text;
+}
+
+// What scripts/ensure-faf-uid-android.mjs packed into the APK, or null for nothing.
+function shippedFafUid(path) {
+  if (!path) return null;
+  const shipped = JSON.parse(readFileSync(path, "utf8"));
+  return shipped.abis.length > 0 ? { ...shipped, text: fafUidLicence() } : null;
+}
+
 const label = (pkg) => `${pkg.name} ${pkg.version}${pkg.licence ? ` (${pkg.licence})` : ""}`;
 
 // Each distinct text once, after the packages it covers, the most shared first. Texts
@@ -274,7 +296,8 @@ const isInside = (path, directory) => {
   return fromDirectory === "" || (!fromDirectory.startsWith("..") && !isAbsolute(fromDirectory));
 };
 
-function generateNotice({ librariesPath, rustTargets, release }) {
+function generateNotice({ librariesPath, rustTargets, release, fafUidPath }) {
+  const fafUid = shippedFafUid(fafUidPath);
   const crates = rustCrates(rustTargets);
   const page = pagePackages(release);
   const android = androidLibraries(librariesPath);
@@ -313,6 +336,7 @@ function generateNotice({ librariesPath, rustTargets, release }) {
     `2. Rust crates in the native library (${crates.length})`,
     `3. npm packages in the page (${page.unlisted ? "not listed in this build" : page.packages.length})`,
     `4. Android libraries (${android.libraries.length})`,
+    ...(fafUid ? ["5. faf-uid"] : []),
     "",
     section(1, "The FAForever Client", "The client's own code, its Rust crates and its page, and the third-party material it includes.", [
       readText(join(root, "LICENSE")),
@@ -333,6 +357,10 @@ function generateNotice({ librariesPath, rustTargets, release }) {
     section(4, `Android libraries (${android.libraries.length})`,
       `The Java and Kotlin libraries on the app's runtime classpath, with the licence files in their jars and AARs.${projects.length > 0 ? ` Tauri's own Android libraries are built from the sources of crates in section 2 and come under those crates' licences: ${projects.join(", ")}.` : ""}`,
       textBlocks(android.libraries)),
+    ...(fafUid ? [section(5, "faf-uid", fafUid.official
+      ? `The program the app runs to sign in to FAF's lobby: FAF's faf-uid ${fafUid.version} for ${fafUid.abis.join(", ")}, from https://github.com/FAForever/uid/releases/tag/${fafUid.version}, whose source is at https://github.com/FAForever/uid/tree/${fafUid.version}. It comes under the GNU General Public License, version 3.`
+      : `A faf-uid for ${fafUid.abis.join(", ")} built for testing, not FAF's official build, which this test build of the app never runs to sign in to FAF's lobby. faf-uid's source is at https://github.com/FAForever/uid. It comes under the GNU General Public License, version 3.`,
+      [LINE, "faf-uid: LICENSE", LINE, "", fafUid.text, ""].join("\n"))] : []),
   ].join("\n");
   return { notice, counts: { crates: crates.length, npm: page.unlisted ? null : page.packages.length, android: android.libraries.length } };
 }
@@ -350,12 +378,14 @@ function lockedNpmPackages() {
 }
 
 // What CI can check without the Android build, on every pull request: every crate of
-// the native library has a licence text or an override; no crate override names a crate
-// the library no longer has, at that version; and no npm override names a version of a
-// package other than the ones pnpm-lock.yaml holds. A package a build tool carries inside
-// itself (Rolldown's Oxc helpers) is in no lockfile and is left to the release build, as
-// are the page's other packages and the Android libraries: only those builds list them.
+// the native library has a licence text or an override; faf-uid's text is there; no
+// crate override names a crate the library no longer has, at that version; and no npm
+// override names a version of a package other than the ones pnpm-lock.yaml holds. A
+// package a build tool carries inside itself (Rolldown's Oxc helpers) is in no lockfile
+// and is left to the release build, as are the page's other packages and the Android
+// libraries: only those builds list them.
 function checkWithoutBuild(rustTargets) {
+  fafUidLicence();
   const crates = rustCrates(rustTargets);
   const overrides = loadOverrides();
   const missing = [];
@@ -384,6 +414,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     options: {
       out: { type: "string" },
       "android-libraries": { type: "string" },
+      "faf-uid": { type: "string" },
       "rust-target": { type: "string", multiple: true },
       release: { type: "boolean", default: false },
       check: { type: "boolean", default: false },
@@ -401,7 +432,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     }
   }
   if (!values.out || !values["android-libraries"]) {
-    console.error("Usage: node scripts/android-notices.mjs --out <NOTICE.txt> --android-libraries <json> [--rust-target <triple>]... [--release]");
+    console.error("Usage: node scripts/android-notices.mjs --out <NOTICE.txt> --android-libraries <json> [--faf-uid <json>] [--rust-target <triple>]... [--release]");
     console.error("   or: node scripts/android-notices.mjs --check [--rust-target <triple>]...");
     process.exit(2);
   }
@@ -410,6 +441,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
       librariesPath: values["android-libraries"],
       rustTargets: values["rust-target"] ?? ["aarch64-linux-android"],
       release: values.release,
+      fafUidPath: values["faf-uid"],
     });
     mkdirSync(dirname(values.out), { recursive: true });
     writeFileSync(values.out, notice);

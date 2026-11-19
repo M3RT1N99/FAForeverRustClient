@@ -81,6 +81,12 @@ android {
             )
         }
     }
+    // faf-uid (PrepareFafUid below) runs as a program, and Android runs an app's own programs
+    // only from its native library folder, which it fills only when the APK's native libraries
+    // are extracted on install. Packed the newer way they stay in the APK and the folder is empty.
+    packaging {
+        jniLibs.useLegacyPackaging = true
+    }
     kotlinOptions {
         jvmTarget = "1.8"
     }
@@ -95,10 +101,56 @@ rust {
 
 // The template keeps the native library's symbols for debug builds (`packaging`
 // in the debug build type), but that setting is the whole app's, so release APKs
-// carried 17 MB of symbol tables. Release variants strip them again.
+// carried 17 MB of symbol tables. Release variants strip them again, all but faf-uid: stripped,
+// it would no longer be the file whose SHA-256 the client checks before it runs it.
 androidComponents {
     onVariants(selector().withBuildType("release")) { variant ->
-        variant.packaging.jniLibs.keepDebugSymbols.set(emptySet())
+        variant.packaging.jniLibs.keepDebugSymbols.set(setOf("**/libfafuid.so"))
+    }
+}
+
+// faf-uid, the program the lobby's sign-in runs, as <abi>/libfafuid.so with its licence text in
+// assets/licenses: scripts/ensure-faf-uid-android.mjs fetches FAF's official build by the pin the
+// client checks it against, and packs nothing while the pin is empty.
+abstract class PrepareFafUid : DefaultTask() {
+    @get:Input
+    abstract val abis: ListProperty<String>
+
+    @get:Internal
+    abstract val repository: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val jniLibsDirectory: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val assetsDirectory: DirectoryProperty
+
+    // What it packed, for the licence notice.
+    @get:OutputFile
+    abstract val shipped: RegularFileProperty
+
+    @get:Inject
+    abstract val execOperations: ExecOperations
+
+    init {
+        // It reads the pin and FAF_UID_ANDROID_TEST_BUILDS, out of Gradle's sight. A download is
+        // kept in natives/android, so running again only checks the file's SHA-256.
+        outputs.upToDateWhen { false }
+    }
+
+    @TaskAction
+    fun prepare() {
+        execOperations.exec {
+            workingDir = repository.get().asFile
+            commandLine(
+                listOf(
+                    "node", "scripts/ensure-faf-uid-android.mjs",
+                    "--jni-libs", jniLibsDirectory.get().asFile.path,
+                    "--assets", assetsDirectory.get().asFile.path,
+                    "--shipped", shipped.get().asFile.path,
+                ) + abis.get().flatMap { listOf("--abi", it) },
+            )
+        }
     }
 }
 
@@ -191,6 +243,11 @@ abstract class GenerateNotice : DefaultTask() {
     @get:Input
     abstract val rustTargets: ListProperty<String>
 
+    // What PrepareFafUid packed.
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val fafUid: RegularFileProperty
+
     @get:Input
     abstract val release: Property<Boolean>
 
@@ -216,7 +273,10 @@ abstract class GenerateNotice : DefaultTask() {
         execOperations.exec {
             workingDir = repository.get().asFile
             commandLine(
-                listOf("node", "scripts/android-notices.mjs", "--out", notice.path, "--android-libraries", libraries.get().asFile.path) +
+                listOf(
+                    "node", "scripts/android-notices.mjs", "--out", notice.path,
+                    "--android-libraries", libraries.get().asFile.path, "--faf-uid", fafUid.get().asFile.path,
+                ) +
                     rustTargets.get().flatMap { listOf("--rust-target", it) } +
                     (if (release.get()) listOf("--release") else emptyList()),
             )
@@ -236,11 +296,20 @@ val rustTargetTriples = ((findProperty("targetList") as? String)?.split(',') ?: 
         )[target] ?: throw GradleException("No Rust target is known for the targetList entry $target")
     }
 val projectDirectories = rootProject.allprojects.associate { it.path to it.projectDir.path }
+// The ABIs the APK is built for: RustPlugin's abiList, which the Tauri CLI sets, with its default.
+val abiList = (findProperty("abiList") as? String)?.split(',') ?: listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
 
-// Every APK carries assets/NOTICE.txt, generated, never kept by hand.
+// Every APK carries assets/NOTICE.txt, generated, never kept by hand, and faf-uid when it is pinned.
 androidComponents {
     onVariants { variant ->
         val name = variant.name.replaceFirstChar { it.uppercase() }
+        val prepareFafUid = tasks.register<PrepareFafUid>("prepare${name}FafUid") {
+            abis.set(abiList)
+            repository.set(rootProject.layout.projectDirectory.dir("../../.."))
+            shipped.set(layout.buildDirectory.file("faf-uid/${variant.name}/shipped.json"))
+        }
+        variant.sources.jniLibs?.addGeneratedSourceDirectory(prepareFafUid, PrepareFafUid::jniLibsDirectory)
+        variant.sources.assets?.addGeneratedSourceDirectory(prepareFafUid, PrepareFafUid::assetsDirectory)
         val classpath = variant.runtimeConfiguration.incoming
         val downloaded = classpath.artifactView { componentFilter { it !is ProjectComponentIdentifier } }.artifacts
         // The app itself is the root of the graph, not one of its libraries.
@@ -259,6 +328,7 @@ androidComponents {
         val notice = tasks.register<GenerateNotice>("generate${name}Notice") {
             libraries.set(collect.flatMap { it.output })
             rustTargets.set(rustTargetTriples)
+            fafUid.set(prepareFafUid.flatMap { it.shipped })
             release.set(variant.buildType == "release")
             repository.set(rootProject.layout.projectDirectory.dir("../../.."))
             // After cargo has built the library and fetched its crates, so that cargo metadata
