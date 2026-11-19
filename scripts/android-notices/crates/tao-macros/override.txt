@@ -1,0 +1,10 @@
+Packages:
+tao-macros 0.1.3
+
+Source:
+LICENSE and LICENSE.spdx are the licence files of the crate's repository, tauri-apps/tao,
+at its tag tao-macros-v0.1.3, commit 340684d932b6126bed449fc1f4edca81776ad592 (the crate
+has no .cargo_vcs_info.json), unchanged; the repository has no other licence file there:
+https://raw.githubusercontent.com/tauri-apps/tao/340684d932b6126bed449fc1f4edca81776ad592/LICENSE
+https://raw.githubusercontent.com/tauri-apps/tao/340684d932b6126bed449fc1f4edca81776ad592/LICENSE.spdx
+Fetched on 2026-11-19.

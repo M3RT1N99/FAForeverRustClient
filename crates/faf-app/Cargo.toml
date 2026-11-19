@@ -8,6 +8,12 @@ license.workspace = true
 # cargo-deny only tolerates a path dependency in a crate that says so.
 publish = false
 
+[features]
+# Lets an Android release build stand fakes in for FAF's services when
+# FAF_FAKE_AUTH and its kin ask (infra::FAKE_PORTS_ALLOWED): for measurement
+# and test builds. A release never turns it on.
+fake-ports = []
+
 [dependencies]
 faf-domain = { workspace = true }
 tokio = { workspace = true, features = ["net", "io-util", "process", "fs"] }

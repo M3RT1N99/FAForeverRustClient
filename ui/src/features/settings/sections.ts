@@ -21,6 +21,7 @@ import type { MessageKey } from "../../i18n";
 import type { SettingsSection } from "../../ipc/bindings";
 import { theGameIsItsOwnApp } from "../../shared/platform";
 import { AccountSupportSettingsSection } from "./AccountSupportSettingsSection";
+import { AndroidLicencesSection } from "./AndroidLicencesSection";
 import { AndroidSettingsSection } from "./AndroidSettingsSection";
 import { AppearanceSettingsSection } from "./AppearanceSettingsSection";
 import { ChatSettingsSection } from "./ChatSettingsSection";
@@ -140,7 +141,9 @@ export const SECTIONS: Record<SectionKey, SectionDef> = {
     description: "settings.page.android.description",
     keywords: "settings.section.android.keywords",
     icon: "smartphone",
-    panels: [AndroidSettingsSection],
+    // The licences on their own panel: they are the client's, and show whether
+    // or not the game app answers.
+    panels: [AndroidSettingsSection, AndroidLicencesSection],
   },
 };
 

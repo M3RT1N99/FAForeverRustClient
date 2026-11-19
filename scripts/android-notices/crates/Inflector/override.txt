@@ -1,0 +1,9 @@
+Packages:
+Inflector 0.11.4
+
+Source:
+LICENSE.md is the licence file of the crate's repository, whatisinternet/Inflector, at
+a4a95eac75043f4bffb127c7c8ec886b5b106053, the commit the crate was published from
+(its .cargo_vcs_info.json), unchanged:
+https://raw.githubusercontent.com/whatisinternet/Inflector/a4a95eac75043f4bffb127c7c8ec886b5b106053/LICENSE.md
+Fetched on 2026-11-19.

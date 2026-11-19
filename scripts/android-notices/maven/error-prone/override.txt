@@ -1,0 +1,8 @@
+Packages:
+com.google.errorprone:error_prone_annotations 2.15.0
+
+Source:
+COPYING is the licence file of the library's repository, google/error-prone, at its tag
+v2.15.0, commit 12aca18e3b9706a77bfa5ee9ffa0e906a981bb06, unchanged:
+https://raw.githubusercontent.com/google/error-prone/v2.15.0/COPYING
+Fetched on 2026-11-19.

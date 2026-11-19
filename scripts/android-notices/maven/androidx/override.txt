@@ -1,0 +1,48 @@
+Packages:
+androidx.annotation:annotation-experimental 1.4.1
+androidx.appcompat:appcompat 1.7.1
+androidx.appcompat:appcompat-resources 1.7.1
+androidx.arch.core:core-common 2.2.0
+androidx.arch.core:core-runtime 2.2.0
+androidx.browser:browser 1.8.0
+androidx.cardview:cardview 1.0.0
+androidx.collection:collection 1.1.0
+androidx.concurrent:concurrent-futures 1.1.0
+androidx.coordinatorlayout:coordinatorlayout 1.1.0
+androidx.core:core 1.13.1
+androidx.core:core-ktx 1.13.1
+androidx.cursoradapter:cursoradapter 1.0.0
+androidx.customview:customview 1.1.0
+androidx.documentfile:documentfile 1.0.0
+androidx.drawerlayout:drawerlayout 1.1.1
+androidx.dynamicanimation:dynamicanimation 1.0.0
+androidx.emoji2:emoji2 1.3.0
+androidx.emoji2:emoji2-views-helper 1.3.0
+androidx.fragment:fragment 1.5.4
+androidx.interpolator:interpolator 1.0.0
+androidx.legacy:legacy-support-core-utils 1.0.0
+androidx.loader:loader 1.0.0
+androidx.localbroadcastmanager:localbroadcastmanager 1.0.0
+androidx.print:print 1.0.0
+androidx.recyclerview:recyclerview 1.1.0
+androidx.resourceinspection:resourceinspection-annotation 1.0.1
+androidx.startup:startup-runtime 1.1.1
+androidx.tracing:tracing 1.0.0
+androidx.transition:transition 1.5.0
+androidx.vectordrawable:vectordrawable 1.1.0
+androidx.vectordrawable:vectordrawable-animated 1.1.0
+androidx.versionedparcelable:versionedparcelable 1.1.1
+androidx.viewpager2:viewpager2 1.0.0
+androidx.viewpager:viewpager 1.0.0
+
+Source:
+These libraries are built from the androidx repository
+(https://android.googlesource.com/platform/frameworks/support, mirrored at
+https://github.com/androidx/androidx), and the newer androidx libraries of this build
+ship its licence file themselves. LICENSE.txt is that file, copied unchanged from
+META-INF/androidx/annotation/annotation/LICENSE.txt in androidx.annotation:annotation-jvm
+1.9.1, which this build ships; it equals LICENSE.txt on the mirror's androidx-main branch
+(fetched on 2026-11-19). The repository added the file on 2017-05-11
+(561eca36e3ad8a518d82f44f1217c146f61193b5) and changed it once since, on 2019-04-16
+(4e64160870c4c38395c2bd8997088991e94295f6), by a blank line at its end, so it is the
+file at every version listed here, the 1.0.0 releases of 2018 included.

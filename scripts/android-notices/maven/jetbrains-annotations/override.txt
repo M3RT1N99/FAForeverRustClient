@@ -1,0 +1,8 @@
+Packages:
+org.jetbrains:annotations 23.0.0
+
+Source:
+LICENSE.txt is the licence file of the library's repository, JetBrains/java-annotations,
+at its tag 23.0.0, commit 5d06c0c48e0a4fe44b2bc0d5d3e8b113c7a57de2, unchanged:
+https://raw.githubusercontent.com/JetBrains/java-annotations/23.0.0/LICENSE.txt
+Fetched on 2026-11-19.

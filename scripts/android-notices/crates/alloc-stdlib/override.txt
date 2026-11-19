@@ -1,0 +1,9 @@
+Packages:
+alloc-stdlib 0.2.4
+
+Source:
+LICENSE is the licence file of the crate's repository, dropbox/rust-alloc-no-stdlib, at
+ae42d22078b98549e987d2f03d12df7b984fde47, the commit the crate was published from (its
+.cargo_vcs_info.json, path alloc-stdlib/ in that repository), unchanged:
+https://raw.githubusercontent.com/dropbox/rust-alloc-no-stdlib/ae42d22078b98549e987d2f03d12df7b984fde47/LICENSE
+Fetched on 2026-11-19.

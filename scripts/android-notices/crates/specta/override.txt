@@ -1,0 +1,12 @@
+Packages:
+specta 2.0.0-rc.25
+specta-macros 2.0.0-rc.25
+specta-serde 0.0.12
+specta-typescript 0.0.12
+
+Source:
+LICENSE is the licence file of the crates' repository, specta-rs/specta, at
+e7fd23f586b9bd58de39002dabe49b1f978bf971, the commit all four crates were published from
+(their .cargo_vcs_info.json, one directory of that repository each), unchanged:
+https://raw.githubusercontent.com/specta-rs/specta/e7fd23f586b9bd58de39002dabe49b1f978bf971/LICENSE
+Fetched on 2026-11-19.

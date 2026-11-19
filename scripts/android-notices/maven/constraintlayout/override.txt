@@ -1,0 +1,16 @@
+Packages:
+androidx.constraintlayout:constraintlayout 2.0.1
+androidx.constraintlayout:constraintlayout-solver 2.0.1
+
+Source:
+Neither repository of these libraries has a licence file to take: their POMs name
+https://android.googlesource.com/platform/tools/sherpa, and
+https://github.com/androidx/constraintlayout holds none at its tag 2.0.1
+(272719edf76066c3bee82987012da9349c760233). So this is the standard text of their
+declared licence, Apache-2.0 (the POMs' "The Apache Software License, Version 2.0"), with
+their own copyright line.
+LICENSE is the Apache License 2.0 as encoding_rs 0.8.35 ships it in ~/.cargo/registry
+(LICENSE-APACHE), copied unchanged. It is the standard text: it is byte for byte
+https://www.apache.org/licenses/LICENSE-2.0.txt (fetched on 2026-11-19).
+COPYRIGHT is the copyright line, taken from the developer both POMs name
+(<developer><name>The Android Open Source Project</name></developer>).

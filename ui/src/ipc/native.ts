@@ -248,6 +248,14 @@ export const native = {
     return invoke("share_client_logs", { title });
   },
 
+  /**
+   * Android only: the licences of everything the app is built from, which its
+   * build writes into the APK; `null` for a build without them.
+   */
+  clientNotices(): Promise<string | null> {
+    return invoke<string | null>("client_notices");
+  },
+
   /** Android only: which build on which device, for a problem report. */
   reportContext(): Promise<ReportContext> {
     return invoke<ReportContext>("report_context");

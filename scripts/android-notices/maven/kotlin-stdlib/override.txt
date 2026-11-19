@@ -1,0 +1,12 @@
+Packages:
+org.jetbrains.kotlin:kotlin-stdlib 2.0.21
+
+Source:
+LICENSE.txt and NOTICE.txt are license/LICENSE.txt and license/NOTICE.txt of the
+library's repository, JetBrains/kotlin, at its tag v2.0.21, commit
+284e9b4041bd815b5b1b489070bbb1f1db6de35c, unchanged:
+https://raw.githubusercontent.com/JetBrains/kotlin/v2.0.21/license/LICENSE.txt
+https://raw.githubusercontent.com/JetBrains/kotlin/v2.0.21/license/NOTICE.txt
+Fetched on 2026-11-19. license/README.md there lists code in the standard library derived
+from GWT and Guava, under Apache 2.0 as well, and from Boost, whose licence asks nothing of
+a compiled copy.

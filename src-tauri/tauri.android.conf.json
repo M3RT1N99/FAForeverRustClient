@@ -1,5 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBuildCommand": "node scripts/android-page-build.mjs"
+  },
   "bundle": {
     "resources": null,
     "fileAssociations": null
