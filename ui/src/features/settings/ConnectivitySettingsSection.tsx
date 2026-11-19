@@ -2,7 +2,7 @@ import type { IceAdapter, ConnectivityPreferencesPatch } from "../../ipc/binding
 import { ipc } from "../../ipc/client";
 import { useAppStore } from "../../store/store";
 import { recordEntries } from "../../shared/records";
-import { SettingRow, SettingsGroup } from "./SettingControls";
+import { SettingRow, SettingsGroup, SettingsSwitch } from "./SettingControls";
 import type { MessageKey } from "../../i18n";
 import { useTranslation } from "../../i18n/useTranslation";
 import { startsProgramsBesideTheGame } from "../../shared/platform";
@@ -94,6 +94,18 @@ export function ConnectivitySettingsSection() {
             </option>
           ))}
         </select>
+      </SettingRow>
+      {/* faf-re's game can do without an adapter; this is the way back to
+          the adapters above, which the original game always uses. */}
+      <SettingRow
+        label={t("settings.connectivity.nativeNetwork")}
+        hint={t("settings.connectivity.nativeNetworkHint")}
+      >
+        <SettingsSwitch
+          checked={preferences.nativeNetwork}
+          onChange={(nativeNetwork) => change({ nativeNetwork })}
+          label={t("settings.connectivity.nativeNetwork")}
+        />
       </SettingRow>
     </SettingsGroup>
   );

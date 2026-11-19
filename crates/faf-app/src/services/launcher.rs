@@ -12,6 +12,10 @@
 //! The lobby connect loop owns the returned [`LaunchSession`] and feeds it the
 //! relay messages arriving on the same socket. On any setup failure we stop the
 //! adapter and emit `LaunchFailed`.
+//!
+//! A game that runs its own links (faf-re's native mode) and crashes in its
+//! match is started again to take its seat back (#275), while the session and
+//! the lobby relay go on as they were: see `rejoin_after_crash`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -25,10 +29,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::ports::{
-    GameLaunchParams, GamePreparation, IceParams, ModPrepFailure, Ports, PreparationPhase,
-    RelayMsg, ReplayMetadata, UpdateProgress, DEFAULT_LOCAL_REPLAY_LIMIT,
+    GameExit, GameLaunchParams, GameLinks, GameNetwork, GamePreparation, IceParams, ModPrepFailure,
+    Ports, PreparationPhase, RelayMsg, ReplayMetadata, UpdateProgress, DEFAULT_LOCAL_REPLAY_LIMIT,
 };
-use crate::runtime::{EventSink, ServiceCtx};
+use crate::runtime::{EventSink, RunningGame, ServiceCtx};
 use crate::services::notifications;
 
 /// A live launch: the channel into the adapter, used to forward lobby
@@ -174,6 +178,10 @@ pub async fn start(
     );
 
     // 2. Bring up the connectivity backend (it picks its own ports / control plane).
+    //
+    // faf-re's game can run its links itself, which the backend decides on;
+    // the original game always needs an adapter.
+    let rebuilt_engine = ctx.ports.process.game_is_rebuilt_engine().await;
     let session = match ctx
         .ports
         .ice
@@ -184,6 +192,7 @@ pub async fn start(
             init_mode,
             game_title: launch.name.clone(),
             hosted,
+            rebuilt_engine,
         })
         .await
     {
@@ -210,7 +219,16 @@ pub async fn start(
         player_login: player.name.clone(),
         args: launch_arguments(launch, player_profile.as_ref()),
         replay: replay_metadata(launch, &player.name, ctx, out),
+        network: match session.links {
+            GameLinks::Game { force_relay } => GameNetwork::Native {
+                force_relay,
+                rejoin: None,
+            },
+            GameLinks::Adapter => GameNetwork::Adapter { rebuilt_engine },
+        },
     };
+    // What the game is started with again if it crashes in its match.
+    let first_launch = game_params.clone();
     if let Err(e) = ctx.ports.process.launch_game(game_params).await {
         ctx.ports.ice.stop();
         return fail(ctx, out, format!("game launch: {e}"));
@@ -254,6 +272,9 @@ pub async fn start(
     // `GameState Ended` goes to the server first, as the Python client does in
     // `GameSession._exited`. Without it the server still believes this player
     // is in the game, which is its own reason a rejoin can be refused.
+    //
+    // Not for a game that crashed in a match it can come back to: that one
+    // is started again, and the player never left the match.
     let exit_ports = ctx.ports.clone();
     let exit_sink = out.clone();
     let exit_running_game = ctx.lobby.running_game_handle();
@@ -262,7 +283,16 @@ pub async fn start(
     let exit_stopped_by_failure = stopped_by_failure.clone();
     tokio::spawn(async move {
         tracing::debug!("launcher: game exit watcher started");
-        exit_ports.process.wait_for_exit().await;
+        let mut returns = 0;
+        loop {
+            let exit = exit_ports.process.wait_for_exit().await;
+            if returns == MAX_RETURNS
+                || !rejoin_after_crash(exit, &first_launch, &exit_ports, &exit_running_game).await
+            {
+                break;
+            }
+            returns += 1;
+        }
         tracing::info!("the game process exited; releasing the launch");
         tracing::debug!("sending GameState Ended to the server");
         exit_ports
@@ -337,6 +367,61 @@ pub async fn start(
     Some(LaunchSession {
         from_lobby: session.from_lobby,
     })
+}
+
+/// How many times one launch's game is started again after a crash. A game
+/// that keeps crashing on its way back is then let go, as if it had not
+/// offered to come back, rather than started for as long as the match lasts.
+const MAX_RETURNS: u32 = 3;
+
+/// Start the game again to take its seat back in its match, if it crashed in
+/// one it can come back to (#275, faf-re's
+/// `docs/LAUNCHER_NATIVE_NETWORK.md`), and say whether it was.
+///
+/// Only a crash: a game the player quit, one this client stopped, and one
+/// whose match ended are not brought back. Only the game's own links can
+/// bring it back, and only while the game is still this client's; the
+/// connectivity session decides the rest (`IcePort::begin_rejoin`). It keeps
+/// its GPGNet port and the lobby's messages meanwhile, so the game comes back
+/// on the same port with its usual arguments and `/rejoin`.
+async fn rejoin_after_crash(
+    exit: GameExit,
+    first_launch: &GameLaunchParams,
+    ports: &Ports,
+    running_game: &RunningGame,
+) -> bool {
+    let game_id = first_launch.game_id;
+    if exit != GameExit::Crashed || running_game.id() != Some(game_id) {
+        return false;
+    }
+    let GameNetwork::Native { force_relay, .. } = first_launch.network else {
+        return false;
+    };
+    let Some(rejoin) = ports.ice.begin_rejoin() else {
+        return false;
+    };
+    tracing::info!(
+        game_id,
+        players = rejoin.seats.len(),
+        "the game crashed in its match; starting it again to take its seat back"
+    );
+    let params = GameLaunchParams {
+        network: GameNetwork::Native {
+            force_relay,
+            rejoin: Some(rejoin),
+        },
+        ..first_launch.clone()
+    };
+    if let Err(reason) = ports.process.launch_game(params).await {
+        tracing::warn!(game_id, %reason, "the game could not be started again; leaving the match");
+        return false;
+    }
+    // Terminated while it was being started again: that game is nobody's,
+    // and its end is what releases the launch now.
+    if running_game.id() != Some(game_id) {
+        ports.process.kill();
+    }
+    true
 }
 
 /// Prepare a selected custom game before asking the server for a seat. Java's

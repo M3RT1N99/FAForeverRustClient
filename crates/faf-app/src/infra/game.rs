@@ -32,12 +32,16 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use faf_domain::protocol::pe_version;
 use faf_domain::state::{CompanionLaunchKind, CompanionProgram, CompanionRun, CompanionTiming};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, Notify};
 
 use crate::infra::companions::{Companions, LaunchId};
-use crate::ports::{DiscoveredInstallPaths, GameLaunchParams, InstallPresence, ProcessPort};
+use crate::ports::{
+    DiscoveredInstallPaths, GameExit, GameLaunchParams, GameNetwork, InstallPresence, ProcessPort,
+    RejoinSeat,
+};
 
 const MANAGED_EXE: &str = "ForgedAlliance.exe";
 const MAX_REFERENCE_CONFIG_BYTES: u64 = 2 * 1024 * 1024;
@@ -147,6 +151,10 @@ pub struct GameProcess {
     /// the server the game ended and stops the ICE adapter, and a replay
     /// window closing is none of those things.
     exited: Arc<Notify>,
+    /// How the last game ended, written before `exited` wakes anybody and
+    /// before the slot reads empty: a crash can come back to its match, a
+    /// game this launcher stopped cannot.
+    game_exit: Arc<Mutex<GameExit>>,
     /// Kept alive for the duration of a live game so FA has somewhere to stream
     /// its replay. Replaced on the next launch, which drops and stops the
     /// previous one.
@@ -185,6 +193,7 @@ impl GameProcess {
             game_child: Arc::new(Mutex::new(None)),
             replay_child: Arc::new(Mutex::new(None)),
             exited: Arc::new(Notify::new()),
+            game_exit: Arc::new(Mutex::new(GameExit::Stopped)),
             replay_recorder: Mutex::new(None),
             replay_relay: None,
             steam_presence: AtomicBool::new(false),
@@ -375,20 +384,25 @@ impl GameProcess {
             through_launch_command = !wrapper.is_empty(),
             "launching Forged Alliance"
         );
+        let arguments = one_console_switch(
+            config
+                .additional_arguments
+                .iter()
+                .chain(&prefs)
+                .chain(args)
+                .cloned()
+                .collect(),
+        );
 
         // Without a launch command of the player's own, a Linux machine runs
         // the game through the runtime the client installed (see
         // `infra::linux_runtime`): Proton's Wine in the Steam Linux Runtime
         // container, with the environment faf-linux's wrappers set.
         let runtime = if wrapper.is_empty() {
-            let arguments = config
-                .additional_arguments
-                .iter()
-                .chain(&prefs)
-                .map(std::ffi::OsString::from)
-                .chain(args.iter().map(std::ffi::OsString::from))
-                .collect();
-            crate::infra::linux_runtime::game_command(&exe, arguments)
+            crate::infra::linux_runtime::game_command(
+                &exe,
+                arguments.iter().map(std::ffi::OsString::from).collect(),
+            )
         } else {
             None
         };
@@ -401,19 +415,12 @@ impl GameProcess {
             (Some(planned), _) => Command::from(planned.std_command()),
             (None, Some((program, rest))) => {
                 let mut command = Command::new(program);
-                command.args(rest).arg(&exe);
-                command
-                    .args(&config.additional_arguments)
-                    .args(&prefs)
-                    .args(args);
+                command.args(rest).arg(&exe).args(&arguments);
                 command
             }
             (None, None) => {
                 let mut command = Command::new(&exe);
-                command
-                    .args(&config.additional_arguments)
-                    .args(&prefs)
-                    .args(args);
+                command.args(&arguments);
                 command
             }
         };
@@ -530,6 +537,7 @@ impl GameProcess {
         // Ended" because somebody finished watching a replay is how a live
         // game would lose its launch out from under it.
         let exited = (slot == Slot::Game).then(|| self.exited.clone());
+        let game_exit = (slot == Slot::Game).then(|| self.game_exit.clone());
         // The launch lets go of its companions when its process ends by
         // itself. `kill` does that on its own, and a replay replaced by the
         // next one hands them on (`hold_for_replacement`).
@@ -540,20 +548,34 @@ impl GameProcess {
                 let mut ended = None;
                 let finished = {
                     let mut guard = child.lock().unwrap();
+                    // Before the slot reads empty, so whoever finds it so
+                    // reads how the game ended too.
+                    let record = |exit| {
+                        if let Some(game_exit) = &game_exit {
+                            *game_exit.lock().unwrap() = exit;
+                        }
+                    };
                     match guard.as_mut() {
                         // Taken by a newer launch or by `kill`: that launch owns
                         // its own watcher, so this one is done.
                         None => true,
                         Some(process) => match process.child.try_wait() {
-                            Ok(Some(_status)) => {
+                            Ok(Some(status)) => {
+                                record(if status.success() {
+                                    GameExit::Quit
+                                } else {
+                                    GameExit::Crashed
+                                });
                                 ended = Some(process.launch);
                                 *guard = None;
                                 true
                             }
                             Ok(None) => false,
                             // The handle is unusable; treat it as gone rather
-                            // than spinning on it forever.
+                            // than spinning on it forever. How it ended is
+                            // not known, which is no crash to restart.
                             Err(_) => {
+                                record(GameExit::Stopped);
                                 ended = Some(process.launch);
                                 *guard = None;
                                 true
@@ -640,22 +662,51 @@ impl ProcessPort for GameProcess {
         // listening when FA connects to it. A recorder that cannot bind is not
         // a reason to refuse the launch: the game is playable, it just leaves no
         // replay behind, which is what happened on every launch before this.
-        let recorder = match crate::infra::replay_recorder::ReplayRecorder::start(
-            crate::infra::replay::local_replays_dir(),
-            params.replay.clone(),
-            self.replay_relay.clone(),
-        )
-        .await
-        {
-            Ok(recorder) => Some(recorder),
-            Err(error) => {
-                tracing::warn!(%error, "starting without replay recording");
-                None
+        //
+        // None for a game coming back to its match: the stream of its replay
+        // ended with the crash, and the recorder still sending that one to
+        // FAF is kept rather than replaced, which would cut it off. The Java
+        // client starts a returning game without one too.
+        let returning = matches!(
+            &params.network,
+            GameNetwork::Native {
+                rejoin: Some(_),
+                ..
+            }
+        );
+        let recorder = if returning {
+            None
+        } else {
+            match crate::infra::replay_recorder::ReplayRecorder::start(
+                crate::infra::replay::local_replays_dir(),
+                params.replay.clone(),
+                self.replay_relay.clone(),
+            )
+            .await
+            {
+                Ok(recorder) => Some(recorder),
+                Err(error) => {
+                    tracing::warn!(%error, "starting without replay recording");
+                    None
+                }
             }
         };
         let savereplay = recorder
             .as_ref()
             .map(|recorder| recorder.savereplay_url(params.game_id, &params.player_login));
+        let rejoin_key = match &params.network {
+            GameNetwork::Native { .. } => match rejoin_key_path(params.player_id) {
+                Ok(path) => Some(self.game_argument_path(&path)),
+                // The game then keeps it in its own temp folder: a return
+                // still works, only two players on this account of the
+                // computer would share the one file.
+                Err(reason) => {
+                    tracing::warn!(%reason, "the game keeps its seat key where it likes");
+                    None
+                }
+            },
+            GameNetwork::Adapter { .. } => None,
+        };
 
         allow_second_instance(&path).await;
         let result = self.spawn(
@@ -665,6 +716,7 @@ impl ProcessPort for GameProcess {
                 &params,
                 &self.game_argument_path(&log_path),
                 savereplay.as_deref(),
+                rejoin_key.as_deref(),
             ),
             "game",
         );
@@ -716,23 +768,43 @@ impl ProcessPort for GameProcess {
     /// This is the lobby service tearing a game session down, and a replay the
     /// user is watching in a second window is no part of that session.
     fn kill(&self) {
-        let taken = self.game_child.lock().unwrap().take();
+        let taken = {
+            let mut slot = self.game_child.lock().unwrap();
+            let taken = slot.take();
+            if taken.is_some() {
+                *self.game_exit.lock().unwrap() = GameExit::Stopped;
+            }
+            taken
+        };
         if let Some(mut running) = taken {
             let _ = running.child.start_kill();
             end_launch(self.companions.clone(), running.launch);
         }
     }
 
-    async fn wait_for_exit(&self) {
+    async fn wait_for_exit(&self) -> GameExit {
         // Register before checking the slot: an exit may already have been
         // announced, or arrive between the check and awaiting the notification.
         let exited = self.exited.notified();
         tokio::pin!(exited);
         exited.as_mut().enable();
-        if self.game_child.lock().unwrap().is_none() {
-            return;
+        if self.game_child.lock().unwrap().is_some() {
+            exited.await;
         }
-        exited.await;
+        *self.game_exit.lock().unwrap()
+    }
+
+    async fn game_is_rebuilt_engine(&self) -> bool {
+        let path = self.config.lock().unwrap().game_path.clone();
+        if path.is_empty() {
+            return false;
+        }
+        // A few reads of the file, off the runtime's threads like any other.
+        tokio::task::spawn_blocking(move || product_name_of(Path::new(&path)))
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|name| name == pe_version::REBUILT_ENGINE_PRODUCT)
     }
 
     fn set_paths(&self, game_path: String, replay_game_path: String) {
@@ -1376,11 +1448,13 @@ fn prefs_arguments(configured: Option<&Path>, additional: &[String], wrapped: bo
 /// Mirrors `fa/play.py:build_argument_list`. `savereplay` is the address of the
 /// local [`crate::infra::replay_recorder::ReplayRecorder`]; without it FA writes
 /// no replay for a networked game at all, which is why played games used to
-/// leave nothing in the local library.
+/// leave nothing in the local library. Who runs the game's links follows
+/// `/gpgnet`: see [`network_arguments`].
 fn build_arguments(
     params: &GameLaunchParams,
     log_path: &str,
     savereplay: Option<&str>,
+    rejoin_key: Option<&str>,
 ) -> Vec<String> {
     let mut args = params.args.clone();
     args.push("/init".into());
@@ -1392,9 +1466,124 @@ fn build_arguments(
     }
     args.push("/gpgnet".into());
     args.push(format!("127.0.0.1:{}", params.game_port));
+    args.extend(network_arguments(&params.network, rejoin_key));
     args.push("/log".into());
     args.push(log_path.to_string());
     args
+}
+
+/// What faf-re's game is told about its links (`docs/LAUNCHER_NATIVE_NETWORK.md`).
+///
+/// On its own links (`/nativenet`) every game offers to take its seat back
+/// after a crash (`/rejoinoffer`), keeps the key that proves the seat in
+/// `rejoin_key`, and takes other players back; one coming back adds
+/// `/rejoin`. faf-re's game on an adapter cannot come back itself, but still
+/// takes the others back: a match offers a return only when every player's
+/// game can take one. The original game is told nothing.
+fn network_arguments(network: &GameNetwork, rejoin_key: Option<&str>) -> Vec<String> {
+    const TAKES_PLAYERS_BACK: [&str; 2] = ["/con", "net_PeerFeatures=1;net_RejoinAccept=1"];
+    let mut args: Vec<String> = Vec::new();
+    match network {
+        GameNetwork::Adapter {
+            rebuilt_engine: false,
+        } => {}
+        GameNetwork::Adapter {
+            rebuilt_engine: true,
+        } => args.extend(TAKES_PLAYERS_BACK.map(String::from)),
+        GameNetwork::Native {
+            force_relay,
+            rejoin,
+        } => {
+            args.push("/nativenet".into());
+            if *force_relay {
+                args.push("/nativenetrelay".into());
+            }
+            args.push("/rejoinoffer".into());
+            if let Some(key) = rejoin_key {
+                args.extend(["/rejoinkeyfile".into(), key.to_string()]);
+            }
+            args.extend(TAKES_PLAYERS_BACK.map(String::from));
+            if let Some(rejoin) = rejoin {
+                args.extend([
+                    "/rejoin".into(),
+                    seats_argument(&rejoin.seats),
+                    rejoin.source.to_string(),
+                    "0".into(),
+                ]);
+            }
+        }
+    }
+    args
+}
+
+/// `player id=source,...`, as `/rejoin` takes it.
+fn seats_argument(seats: &[RejoinSeat]) -> String {
+    seats
+        .iter()
+        .map(|seat| format!("{}={}", seat.player_id, seat.source))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Where a game on its own links keeps the key that proves its seat in a
+/// match (#275): the client's data folder, one file per player, so two
+/// clients on one account of the computer keep theirs apart. The game writes
+/// a new key as each match begins and reads it back when it returns.
+fn rejoin_key_path(player_id: i32) -> Result<PathBuf, String> {
+    let folder = crate::infra::data_dir()?;
+    std::fs::create_dir_all(&folder)
+        .map_err(|error| format!("could not create {}: {error}", folder.display()))?;
+    Ok(folder.join(format!("rejoin-seat-{player_id}.key")))
+}
+
+/// The product name in an executable's version resource: its headers, then
+/// its resource section, and nothing else of a file of many megabytes.
+fn product_name_of(exe: &Path) -> Option<String> {
+    use std::io::{Seek, SeekFrom};
+
+    let mut file = File::open(exe).ok()?;
+    let mut headers = Vec::new();
+    (&mut file)
+        .take(pe_version::HEADER_BYTES as u64)
+        .read_to_end(&mut headers)
+        .ok()?;
+    let section = pe_version::resource_section(&headers)?;
+    file.seek(SeekFrom::Start(section.file_offset)).ok()?;
+    let mut bytes = vec![0; section.size as usize];
+    file.read_exact(&mut bytes).ok()?;
+    pe_version::product_name_in(&section, &bytes)
+}
+
+/// The command line with one `/con`: the game reads the first one only, so
+/// the console commands of a second would be lost. The client's own
+/// (`network_arguments`) come after the player's launch options, which may
+/// carry one too, so they are joined to the first with `;`, the game's own
+/// separator.
+fn one_console_switch(arguments: Vec<String>) -> Vec<String> {
+    let mut merged: Vec<String> = Vec::with_capacity(arguments.len());
+    let mut first: Option<usize> = None;
+    let mut arguments = arguments.into_iter();
+    while let Some(argument) = arguments.next() {
+        if argument.eq_ignore_ascii_case("/con") {
+            // A `/con` at the very end has nothing to join and stays as it is.
+            if let Some(commands) = arguments.next() {
+                match first {
+                    Some(at) => {
+                        merged[at].push(';');
+                        merged[at].push_str(&commands);
+                    }
+                    None => {
+                        merged.push(argument);
+                        first = Some(merged.len());
+                        merged.push(commands);
+                    }
+                }
+                continue;
+            }
+        }
+        merged.push(argument);
+    }
+    merged
 }
 
 /// The command line for a single-player launch.
@@ -1597,7 +1786,178 @@ mod tests {
             player_login: "me".into(),
             args: vec!["/numgames".into(), "5".into()],
             replay: Default::default(),
+            network: GameNetwork::Adapter {
+                rebuilt_engine: false,
+            },
         }
+    }
+
+    fn on(network: GameNetwork) -> GameLaunchParams {
+        GameLaunchParams {
+            network,
+            ..params()
+        }
+    }
+
+    /// What follows `/gpgnet 127.0.0.1:<port>`, up to `/log`.
+    fn after_gpgnet(args: &[String]) -> Vec<&str> {
+        let from = args.iter().position(|a| a == "/gpgnet").unwrap() + 2;
+        let to = args.iter().position(|a| a == "/log").unwrap();
+        args[from..to].iter().map(String::as_str).collect()
+    }
+
+    #[test]
+    fn a_game_on_its_own_links_says_so_and_offers_to_come_back() {
+        let args = build_arguments(
+            &on(GameNetwork::Native {
+                force_relay: false,
+                rejoin: None,
+            }),
+            "game.log",
+            None,
+            Some("C:/data/rejoin-seat-1.key"),
+        );
+        assert_eq!(
+            after_gpgnet(&args),
+            [
+                "/nativenet",
+                "/rejoinoffer",
+                "/rejoinkeyfile",
+                "C:/data/rejoin-seat-1.key",
+                "/con",
+                "net_PeerFeatures=1;net_RejoinAccept=1",
+            ]
+        );
+        assert_eq!(&args[..2], ["/numgames", "5"], "its usual arguments stay");
+    }
+
+    #[test]
+    fn a_session_that_forces_relaying_adds_the_relay_switch() {
+        let args = build_arguments(
+            &on(GameNetwork::Native {
+                force_relay: true,
+                rejoin: None,
+            }),
+            "game.log",
+            None,
+            None,
+        );
+        assert_eq!(
+            after_gpgnet(&args)[..3],
+            ["/nativenet", "/nativenetrelay", "/rejoinoffer"]
+        );
+        assert!(
+            !args.iter().any(|a| a == "/rejoinkeyfile"),
+            "without a key file the game picks its own"
+        );
+    }
+
+    #[test]
+    fn a_game_coming_back_names_the_players_and_its_source() {
+        let args = build_arguments(
+            &on(GameNetwork::Native {
+                force_relay: false,
+                rejoin: Some(crate::ports::Rejoin {
+                    seats: vec![
+                        RejoinSeat {
+                            player_id: 101,
+                            source: 0,
+                        },
+                        RejoinSeat {
+                            player_id: 103,
+                            source: 2,
+                        },
+                    ],
+                    source: 1,
+                }),
+            }),
+            "game.log",
+            None,
+            Some("seat.key"),
+        );
+        let tail = after_gpgnet(&args);
+        assert_eq!(tail[tail.len() - 4..], ["/rejoin", "101=0,103=2", "1", "0"]);
+        assert!(tail.contains(&"/nativenet") && tail.contains(&"/rejoinkeyfile"));
+    }
+
+    #[test]
+    fn only_faf_res_game_hears_about_returns_on_an_adapter() {
+        let rebuilt = build_arguments(
+            &on(GameNetwork::Adapter {
+                rebuilt_engine: true,
+            }),
+            "game.log",
+            None,
+            None,
+        );
+        // It takes other players back, but cannot offer its own return.
+        assert_eq!(
+            after_gpgnet(&rebuilt),
+            ["/con", "net_PeerFeatures=1;net_RejoinAccept=1"]
+        );
+        let original = build_arguments(&params(), "game.log", None, None);
+        assert!(after_gpgnet(&original).is_empty(), "nothing changes");
+    }
+
+    #[test]
+    fn the_command_line_carries_one_console_switch() {
+        let args = |list: &[&str]| list.iter().map(|a| a.to_string()).collect::<Vec<_>>();
+        // The player's own `/con` in the launch options comes first; ours
+        // would be lost behind it.
+        assert_eq!(
+            one_console_switch(args(&[
+                "/con",
+                "ren_ShadowSize=2048",
+                "/init",
+                "init_faf.lua",
+                "/CON",
+                "net_PeerFeatures=1;net_RejoinAccept=1",
+            ])),
+            args(&[
+                "/con",
+                "ren_ShadowSize=2048;net_PeerFeatures=1;net_RejoinAccept=1",
+                "/init",
+                "init_faf.lua",
+            ])
+        );
+        let untouched = args(&["/init", "init_faf.lua", "/con"]);
+        assert_eq!(one_console_switch(untouched.clone()), untouched);
+    }
+
+    #[tokio::test]
+    async fn faf_res_executable_is_told_apart_by_its_file() {
+        let folder = tempfile::tempdir().unwrap();
+        let process = GameProcess::new(GameConfig::default());
+        for (image, rebuilt) in [
+            (
+                include_bytes!("../../../faf-domain/src/protocol/fixtures/pe-faf-re.bin")
+                    .as_slice(),
+                true,
+            ),
+            (
+                include_bytes!("../../../faf-domain/src/protocol/fixtures/pe-original.bin")
+                    .as_slice(),
+                false,
+            ),
+        ] {
+            let exe = folder.path().join("ForgedAlliance.exe");
+            std::fs::write(&exe, image).unwrap();
+            process.set_paths(exe.display().to_string(), String::new());
+            assert_eq!(process.game_is_rebuilt_engine().await, rebuilt);
+        }
+    }
+
+    #[tokio::test]
+    async fn no_configured_executable_is_not_faf_res() {
+        let process = GameProcess::new(GameConfig::default());
+        assert!(!process.game_is_rebuilt_engine().await);
+
+        let folder = tempfile::tempdir().unwrap();
+        let text = folder.path().join("ForgedAlliance.exe");
+        std::fs::write(&text, b"not an executable").unwrap();
+        process.set_paths(text.display().to_string(), String::new());
+        assert!(!process.game_is_rebuilt_engine().await);
+        assert_eq!(product_name_of(&folder.path().join("missing.exe")), None);
     }
 
     #[test]
@@ -1633,7 +1993,7 @@ mod tests {
 
     #[test]
     fn builds_fa_command_line_in_order() {
-        let args = build_arguments(&params(), "diagnostics/game-99.log", None);
+        let args = build_arguments(&params(), "diagnostics/game-99.log", None, None);
         assert_eq!(
             &args[..7],
             vec![
@@ -1656,7 +2016,7 @@ mod tests {
         // replay for a networked game at all: without it a played game leaves
         // nothing on disk, which is the bug this fixes.
         let url = "gpgnet://127.0.0.1:5000/99/me.SCFAreplay";
-        let args = build_arguments(&params(), "diagnostics/game-99.log", Some(url));
+        let args = build_arguments(&params(), "diagnostics/game-99.log", Some(url), None);
         let save = args.iter().position(|a| a == "/savereplay").unwrap();
         assert_eq!(args[save + 1], url);
         assert!(save < args.iter().position(|a| a == "/gpgnet").unwrap());
@@ -1666,7 +2026,7 @@ mod tests {
     fn no_recorder_means_no_savereplay_flag() {
         // A recorder that could not bind must not leave FA streaming at a dead
         // port: the game is still perfectly playable without a replay.
-        let args = build_arguments(&params(), "diagnostics/game-99.log", None);
+        let args = build_arguments(&params(), "diagnostics/game-99.log", None, None);
         assert!(!args.iter().any(|a| a == "/savereplay"));
     }
 
@@ -1822,6 +2182,60 @@ mod tests {
             .kill_on_drop(true)
             .spawn()
             .expect("a long-running child")
+    }
+
+    /// A child that ends by itself with `code`.
+    fn a_process_that_exits(code: i32) -> Child {
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("cmd");
+            command.args(["/C", &format!("exit {code}")]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", &format!("exit {code}")]);
+            command
+        };
+        #[cfg(windows)]
+        command.creation_flags(0x08000000);
+        command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("a child that exits")
+    }
+
+    fn running(child: Child) -> Running {
+        Running {
+            child,
+            exe: PathBuf::from("managed-game"),
+            launch: 0,
+        }
+    }
+
+    /// A crash can come back to its match; a game the player quit, or this
+    /// launcher stopped, cannot. The exit status is what tells them apart.
+    #[tokio::test]
+    async fn how_the_game_ended_is_told_apart() {
+        for (code, expected) in [(0, GameExit::Quit), (3, GameExit::Crashed)] {
+            let process = GameProcess::new(GameConfig::default());
+            *process.game_child.lock().unwrap() = Some(running(a_process_that_exits(code)));
+            process.watch_for_exit(Slot::Game);
+            let exit = tokio::time::timeout(Duration::from_secs(10), process.wait_for_exit())
+                .await
+                .expect("the exit is seen");
+            assert_eq!(exit, expected, "exit code {code}");
+        }
+
+        let process = GameProcess::new(GameConfig::default());
+        *process.game_child.lock().unwrap() = Some(running(a_process_that_keeps_running()));
+        process.watch_for_exit(Slot::Game);
+        process.kill();
+        let exit = tokio::time::timeout(Duration::from_secs(10), process.wait_for_exit())
+            .await
+            .expect("the kill is seen");
+        assert_eq!(exit, GameExit::Stopped);
     }
 
     #[tokio::test]

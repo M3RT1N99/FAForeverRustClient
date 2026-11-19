@@ -13,8 +13,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use faf_app::infra::{fake_ports, FakeAuth, FakeLobby};
 use faf_app::ports::{
-    ConnectivitySession, GameLaunchParams, IceParams, IcePort, InstallPresence, LobbyUpdate,
-    ProcessPort, RelayMsg,
+    ConnectivitySession, GameExit, GameLaunchParams, GameLinks, IceParams, IcePort,
+    InstallPresence, LobbyUpdate, ProcessPort, RelayMsg,
 };
 use faf_app::Ports;
 use faf_domain::state::{AuthCommand, LobbyCommand, LobbyEvent, Player};
@@ -47,8 +47,9 @@ impl ProcessPort for RunningGame {
     fn kill(&self) {
         self.exited.notify_one();
     }
-    async fn wait_for_exit(&self) {
+    async fn wait_for_exit(&self) -> GameExit {
         self.exited.notified().await;
+        GameExit::Stopped
     }
     fn set_paths(&self, _game_path: String, _replay_game_path: String) {}
     fn set_additional_arguments(&self, _arguments: Vec<String>) {}
@@ -80,6 +81,7 @@ impl IcePort for RecordingAdapter {
         *self.to_lobby.lock().unwrap() = Some(to_lobby_tx);
         Ok(ConnectivitySession {
             game_port: 1,
+            links: GameLinks::Adapter,
             to_lobby,
             from_lobby,
             late_failure: None,

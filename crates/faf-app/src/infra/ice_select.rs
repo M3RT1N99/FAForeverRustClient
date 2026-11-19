@@ -1,4 +1,4 @@
-//! Runtime choice between the two connectivity backends.
+//! Runtime choice between the connectivity backends.
 //!
 //! FAF has two ICE adapters: the long-standing Java `faf-ice-adapter`, which is
 //! the production default, and the experimental Go faf-pioneer backend.
@@ -7,14 +7,20 @@
 //! that in practice nobody knew the second adapter existed. This holds *both*
 //! and dispatches per launch, so the Settings toggle takes effect on the next
 //! game instead of requiring a restart.
+//!
+//! faf-re's game needs no adapter: it can run its links itself (its native
+//! mode), which is the fourth backend here. Its links speak the Java
+//! adapter's protocol, so they stand in for the Java adapter, and only for
+//! it: see `SelectableIce::selected`.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use faf_domain::state::{IceAdapter, RelayStatus};
 
 use crate::infra::env_or;
-use crate::ports::{ConnectivitySession, IceDebugWindows, IceParams, IcePort};
+use crate::ports::{ConnectivitySession, IceDebugWindows, IceParams, IcePort, Rejoin};
 
 /// Development override. When set, it wins over the stored preference: a
 /// developer testing one backend should not have it silently swapped when
@@ -43,49 +49,99 @@ pub struct SelectableIce {
     java: Arc<dyn IcePort>,
     exp_java: Arc<dyn IcePort>,
     go: Arc<dyn IcePort>,
+    /// The game's own links, no adapter at all.
+    native: Arc<dyn IcePort>,
     /// The user's choice for joining. Ignored while [`adapter_override`]
     /// returns a value.
     preferred: Mutex<IceAdapter>,
     /// The user's choice for hosting, Java or Go. Ignored while
     /// [`adapter_override`] returns a value.
     preferred_host: Mutex<IceAdapter>,
+    /// The player's "Game's own network": on by default, as the setting is.
+    native_enabled: AtomicBool,
+    /// Every game runs its own links: a platform with no adapter to start.
+    native_forced: AtomicBool,
     /// Which backend was last started, so [`IcePort::stop`] reaches the one
     /// that is actually running even if the preference changed meanwhile.
-    running: Mutex<Option<IceAdapter>>,
+    running: Mutex<Option<Backend>>,
+}
+
+/// A backend this can start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backend {
+    Adapter(IceAdapter),
+    /// The game's own links.
+    Native,
+}
+
+impl Backend {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Adapter(adapter) => adapter.label(),
+            Self::Native => "The game's own network",
+        }
+    }
 }
 
 impl SelectableIce {
-    pub fn new(java: Arc<dyn IcePort>, exp_java: Arc<dyn IcePort>, go: Arc<dyn IcePort>) -> Self {
+    pub fn new(
+        java: Arc<dyn IcePort>,
+        exp_java: Arc<dyn IcePort>,
+        go: Arc<dyn IcePort>,
+        native: Arc<dyn IcePort>,
+    ) -> Self {
         Self {
             java,
             exp_java,
             go,
+            native,
             preferred: Mutex::new(IceAdapter::default()),
             preferred_host: Mutex::new(IceAdapter::Java),
+            native_enabled: AtomicBool::new(true),
+            native_forced: AtomicBool::new(false),
             running: Mutex::new(None),
         }
     }
 
-    /// The backend a game starts on: the development override, else the
-    /// hosting preference for a game this client hosted, else the joining
+    /// The backend a game starts on: its own links on a platform that has
+    /// nothing else; the development override, which names an adapter; else
+    /// the hosting preference for a game this client hosted, or the joining
     /// preference, with `Dynamic` following the host's mark.
-    fn selected(&self, params: &IceParams) -> IceAdapter {
+    ///
+    /// Where that comes to the Java adapter and the game can run its own
+    /// links, it does, unless the player turned that off. Its links speak the
+    /// Java adapter's protocol, so a Java player at the other end connects
+    /// as before; a host marked as on another adapter would not be reached,
+    /// so those games keep that adapter.
+    fn selected(&self, params: &IceParams) -> Backend {
+        if self.native_forced.load(Ordering::SeqCst) {
+            return Backend::Native;
+        }
         if let Some(adapter) = adapter_override() {
-            return adapter.for_game(&params.game_title);
+            return Backend::Adapter(adapter.for_game(&params.game_title));
         }
-        if params.hosted {
-            return self.hosting_adapter();
+        let adapter = if params.hosted {
+            self.hosting_adapter()
+        } else {
+            self.preferred.lock().unwrap().for_game(&params.game_title)
+        };
+        if adapter == IceAdapter::Java
+            && params.rebuilt_engine
+            && self.native_enabled.load(Ordering::SeqCst)
+        {
+            return Backend::Native;
         }
-        self.preferred.lock().unwrap().for_game(&params.game_title)
+        Backend::Adapter(adapter)
     }
 
-    fn backend(&self, adapter: IceAdapter) -> &Arc<dyn IcePort> {
-        match adapter {
+    fn backend(&self, backend: Backend) -> &Arc<dyn IcePort> {
+        match backend {
             // `for_game` never returns `Dynamic`; Java is the safe reading of
             // an undecided choice all the same.
-            IceAdapter::Java | IceAdapter::Dynamic => &self.java,
-            IceAdapter::ExpJava => &self.exp_java,
-            IceAdapter::Go => &self.go,
+            Backend::Adapter(IceAdapter::Java | IceAdapter::Dynamic) => &self.java,
+            Backend::Adapter(IceAdapter::ExpJava) => &self.exp_java,
+            Backend::Adapter(IceAdapter::Go) => &self.go,
+            Backend::Native => &self.native,
         }
     }
 }
@@ -93,19 +149,19 @@ impl SelectableIce {
 #[async_trait]
 impl IcePort for SelectableIce {
     async fn start(&self, params: IceParams) -> Result<ConnectivitySession, String> {
-        let adapter = self.selected(&params);
-        tracing::info!(backend = adapter.label(), "starting selected ICE backend");
+        let backend = self.selected(&params);
+        tracing::info!(backend = backend.label(), "starting selected ICE backend");
         // No fallback to the other backend, Pioneer is experimental. That is
         // this code's rule and not the player's concern, so the error leaves
         // it out and names only what failed.
         let session = self
-            .backend(adapter)
+            .backend(backend)
             .start(params)
             .await
-            .map_err(|error| format!("{} could not start: {error}", adapter.label()))?;
+            .map_err(|error| format!("{} could not start: {error}", backend.label()))?;
         // Only recorded on success: a failed start leaves nothing to stop, and
         // claiming otherwise would send a later `stop` to the wrong backend.
-        *self.running.lock().unwrap() = Some(adapter);
+        *self.running.lock().unwrap() = Some(backend);
         Ok(session)
     }
 
@@ -113,14 +169,32 @@ impl IcePort for SelectableIce {
         // Stop whichever one is up, not whichever one is currently preferred,
         // the user may have switched between starting a game and leaving it.
         match self.running.lock().unwrap().take() {
-            Some(adapter) => self.backend(adapter).stop(),
+            Some(backend) => self.backend(backend).stop(),
             // Nothing recorded: a start that failed part-way may still have
-            // left a process behind, so stop both rather than guess.
+            // left a process behind, so stop them all rather than guess.
             None => {
                 self.java.stop();
                 self.exp_java.stop();
                 self.go.stop();
+                self.native.stop();
             }
+        }
+    }
+
+    fn set_native_network(&self, enabled: bool) {
+        self.native_enabled.store(enabled, Ordering::SeqCst);
+    }
+
+    fn force_native_network(&self) {
+        self.native_forced.store(true, Ordering::SeqCst);
+    }
+
+    /// Only the game's own links can bring a game back to its match.
+    fn begin_rejoin(&self) -> Option<Rejoin> {
+        let running = *self.running.lock().unwrap();
+        match running {
+            Some(Backend::Native) => self.native.begin_rejoin(),
+            _ => None,
         }
     }
 
@@ -153,10 +227,10 @@ impl IcePort for SelectableIce {
     async fn relay_status(&self) -> RelayStatus {
         let running = *self.running.lock().unwrap();
         match running {
-            Some(IceAdapter::Go) => RelayStatus::Unsupported {
+            Some(Backend::Adapter(IceAdapter::Go)) => RelayStatus::Unsupported {
                 adapter: IceAdapter::Go,
             },
-            Some(adapter) => self.backend(adapter).relay_status().await,
+            Some(backend) => self.backend(backend).relay_status().await,
             None => RelayStatus::Idle,
         }
     }
@@ -187,6 +261,7 @@ mod tests {
             let (from_lobby, _from_lobby_rx) = mpsc::channel::<RelayMsg>(1);
             Ok(ConnectivitySession {
                 game_port: 1,
+                links: crate::ports::GameLinks::Adapter,
                 to_lobby,
                 from_lobby,
                 late_failure: None,
@@ -194,6 +269,12 @@ mod tests {
         }
         fn stop(&self) {
             self.stopped.fetch_add(1, Ordering::SeqCst);
+        }
+        fn begin_rejoin(&self) -> Option<Rejoin> {
+            Some(Rejoin {
+                seats: Vec::new(),
+                source: 0,
+            })
         }
     }
 
@@ -209,15 +290,142 @@ mod tests {
             init_mode: 0,
             game_title: title.into(),
             hosted: false,
+            rebuilt_engine: false,
+        }
+    }
+
+    /// The same game with faf-re's executable.
+    fn rebuilt(params: IceParams) -> IceParams {
+        IceParams {
+            rebuilt_engine: true,
+            ..params
+        }
+    }
+
+    struct Backends {
+        java: Arc<Counting>,
+        exp_java: Arc<Counting>,
+        go: Arc<Counting>,
+        native: Arc<Counting>,
+        ice: SelectableIce,
+    }
+
+    fn backends() -> Backends {
+        let java = Arc::new(Counting::default());
+        let exp_java = Arc::new(Counting::default());
+        let go = Arc::new(Counting::default());
+        let native = Arc::new(Counting::default());
+        let ice = SelectableIce::new(java.clone(), exp_java.clone(), go.clone(), native.clone());
+        Backends {
+            java,
+            exp_java,
+            go,
+            native,
+            ice,
         }
     }
 
     fn pair() -> (Arc<Counting>, Arc<Counting>, Arc<Counting>, SelectableIce) {
-        let java = Arc::new(Counting::default());
-        let exp_java = Arc::new(Counting::default());
-        let go = Arc::new(Counting::default());
-        let ice = SelectableIce::new(java.clone(), exp_java.clone(), go.clone());
-        (java, exp_java, go, ice)
+        let all = backends();
+        (all.java, all.exp_java, all.go, all.ice)
+    }
+
+    fn started(backend: &Counting) -> u32 {
+        backend.started.load(Ordering::SeqCst)
+    }
+
+    #[tokio::test]
+    async fn faf_res_game_runs_its_own_links_where_it_would_run_on_java() {
+        let all = backends();
+        if adapter_override().is_some() {
+            return;
+        }
+        all.ice.start(rebuilt(params())).await.unwrap();
+        assert_eq!(started(&all.native), 1, "the default: Dynamic, unmarked");
+        all.ice.stop();
+        assert_eq!(all.native.stopped.load(Ordering::SeqCst), 1);
+
+        all.ice.set_backend(IceAdapter::Java);
+        all.ice.start(rebuilt(params())).await.unwrap();
+        assert_eq!(started(&all.native), 2, "an explicit Java");
+        all.ice.stop();
+
+        all.ice.start(params()).await.unwrap();
+        assert_eq!(started(&all.java), 1, "the original game: nothing changes");
+        assert_eq!(started(&all.native), 2);
+    }
+
+    #[tokio::test]
+    async fn a_host_on_another_adapter_keeps_that_adapter() {
+        // Its links would not reach a host on Pioneer, which the mark says
+        // it is.
+        let all = backends();
+        if adapter_override().is_some() {
+            return;
+        }
+        all.ice
+            .start(rebuilt(titled("Friday 4v4 [go-adapter]")))
+            .await
+            .unwrap();
+        assert_eq!(started(&all.go), 1);
+        all.ice.stop();
+        all.ice
+            .start(rebuilt(titled("Friday 4v4 [exp-java-adapter]")))
+            .await
+            .unwrap();
+        assert_eq!(started(&all.exp_java), 1);
+        all.ice.stop();
+
+        // Hosting on Go marks the title, so the host runs Go.
+        all.ice.set_host_backend(IceAdapter::Go);
+        all.ice
+            .start(IceParams {
+                hosted: true,
+                ..rebuilt(titled("Friday 4v4 [go-adapter]"))
+            })
+            .await
+            .unwrap();
+        assert_eq!(started(&all.go), 2);
+        assert_eq!(started(&all.native), 0);
+    }
+
+    #[tokio::test]
+    async fn turned_off_the_game_goes_to_the_adapter() {
+        let all = backends();
+        if adapter_override().is_some() {
+            return;
+        }
+        all.ice.set_native_network(false);
+        all.ice.start(rebuilt(params())).await.unwrap();
+        assert_eq!(started(&all.java), 1);
+        assert_eq!(started(&all.native), 0);
+    }
+
+    #[tokio::test]
+    async fn a_platform_without_adapters_runs_every_game_on_its_own_links() {
+        let all = backends();
+        all.ice.force_native_network();
+        all.ice.set_native_network(false);
+        all.ice
+            .start(titled("Friday 4v4 [go-adapter]"))
+            .await
+            .unwrap();
+        assert_eq!(started(&all.native), 1);
+        assert_eq!(started(&all.go) + started(&all.java), 0);
+    }
+
+    #[tokio::test]
+    async fn only_the_games_own_links_bring_a_game_back() {
+        let all = backends();
+        if adapter_override().is_some() {
+            return;
+        }
+        assert_eq!(all.ice.begin_rejoin(), None, "nothing running");
+        all.ice.start(params()).await.unwrap();
+        assert_eq!(all.ice.begin_rejoin(), None, "an adapter cannot");
+        all.ice.stop();
+        all.ice.start(rebuilt(params())).await.unwrap();
+        assert!(all.ice.begin_rejoin().is_some());
     }
 
     #[tokio::test]
@@ -327,13 +535,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stopping_without_a_started_backend_stops_both() {
+    async fn stopping_without_a_started_backend_stops_them_all() {
         // A start that failed part-way may still have left a process behind.
-        let (java, exp_java, go, ice) = pair();
-        ice.stop();
-        assert_eq!(java.stopped.load(Ordering::SeqCst), 1);
-        assert_eq!(exp_java.stopped.load(Ordering::SeqCst), 1);
-        assert_eq!(go.stopped.load(Ordering::SeqCst), 1);
+        let all = backends();
+        all.ice.stop();
+        for backend in [&all.java, &all.exp_java, &all.go, &all.native] {
+            assert_eq!(backend.stopped.load(Ordering::SeqCst), 1);
+        }
     }
 
     #[tokio::test]
@@ -344,7 +552,12 @@ mod tests {
         });
         let exp_java = Arc::new(Counting::default());
         let go = Arc::new(Counting::default());
-        let ice = SelectableIce::new(java.clone(), exp_java.clone(), go.clone());
+        let ice = SelectableIce::new(
+            java.clone(),
+            exp_java.clone(),
+            go.clone(),
+            Arc::new(Counting::default()),
+        );
 
         let error = match ice.start(params()).await {
             Ok(_) => panic!("experimental fallback unexpectedly started"),

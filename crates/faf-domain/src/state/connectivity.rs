@@ -279,6 +279,9 @@ pub enum RelayStatus {
     Unsupported {
         adapter: IceAdapter,
     },
+    /// No adapter is running: the game runs its links itself (faf-re's
+    /// native mode) and shows them in its own network panel.
+    GameLinks,
     /// The adapter did not answer its status call.
     Unavailable {
         reason: String,

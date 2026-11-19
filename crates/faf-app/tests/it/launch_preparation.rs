@@ -13,8 +13,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use faf_app::infra::{fake_ports, FakeAuth, FakeLobby};
 use faf_app::ports::{
-    ConnectivitySession, GameLaunchParams, GamePreparation, GameUpdaterPort, IceParams, IcePort,
-    InstallPresence, PreparationPhase, PreparationStep, ProcessPort, UpdateProgress,
+    ConnectivitySession, GameExit, GameLaunchParams, GamePreparation, GameUpdaterPort, IceParams,
+    IcePort, InstallPresence, PreparationPhase, PreparationStep, ProcessPort, UpdateProgress,
 };
 use faf_app::{App, Ports};
 use faf_domain::state::{
@@ -53,10 +53,13 @@ impl ProcessPort for LaunchableProcess {
         Ok(())
     }
     fn kill(&self) {}
-    async fn wait_for_exit(&self) {
+    async fn wait_for_exit(&self) -> GameExit {
         match self.exits_after {
-            Some(delay) => tokio::time::sleep(delay).await,
-            None => std::future::pending::<()>().await,
+            Some(delay) => {
+                tokio::time::sleep(delay).await;
+                GameExit::Quit
+            }
+            None => std::future::pending().await,
         }
     }
     fn set_paths(&self, _game_path: String, _replay_game_path: String) {}

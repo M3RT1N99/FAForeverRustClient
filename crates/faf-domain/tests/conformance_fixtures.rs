@@ -4093,6 +4093,10 @@ fn cases() -> Vec<Case> {
                 }
                 .into(),
                 ConnectivityEvent::RelayStatusUpdated {
+                    status: RelayStatus::GameLinks,
+                }
+                .into(),
+                ConnectivityEvent::RelayStatusUpdated {
                     status: RelayStatus::Idle,
                 }
                 .into(),
@@ -9602,6 +9606,7 @@ fn transition_cases() -> Vec<Case> {
                 SettingsEvent::ConnectivityChanged {
                     preferences: ConnectivityPreferences {
                         adapter: IceAdapter::Go,
+                        native_network: false,
                         ..ConnectivityPreferences::default()
                     },
                 }

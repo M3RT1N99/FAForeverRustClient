@@ -493,6 +493,7 @@ async fn joining_and_hosting_on_pioneer_checks_only_pioneer() {
                 adapter: IceAdapter::Go,
                 host_adapter: IceAdapter::Go,
                 selection_version: 2,
+                native_network: true,
             }
             .into(),
         }

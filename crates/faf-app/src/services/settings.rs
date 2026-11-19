@@ -1102,6 +1102,9 @@ fn sync_connectivity(ctx: &ServiceCtx, out: &EventSink) {
     let connectivity = out.with_state(|state| state.settings.connectivity);
     ctx.ports.ice.set_backend(connectivity.adapter);
     ctx.ports.ice.set_host_backend(connectivity.hosting());
+    ctx.ports
+        .ice
+        .set_native_network(connectivity.native_network);
 }
 
 fn sync_launch_preferences(ctx: &ServiceCtx, out: &EventSink) {

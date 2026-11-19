@@ -60,6 +60,7 @@ async fn choosing_an_adapter_reaches_the_port_and_is_stored() {
                 adapter: IceAdapter::Go,
                 host_adapter: IceAdapter::Java,
                 selection_version: 1,
+                native_network: true,
             }
             .into(),
         }
@@ -106,6 +107,7 @@ async fn both_backends_remain_selectable() {
                     adapter,
                     host_adapter: IceAdapter::Java,
                     selection_version: 1,
+                    native_network: true,
                 }
                 .into(),
             }

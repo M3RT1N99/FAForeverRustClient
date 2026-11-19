@@ -3347,6 +3347,46 @@
             "event": {
               "payload": {
                 "status": {
+                  "type": "gameLinks"
+                }
+              },
+              "type": "relayStatusUpdated"
+            },
+            "kind": "Connectivity"
+          },
+          "expected": {
+            "check": {
+              "startedAt": "",
+              "status": {
+                "type": "idle"
+              },
+              "steps": []
+            },
+            "relay": {
+              "type": "gameLinks"
+            }
+          },
+          "update": {
+            "event": {
+              "check": {
+                "startedAt": "",
+                "status": {
+                  "type": "idle"
+                },
+                "steps": []
+              },
+              "relay": {
+                "type": "gameLinks"
+              }
+            },
+            "kind": "Connectivity"
+          }
+        },
+        {
+          "event": {
+            "event": {
+              "payload": {
+                "status": {
                   "type": "idle"
                 }
               },
@@ -6503,6 +6543,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -69677,6 +69718,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -69998,6 +70040,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -70329,6 +70372,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -70664,6 +70708,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -70991,6 +71036,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -71329,6 +71375,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -71681,6 +71728,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -72025,6 +72073,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -72379,6 +72428,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -72812,6 +72862,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -73252,6 +73303,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -73645,6 +73697,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -74040,6 +74093,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -74604,6 +74658,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -92165,6 +92220,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -92509,6 +92565,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -92890,6 +92947,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -93291,6 +93349,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -93657,6 +93716,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -93854,6 +93914,7 @@
                 "preferences": {
                   "adapter": "go",
                   "hostAdapter": "java",
+                  "nativeNetwork": false,
                   "selectionVersion": 2
                 }
               },
@@ -94001,6 +94062,7 @@
             "connectivity": {
               "adapter": "go",
               "hostAdapter": "java",
+              "nativeNetwork": false,
               "selectionVersion": 2
             },
             "debug": {
@@ -94170,6 +94232,7 @@
               "value": {
                 "adapter": "go",
                 "hostAdapter": "java",
+                "nativeNetwork": false,
                 "selectionVersion": 2
               }
             },
@@ -94333,6 +94396,7 @@
             "connectivity": {
               "adapter": "go",
               "hostAdapter": "java",
+              "nativeNetwork": false,
               "selectionVersion": 2
             },
             "debug": {
@@ -94692,6 +94756,7 @@
             "connectivity": {
               "adapter": "go",
               "hostAdapter": "java",
+              "nativeNetwork": false,
               "selectionVersion": 2
             },
             "debug": {
@@ -95044,6 +95109,7 @@
             "connectivity": {
               "adapter": "go",
               "hostAdapter": "java",
+              "nativeNetwork": false,
               "selectionVersion": 2
             },
             "debug": {
@@ -95385,6 +95451,7 @@
             "connectivity": {
               "adapter": "go",
               "hostAdapter": "java",
+              "nativeNetwork": false,
               "selectionVersion": 2
             },
             "debug": {
@@ -95728,6 +95795,7 @@
             "connectivity": {
               "adapter": "go",
               "hostAdapter": "java",
+              "nativeNetwork": false,
               "selectionVersion": 2
             },
             "debug": {
@@ -96047,6 +96115,7 @@
                   "connectivity": {
                     "adapter": "dynamic",
                     "hostAdapter": "java",
+                    "nativeNetwork": true,
                     "selectionVersion": 2
                   },
                   "debug": {
@@ -96355,6 +96424,7 @@
             "connectivity": {
               "adapter": "dynamic",
               "hostAdapter": "java",
+              "nativeNetwork": true,
               "selectionVersion": 2
             },
             "debug": {
@@ -96661,6 +96731,7 @@
                 "connectivity": {
                   "adapter": "dynamic",
                   "hostAdapter": "java",
+                  "nativeNetwork": true,
                   "selectionVersion": 2
                 },
                 "debug": {
@@ -138946,6 +139017,7 @@
       "connectivity": {
         "adapter": "dynamic",
         "hostAdapter": "java",
+        "nativeNetwork": true,
         "selectionVersion": 2
       },
       "debug": {

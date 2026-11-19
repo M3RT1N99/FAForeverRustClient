@@ -6,11 +6,17 @@
 //! channels of [`RelayMsg`] bridging the adapter and the lobby. Everything
 //! adapter-specific (Go's GPGNet relay server + `CreateLobby`; Java's JSON-RPC +
 //! ICE-server poll) lives behind this seam, so the launcher is backend-neutral.
+//!
+//! faf-re's game can run its links without any adapter (its native mode), and
+//! is then the fourth backend behind the same seam: the session says so in
+//! [`ConnectivitySession::links`], which is all the launcher needs to know.
 
 use async_trait::async_trait;
 use faf_domain::state::RelayStatus;
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
+
+use crate::ports::Rejoin;
 
 /// A connectivity message in the lobby relay format: identical to what crosses
 /// the lobby (`{ command, target: "game", args }`). The shared currency between
@@ -35,12 +41,28 @@ pub struct IceParams {
     /// This client hosted the game, so it runs on the hosting preference
     /// rather than on the joining one.
     pub hosted: bool,
+    /// The game's executable is faf-re's rebuilt engine, which can run its
+    /// links itself: see `ProcessPort::game_is_rebuilt_engine`.
+    pub rebuilt_engine: bool,
+}
+
+/// Who runs a game's links to the other players.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GameLinks {
+    /// The adapter the session started.
+    Adapter,
+    /// The game itself, in faf-re's native mode (#274): there is no adapter,
+    /// and the game is started with `/nativenet`, with relayed candidates
+    /// only when `force_relay`.
+    Game { force_relay: bool },
 }
 
 /// The live connectivity session handed back to the launcher.
 pub struct ConnectivitySession {
     /// GPGNet port the game connects to (`/gpgnet 127.0.0.1:<game_port>`).
     pub game_port: u16,
+    /// Who runs the game's links, which decides how it is started.
+    pub links: GameLinks,
     /// Messages from the adapter to be relayed to the lobby (`send_game_relay`).
     pub to_lobby: mpsc::Receiver<RelayMsg>,
     /// Lobby game-target messages to feed into the adapter.
@@ -105,6 +127,28 @@ pub trait IcePort: Send + Sync {
     /// service on load and on change, so a game started right after the switch
     /// already honours it.
     fn set_debug_windows(&self, _windows: IceDebugWindows) {}
+
+    /// Whether a game whose executable can run its own links does so: the
+    /// player's "Game's own network", on by default and pushed by the
+    /// settings service beside [`IcePort::set_backend`]. Off, such a game
+    /// goes to the adapter chosen there, like any other.
+    fn set_native_network(&self, _enabled: bool) {}
+
+    /// Run every game's links in the game itself, whatever its executable and
+    /// the setting say: for a platform that has no adapter to fall back to.
+    /// Set once by the shell that knows it is such a platform.
+    fn force_native_network(&self) {}
+
+    /// Get ready for the running game to come back to its match after a
+    /// crash (#275), and say what to start it with.
+    ///
+    /// `None` when it cannot come back: no backend but the game's own links
+    /// can bring it back, and those only once the game offered it
+    /// (`RejoinOffer`), before its match ended, with somebody still in the
+    /// match to return to. The default, for the adapters and the fake.
+    fn begin_rejoin(&self) -> Option<Rejoin> {
+        None
+    }
 
     /// The running adapter's own view of its peers, for the live relay view.
     ///
