@@ -151,6 +151,9 @@ pub fn run() {
             // no-op after the first run. Placed after diagnostics so the
             // outcome is actually logged.
             faf_app::infra::migrate_legacy_directories();
+            // A faf-uid test build runs the faf-uid it packs once, for this log.
+            #[cfg(faf_uid_test_build)]
+            android::faf_uid_check::start();
             let ice_log_dir = log_dir.join("iceAdapterLogs");
             std::fs::create_dir_all(&ice_log_dir)?;
             std::env::set_var("FAF_ICE_LOG_DIR", &ice_log_dir);

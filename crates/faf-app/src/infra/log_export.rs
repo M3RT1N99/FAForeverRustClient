@@ -1,6 +1,7 @@
 //! The client's logs as one zip a player can send: the newest rolling client
-//! logs, every line scrubbed (`log_scrub`), and a short `report.txt` saying
-//! which build on which device wrote them.
+//! logs, every line scrubbed (`log_scrub`), and the caller's notes as they
+//! are, such as a short `report.txt` saying which build on which device wrote
+//! them.
 //!
 //! Made for the Android export, where the logs sit in the app's own folder
 //! and nothing but a share can get them out, and plain enough for any
@@ -24,13 +25,14 @@ const LOG_SUFFIX: &str = ".log";
 /// Write the zip of the client logs in `log_dir` to `out_dir`, replacing an
 /// earlier one of the same day, and return its path.
 ///
-/// `report` is written as `report.txt`, as it is. Lines are read leniently: a
-/// log cut off mid-character by a crash still exports.
+/// `notes` go in first, each under its name and as it is: nothing in them is
+/// scrubbed. Lines are read leniently: a log cut off mid-character by a crash
+/// still exports.
 pub fn export_client_logs(
     log_dir: &Path,
     out_dir: &Path,
     file_stem: &str,
-    report: &str,
+    notes: &[(&str, &[u8])],
     scrubber: &mut Scrubber,
 ) -> Result<PathBuf, String> {
     let logs = newest_logs(log_dir)?;
@@ -39,7 +41,7 @@ pub fn export_client_logs(
     let path = out_dir.join(format!("{file_stem}.zip"));
     // Written aside and moved into place, so a share never picks up half a zip.
     let partial = out_dir.join(format!("{file_stem}.zip.partial"));
-    let written = write_zip(&partial, &logs, report, scrubber);
+    let written = write_zip(&partial, &logs, notes, scrubber);
     if let Err(error) = written {
         let _ = std::fs::remove_file(&partial);
         return Err(error);
@@ -82,7 +84,7 @@ fn newest_logs(dir: &Path) -> Result<Vec<PathBuf>, String> {
 fn write_zip(
     path: &Path,
     logs: &[PathBuf],
-    report: &str,
+    notes: &[(&str, &[u8])],
     scrubber: &mut Scrubber,
 ) -> Result<(), String> {
     let file = File::create(path)
@@ -92,10 +94,11 @@ fn write_zip(
     let failed =
         |error: &dyn std::fmt::Display| format!("could not write {}: {error}", path.display());
 
-    zip.start_file("report.txt", options)
-        .map_err(|error| failed(&error))?;
-    zip.write_all(report.as_bytes())
-        .map_err(|error| failed(&error))?;
+    for (name, text) in notes {
+        zip.start_file(*name, options)
+            .map_err(|error| failed(&error))?;
+        zip.write_all(text).map_err(|error| failed(&error))?;
+    }
     for log in logs {
         let name = log
             .file_name()
@@ -142,12 +145,13 @@ mod tests {
     }
 
     #[test]
-    fn the_client_logs_go_in_scrubbed_with_the_report_and_nothing_else() {
+    fn the_client_logs_go_in_scrubbed_after_the_notes_as_they_are_and_nothing_else() {
         let logs = tempfile::tempdir().unwrap();
         let out = tempfile::tempdir().unwrap();
+        let blob = "A".repeat(120);
         std::fs::write(
             logs.path().join("faforever-client.2026-11-19.log"),
-            "INFO lookup login=Stormlord\nINFO host 192.168.1.20\n",
+            format!("INFO lookup login=Stormlord\nINFO host 192.168.1.20\nINFO output {blob}\n"),
         )
         .unwrap();
         std::fs::write(logs.path().join("other.txt"), "not a client log").unwrap();
@@ -157,7 +161,10 @@ mod tests {
             logs.path(),
             out.path(),
             "faf-client-logs",
-            "version 1.0.0\n",
+            &[
+                ("report.txt", b"version 1.0.0\n"),
+                ("output.txt", blob.as_bytes()),
+            ],
             &mut scrubber,
         )
         .unwrap();
@@ -167,9 +174,11 @@ mod tests {
             read_zip(&path),
             vec![
                 ("report.txt".to_string(), "version 1.0.0\n".to_string()),
+                ("output.txt".to_string(), blob),
                 (
                     "logs/faforever-client.2026-11-19.log".to_string(),
-                    "INFO lookup login=player1\nINFO host [private]\n".to_string()
+                    "INFO lookup login=player1\nINFO host [private]\nINFO output [blob]\n"
+                        .to_string()
                 ),
             ]
         );
@@ -187,9 +196,9 @@ mod tests {
         .unwrap();
 
         let mut scrubber = Scrubber::new(None, None, []);
-        let path = export_client_logs(logs.path(), out.path(), "x", "", &mut scrubber).unwrap();
+        let path = export_client_logs(logs.path(), out.path(), "x", &[], &mut scrubber).unwrap();
 
         let entries = read_zip(&path);
-        assert_eq!(entries[1].1, "ok\nhalf \u{fffd}\n");
+        assert_eq!(entries[0].1, "ok\nhalf \u{fffd}\n");
     }
 }

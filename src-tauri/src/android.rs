@@ -3,6 +3,9 @@
 //! (`crate::keystore`), the share sheet and the device's make for the logs
 //! and a problem report, and the FAF game app with its updates.
 
+#[cfg(faf_uid_test_build)]
+pub(crate) mod faf_uid_check;
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -224,15 +227,18 @@ pub(crate) async fn share_client_logs(
             "FAForever client {} ({})\n{}\n{}\n",
             context.version, context.commit, context.system, context.device
         );
+        // A faf-uid test build's check: its line in the report, and faf-uid's
+        // output as it is, in a file of its own.
+        #[cfg(faf_uid_test_build)]
+        let report = report + &faf_uid_check::report_line();
+        let notes: &[(&str, &[u8])] = &[
+            ("report.txt", report.as_bytes()),
+            #[cfg(faf_uid_test_build)]
+            (faf_uid_check::OUTPUT_FILE, faf_uid_check::output()),
+        ];
         let home = std::env::var("HOME").ok();
         let mut scrubber = Scrubber::new(own_login.as_deref(), home.as_deref(), test_servers());
-        let path = export_client_logs(
-            &log_dir,
-            &out_dir,
-            "faf-client-logs",
-            &report,
-            &mut scrubber,
-        )?;
+        let path = export_client_logs(&log_dir, &out_dir, "faf-client-logs", notes, &mut scrubber)?;
         plugin
             .run_mobile_plugin::<Shared>(
                 "share",

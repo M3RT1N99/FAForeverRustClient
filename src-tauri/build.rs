@@ -48,5 +48,18 @@ fn main() {
         }
     }
 
+    // A faf-uid test build: an APK that packs faf-uid builds made elsewhere
+    // (`FAF_UID_ANDROID_TEST_BUILDS`, scripts/ensure-faf-uid-android.mjs).
+    // Only such a build has `android::faf_uid_check`: the switch that packs a
+    // test faf-uid is the one that brings the check, and no other build
+    // carries it.
+    println!("cargo:rustc-check-cfg=cfg(faf_uid_test_build)");
+    println!("cargo:rerun-if-env-changed=FAF_UID_ANDROID_TEST_BUILDS");
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("android")
+        && env::var_os("FAF_UID_ANDROID_TEST_BUILDS").is_some_and(|folder| !folder.is_empty())
+    {
+        println!("cargo:rustc-cfg=faf_uid_test_build");
+    }
+
     tauri_build::build();
 }
