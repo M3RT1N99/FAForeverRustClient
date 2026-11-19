@@ -11,6 +11,11 @@
 //! text]`). The games stand where `ForgedAlliance.exe` would: they connect to
 //! the port their client started them with, say `Idle` and `Lobby`, and trade
 //! `IceMsg`. Their process is a stand-in the test ends as it likes.
+//!
+//! A phone's client starts its games in FAF's game app instead, through the
+//! real launcher's game app path: a stand-in for the game app takes each
+//! start and, as the real one's game does, connects the game to the
+//! `/gpgnet` port named in the start's arguments.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
@@ -19,10 +24,14 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use faf_app::infra::{fake_ports, FakeAuth, FakeIce, NativeNetwork, SelectableIce};
+use faf_app::infra::{
+    fake_ports, FakeAuth, FakeIce, GameConfig, GameProcess, NativeNetwork, SelectableIce,
+};
+use faf_app::ports::game_app::{GameAppPort, GameAppRun, GameAppStart};
 use faf_app::ports::{
-    GameExit, GameLaunchParams, GameNetwork, InstallPresence, LobbyPort, LobbySendError,
-    LobbyUpdate, ProcessPort, Rejoin, RejoinSeat,
+    GameExit, GameLaunchParams, GameNetwork, GamePreparation, GameUpdaterPort, IcePort,
+    InstallPresence, LobbyPort, LobbySendError, LobbyUpdate, ProcessPort, Rejoin, RejoinSeat,
+    UpdateProgress,
 };
 use faf_app::{App, Ports};
 use faf_domain::protocol::gpgnet::{drain, encode, GpgArg, GpgMessage};
@@ -35,7 +44,7 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::support;
 
@@ -144,7 +153,9 @@ impl ServerState {
             uid: game_id,
             mod_name: hosted.listing.mod_name.clone(),
             name: hosted.listing.title.clone(),
-            mapname: hosted.listing.map.clone(),
+            // As FAF's: a custom game's order names no map, which is one of
+            // the matchmaker's `GameLaunchOptions`.
+            mapname: String::new(),
             game_type: "custom".into(),
             rating_type: "global".into(),
             expected_players: None,
@@ -312,6 +323,13 @@ impl LobbyServer {
             .iter()
             .filter(|(from, sent, _)| *from == player && sent == command)
             .count()
+    }
+
+    /// The game the server seated `player` in.
+    fn game_of(&self, player: i32) -> i32 {
+        self.state.lock().unwrap().connections[&player]
+            .game
+            .expect("the player is in a game")
     }
 
     fn said_its_game_ended(&self, player: i32) -> bool {
@@ -547,39 +565,105 @@ struct Client {
     launched: mpsc::UnboundedReceiver<GameLaunchParams>,
 }
 
+/// The connectivity backends a client chooses from, the game's own links
+/// among them.
+fn connectivity() -> SelectableIce {
+    SelectableIce::new(
+        Arc::new(FakeIce),
+        Arc::new(FakeIce),
+        Arc::new(FakeIce),
+        Arc::new(NativeNetwork::with_ice_servers(ice_servers())),
+    )
+}
+
+/// A client on `ports`, signed in as `login` and connected to `server`.
+async fn signed_in(server: &Arc<LobbyServer>, id: i32, login: &str, ports: Ports) -> App {
+    let ports = Ports {
+        auth: Arc::new(FakeAuth {
+            player: Player::new(id, login),
+            delay: Duration::ZERO,
+            fail_with: None,
+        }),
+        lobby: Arc::new(Seat {
+            server: server.clone(),
+            id,
+            login: login.into(),
+        }),
+        ..ports
+    };
+    let app = support::start(ports);
+    app.dispatch_and_wait(AuthCommand::Login { remember: false }.into())
+        .await
+        .unwrap();
+    app.dispatch(LobbyCommand::Connect.into()).await.unwrap();
+    support::until(&app, "the lobby connected", |state| {
+        state.lobby.status == LobbyStatus::Connected
+    })
+    .await;
+    app
+}
+
+async fn host_a_game(app: &App) {
+    app.dispatch(
+        LobbyCommand::Host {
+            config: host_config(),
+        }
+        .into(),
+    )
+    .await
+    .unwrap();
+}
+
+async fn join_the_game(app: &App, game_id: i32) {
+    support::until(app, "the hosted game listed", |state| {
+        state.lobby.games.iter().any(|game| game.id == game_id)
+    })
+    .await;
+    app.dispatch(
+        LobbyCommand::Join {
+            id: game_id,
+            password: None,
+            replace_mods: false,
+        }
+        .into(),
+    )
+    .await
+    .unwrap();
+}
+
+/// What a game is sent before anything else.
+async fn set_up(game: &mut GameSide, login: &str, id: i32) {
+    let servers = Value::Array(ice_servers()).to_string();
+    assert_eq!(
+        game.next().await,
+        message("IceServers", vec![text(&servers)])
+    );
+    assert_eq!(
+        game.next().await,
+        message(
+            "CreateLobby",
+            vec![int(0), int(0), text(login), int(id), int(1)]
+        )
+    );
+}
+
+/// Take a game through `Idle` to its lobby, as the engine does. The client
+/// answers `Idle` with the ICE servers and `CreateLobby`.
+async fn to_its_lobby(game: &mut GameSide, login: &str, id: i32) {
+    game.send("GameState", vec![text("Idle")]).await;
+    set_up(game, login, id).await;
+    game.send("GameState", vec![text("Lobby")]).await;
+}
+
 impl Client {
     async fn sign_in(server: &Arc<LobbyServer>, id: i32, login: &str) -> Self {
         let (machine, launched) = Machine::new();
-        let ice = SelectableIce::new(
-            Arc::new(FakeIce),
-            Arc::new(FakeIce),
-            Arc::new(FakeIce),
-            Arc::new(NativeNetwork::with_ice_servers(ice_servers())),
-        );
         let ports = Ports {
-            auth: Arc::new(FakeAuth {
-                player: Player::new(id, login),
-                delay: Duration::ZERO,
-                fail_with: None,
-            }),
-            lobby: Arc::new(Seat {
-                server: server.clone(),
-                id,
-                login: login.into(),
-            }),
             process: machine.clone(),
-            ice: Arc::new(ice),
+            ice: Arc::new(connectivity()),
             ..fake_ports()
         };
-        let app = support::start(ports);
-        app.dispatch_and_wait(AuthCommand::Login { remember: false }.into())
-            .await
-            .unwrap();
-        app.dispatch(LobbyCommand::Connect.into()).await.unwrap();
-        support::until(&app, "the lobby connected", |state| {
-            state.lobby.status == LobbyStatus::Connected
-        })
-        .await;
+        let app = signed_in(server, id, login, ports).await;
         Self {
             app,
             id,
@@ -597,42 +681,18 @@ impl Client {
     }
 
     async fn host(&mut self) -> (GameLaunchParams, GameSide) {
-        self.app
-            .dispatch(
-                LobbyCommand::Host {
-                    config: host_config(),
-                }
-                .into(),
-            )
-            .await
-            .unwrap();
+        host_a_game(&self.app).await;
         let (launch, mut game) = self.start_game_to_its_lobby().await;
         assert_eq!(game.next().await, message("HostGame", vec![text(MAP)]));
         (launch, game)
     }
 
     async fn join(&mut self, game_id: i32) -> (GameLaunchParams, GameSide) {
-        support::until(&self.app, "the hosted game listed", |state| {
-            state.lobby.games.iter().any(|game| game.id == game_id)
-        })
-        .await;
-        self.app
-            .dispatch(
-                LobbyCommand::Join {
-                    id: game_id,
-                    password: None,
-                    replace_mods: false,
-                }
-                .into(),
-            )
-            .await
-            .unwrap();
+        join_the_game(&self.app, game_id).await;
         self.start_game_to_its_lobby().await
     }
 
-    /// Start the game the client launched, and take it through `Idle` to its
-    /// lobby, as the engine does. The client answers `Idle` with the ICE
-    /// servers and `CreateLobby`.
+    /// Start the game the client launched, and take it to its lobby.
     async fn start_game_to_its_lobby(&mut self) -> (GameLaunchParams, GameSide) {
         let launch = self.next_launch().await;
         assert_eq!(
@@ -644,26 +704,195 @@ impl Client {
             "faf-re's game runs its own links"
         );
         let mut game = GameSide::start(&launch).await;
-        game.send("GameState", vec![text("Idle")]).await;
-        self.set_up(&mut game).await;
-        game.send("GameState", vec![text("Lobby")]).await;
+        to_its_lobby(&mut game, &self.login, self.id).await;
         (launch, game)
     }
 
     /// What a game is sent before anything else.
     async fn set_up(&self, game: &mut GameSide) {
-        let servers = Value::Array(ice_servers()).to_string();
-        assert_eq!(
-            game.next().await,
-            message("IceServers", vec![text(&servers)])
-        );
-        assert_eq!(
-            game.next().await,
-            message(
-                "CreateLobby",
-                vec![int(0), int(0), text(&self.login), int(self.id), int(1)]
-            )
-        );
+        set_up(game, &self.login, self.id).await;
+    }
+}
+
+/// FAF's game app on a phone, as its launcher sees it: each start it takes
+/// connects a game to the `/gpgnet` port its arguments name, as the real
+/// one's game does, and the game ends the way the test says.
+struct FakeGameApp {
+    started: mpsc::UnboundedSender<(GameAppStart, GameSide)>,
+    end: Mutex<Option<oneshot::Sender<Result<GameExit, String>>>>,
+    refusal: Mutex<Option<String>>,
+}
+
+impl FakeGameApp {
+    fn new() -> (Arc<Self>, mpsc::UnboundedReceiver<(GameAppStart, GameSide)>) {
+        let (started, starts) = mpsc::unbounded_channel();
+        let game_app = Self {
+            started,
+            end: Mutex::new(None),
+            refusal: Mutex::new(None),
+        };
+        (Arc::new(game_app), starts)
+    }
+
+    /// The running game's end as the game app answers it: how it ended, or
+    /// why it never ran.
+    fn answer(&self, end: Result<GameExit, String>) {
+        let waiting = self.end.lock().unwrap().take().expect("a game runs");
+        waiting.send(end).expect("the client waits for the game");
+    }
+
+    /// The next start is refused at once, the way the shell words it.
+    fn refuse_next(&self, failure: &str) {
+        *self.refusal.lock().unwrap() = Some(format!(
+            "FAF's game app did not start it: the start is not what the contract says ({failure})"
+        ));
+    }
+}
+
+#[async_trait]
+impl GameAppPort for FakeGameApp {
+    async fn start(&self, start: GameAppStart) -> Result<GameAppRun, String> {
+        if let Some(reason) = self.refusal.lock().unwrap().take() {
+            return Err(reason);
+        }
+        let port = start
+            .arguments
+            .iter()
+            .position(|argument| argument == "/gpgnet")
+            .and_then(|at| start.arguments.get(at + 1))
+            .and_then(|address| address.strip_prefix("127.0.0.1:"))
+            .and_then(|port| port.parse().ok())
+            .expect("the start names a GPGNet port on the loopback");
+        let game = GameSide::connect(port).await;
+        let (end, ended) = oneshot::channel();
+        *self.end.lock().unwrap() = Some(end);
+        self.started.send((start, game)).unwrap();
+        Ok(GameAppRun { ended })
+    }
+}
+
+/// The version FAF's API names as the current one of the featured mod.
+const CURRENT_VERSION: i32 = 3841;
+
+/// The updater of a client whose game keeps its own files: it is asked
+/// which version is current, and never to prepare an install.
+struct CurrentVersion;
+
+#[async_trait]
+impl GameUpdaterPort for CurrentVersion {
+    async fn prepare(&self, _request: GamePreparation) -> mpsc::Receiver<UpdateProgress> {
+        let (progress, steps) = mpsc::channel(1);
+        progress
+            .try_send(UpdateProgress::Finished(Err(
+                "nothing is prepared for a game that keeps its own files".into(),
+            )))
+            .unwrap();
+        steps
+    }
+
+    async fn current_version(&self, featured_mod: &str) -> Result<Option<i32>, String> {
+        assert_eq!(featured_mod, "faf");
+        Ok(Some(CURRENT_VERSION))
+    }
+}
+
+/// A player's client on a phone: its games start in FAF's game app, through
+/// the launcher's own game app path, and no executable.
+struct Phone {
+    app: App,
+    id: i32,
+    login: String,
+    game_app: Arc<FakeGameApp>,
+    started: mpsc::UnboundedReceiver<(GameAppStart, GameSide)>,
+}
+
+impl Phone {
+    async fn sign_in(server: &Arc<LobbyServer>, id: i32, login: &str) -> Self {
+        let (game_app, started) = FakeGameApp::new();
+        let ice = connectivity();
+        // As the Android shell does: a phone has no adapter to run.
+        ice.force_native_network();
+        let ports = Ports {
+            process: Arc::new(GameProcess::new(GameConfig::default()).with_game_app(game_app.clone())),
+            ice: Arc::new(ice),
+            updater: Arc::new(CurrentVersion),
+            ..fake_ports()
+        };
+        let app = signed_in(server, id, login, ports).await;
+        Self {
+            app,
+            id,
+            login: login.into(),
+            game_app,
+            started,
+        }
+    }
+
+    async fn next_start(&mut self) -> (GameAppStart, GameSide) {
+        tokio::time::timeout(support::PATIENCE, self.started.recv())
+            .await
+            .expect("the client started a game in the game app")
+            .expect("the game app is still there")
+    }
+
+    async fn host(&mut self) -> (GameAppStart, GameSide) {
+        host_a_game(&self.app).await;
+        let (start, mut game) = self.start_game_to_its_lobby().await;
+        assert_eq!(game.next().await, message("HostGame", vec![text(MAP)]));
+        (start, game)
+    }
+
+    async fn join(&mut self, game_id: i32) -> (GameAppStart, GameSide) {
+        join_the_game(&self.app, game_id).await;
+        self.start_game_to_its_lobby().await
+    }
+
+    async fn start_game_to_its_lobby(&mut self) -> (GameAppStart, GameSide) {
+        let (start, mut game) = self.next_start().await;
+        to_its_lobby(&mut game, &self.login, self.id).await;
+        (start, game)
+    }
+}
+
+/// The value after `switch` in a start's arguments.
+fn switch_value<'a>(start: &'a GameAppStart, switch: &str) -> Option<&'a str> {
+    let at = start.arguments.iter().position(|argument| argument == switch)?;
+    start.arguments.get(at + 1).map(String::as_str)
+}
+
+/// Two phones in one game, both games in their lobby and linked.
+struct TwoPhonesInAGame {
+    server: Arc<LobbyServer>,
+    ada: Phone,
+    ada_start: GameAppStart,
+    ada_game: GameSide,
+    bert: Phone,
+    bert_start: GameAppStart,
+    bert_game: GameSide,
+}
+
+async fn two_phones_in_a_game() -> TwoPhonesInAGame {
+    let server = Arc::new(LobbyServer::default());
+    let mut ada = Phone::sign_in(&server, 101, "Ada").await;
+    let mut bert = Phone::sign_in(&server, 102, "Bert").await;
+    let (ada_start, mut ada_game) = ada.host().await;
+    let (bert_start, mut bert_game) = bert.join(server.game_of(101)).await;
+    assert_eq!(
+        bert_game.next().await,
+        message("JoinGame", vec![text("Ada"), int(101)])
+    );
+    assert_eq!(
+        ada_game.next().await,
+        message("ConnectToPeer", vec![text("Bert"), int(102), int(1)])
+    );
+    TwoPhonesInAGame {
+        server,
+        ada,
+        ada_start,
+        ada_game,
+        bert,
+        bert_start,
+        bert_game,
     }
 }
 
@@ -704,7 +933,11 @@ impl Hearing {
 
 impl GameSide {
     async fn start(launch: &GameLaunchParams) -> Self {
-        let (reader, writer) = TcpStream::connect(("127.0.0.1", launch.game_port))
+        Self::connect(launch.game_port).await
+    }
+
+    async fn connect(port: u16) -> Self {
+        let (reader, writer) = TcpStream::connect(("127.0.0.1", port))
             .await
             .expect("the client's GPGNet port is open")
             .into_split();
@@ -1424,4 +1657,179 @@ async fn turned_off_faf_res_game_goes_to_the_adapter_and_still_takes_players_bac
         },
         "on the adapter, and told it takes a crashed player back"
     );
+}
+
+#[tokio::test]
+async fn phones_host_and_join_through_the_game_app_on_the_games_own_links() {
+    if adapter_named_by_the_environment() {
+        return;
+    }
+    let TwoPhonesInAGame {
+        server,
+        ada: _ada,
+        ada_start,
+        mut ada_game,
+        bert: _bert,
+        bert_start,
+        mut bert_game,
+    } = two_phones_in_a_game().await;
+
+    // What the game app is told to have ready, and what it is to play on.
+    for (start, game_id) in [(&ada_start, 4_001), (&bert_start, 4_001)] {
+        assert_eq!(start.game_version, Some(CURRENT_VERSION));
+        assert_eq!(start.featured_mod.as_deref(), Some("faf"));
+        assert_eq!(start.map.as_deref(), Some(MAP));
+        assert!(start.mods.is_empty(), "the game has no simulation mods");
+        assert!(start.rejoin_offer, "every game on its own links offers to come back");
+        assert_eq!(start.rejoin, None);
+        assert_eq!(start.replay, None);
+        assert!(start.arguments.contains(&"/nativenet".to_owned()));
+        assert!(!start.arguments.contains(&"/nativenetrelay".to_owned()));
+        let savereplay = switch_value(start, "/savereplay").expect("the replay is recorded");
+        assert!(savereplay.starts_with("gpgnet://127.0.0.1:"), "{savereplay}");
+        assert!(savereplay.contains(&format!("/{game_id}/")), "{savereplay}");
+        for own in ["/init", "/log", "/nobugreport", "/con", "/rejoinoffer", "/rejoinkeyfile"] {
+            assert!(!start.arguments.contains(&own.to_owned()), "{own} is the game app's");
+        }
+    }
+    assert_eq!(switch_value(&ada_start, "/numgames"), Some("12"));
+    assert_eq!(switch_value(&ada_start, "/mean"), Some("1500"));
+
+    // The games link through what the server routes between them.
+    ada_game.send("IceMsg", vec![int(102), text("ada's offer")]).await;
+    assert_eq!(
+        bert_game.next().await,
+        message("IceMsg", vec![int(101), text("ada's offer")])
+    );
+    bert_game.send("IceMsg", vec![int(101), text("bert's answer")]).await;
+    assert_eq!(
+        ada_game.next().await,
+        message("IceMsg", vec![int(102), text("bert's answer")])
+    );
+    assert!(!server.said_its_game_ended(101));
+    assert!(!server.said_its_game_ended(102));
+}
+
+#[tokio::test]
+async fn a_game_that_crashes_in_the_game_app_comes_back_to_its_match() {
+    if adapter_named_by_the_environment() {
+        return;
+    }
+    let TwoPhonesInAGame {
+        server,
+        ada: _ada,
+        ada_start: _,
+        mut ada_game,
+        mut bert,
+        bert_start,
+        mut bert_game,
+    } = two_phones_in_a_game().await;
+    offer_a_return(&mut bert_game, "1", &mut ada_game, 101, 102).await;
+
+    // The game app reports the crash: the game's connection died with it.
+    drop(bert_game);
+    bert.game_app.answer(Ok(GameExit::Crashed));
+    let (back, mut bert_back) = bert.next_start().await;
+    assert_eq!(
+        back.rejoin,
+        Some(Rejoin {
+            seats: vec![seat(101, 0)],
+            source: 1,
+        }),
+        "REJOIN_PEERS and REJOIN_SOURCE: the player still in the match, and its own source"
+    );
+    assert!(back.rejoin_offer, "a return needs the offer on the same start");
+    assert_eq!(
+        switch_value(&back, "/gpgnet"),
+        switch_value(&bert_start, "/gpgnet"),
+        "the same port"
+    );
+    assert_eq!(switch_value(&back, "/savereplay"), None, "the first stream is kept");
+    assert_eq!(
+        (back.game_version, &back.map),
+        (bert_start.game_version, &bert_start.map),
+        "the match's version and map"
+    );
+
+    // Coming back, it is sent what the server said before, in its order.
+    set_up(&mut bert_back, "Bert", 102).await;
+    assert_eq!(
+        bert_back.next().await,
+        message("JoinGame", vec![text("Ada"), int(101)])
+    );
+    ada_game
+        .send("IceMsg", vec![int(102), text("to the game that came back")])
+        .await;
+    assert_eq!(
+        bert_back.next().await,
+        message("IceMsg", vec![int(101), text("to the game that came back")])
+    );
+    assert!(!server.said_its_game_ended(102), "it never left the match");
+    assert_eq!(bert.app.snapshot().lobby.join, JoinState::InGame);
+}
+
+#[tokio::test]
+async fn a_game_quit_in_the_game_app_stays_quit() {
+    if adapter_named_by_the_environment() {
+        return;
+    }
+    let TwoPhonesInAGame {
+        server,
+        ada: _ada,
+        ada_start: _,
+        mut ada_game,
+        mut bert,
+        bert_start: _,
+        mut bert_game,
+    } = two_phones_in_a_game().await;
+    offer_a_return(&mut bert_game, "1", &mut ada_game, 101, 102).await;
+
+    drop(bert_game);
+    bert.game_app.answer(Ok(GameExit::Quit));
+    assert_eq!(
+        ada_game.next().await,
+        message("DisconnectFromPeer", vec![int(102)])
+    );
+    support::until(&bert.app, "the game ended", |state| {
+        state.lobby.join == JoinState::Idle
+    })
+    .await;
+    assert!(server.said_its_game_ended(102));
+    assert!(bert.started.try_recv().is_err(), "a game quit stays quit");
+}
+
+#[tokio::test]
+async fn a_start_the_game_app_refuses_fails_the_launch_with_its_reason() {
+    if adapter_named_by_the_environment() {
+        return;
+    }
+    let server = Arc::new(LobbyServer::default());
+    let mut ada = Phone::sign_in(&server, 101, "Ada").await;
+
+    // At once, as the contract's checks of a start refuse it.
+    ada.game_app.refuse_next("ARGUMENTS");
+    host_a_game(&ada.app).await;
+    support::until(&ada.app, "the launch failed", |state| {
+        matches!(&state.lobby.join, JoinState::LaunchFailed { reason }
+            if reason.starts_with("game launch: FAF's game app did not start it") && reason.ends_with("(ARGUMENTS)"))
+    })
+    .await;
+    support::eventually("the seat was given back", || server.said_its_game_ended(101)).await;
+    assert!(ada.started.try_recv().is_err(), "no game ran");
+
+    // Or once the game app has taken it, before its game runs: a map it
+    // could not fetch, say.
+    let mut bert = Phone::sign_in(&server, 102, "Bert").await;
+    host_a_game(&bert.app).await;
+    let (_, bert_game) = bert.next_start().await;
+    drop(bert_game);
+    bert.game_app.answer(Err(
+        "FAF's game app did not start it: no such map in the vault (NO_MAP)".into(),
+    ));
+    support::until(&bert.app, "the launch failed", |state| {
+        matches!(&state.lobby.join, JoinState::LaunchFailed { reason } if reason.ends_with("(NO_MAP)"))
+    })
+    .await;
+    support::eventually("the seat was given back", || server.said_its_game_ended(102)).await;
+    assert!(bert.started.try_recv().is_err(), "a game that never ran does not come back");
 }
