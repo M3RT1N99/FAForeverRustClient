@@ -123,15 +123,15 @@ export function PathsSettingsSection() {
   const paths = useAppStore((s) => s.state.settings.paths);
   const resolved = useAppStore((s) => s.state.install.resolved);
 
-  // On Android the game is its own app, with its own files and nothing here to
-  // point at, and the system cannot pick a folder: what is left is where this
-  // app keeps the vault and the rest, shown as it is.
+  // On Android the game is its own app: the vault, its maps and mods, generated
+  // maps and the game's own files are that app's, with nothing here to point
+  // at, and the system cannot pick a folder anyway. What is left is the one
+  // folder of this app's own the player has a reason to know, where it keeps
+  // replays, shown as it is.
   if (theGameIsItsOwnApp()) {
     return (
       <SettingsGroup>
-        {DIRECTORY_FIELDS.map((field) => (
-          <ContentPathRow key={field} field={field} paths={paths} resolved={resolved[field]} />
-        ))}
+        <ContentPathRow field="replaysDir" paths={paths} resolved={resolved.replaysDir} />
       </SettingsGroup>
     );
   }

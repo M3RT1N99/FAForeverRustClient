@@ -21,6 +21,7 @@ const LOG_ISSUE_HELP: Record<LogIssue, string> = {
 };
 import { SettingRow, SettingsGroup } from "./SettingControls";
 import { useTranslation } from "../../i18n/useTranslation";
+import { foldersCanBeOpened, theGameIsItsOwnApp } from "../../shared/platform";
 
 /**
  * What the last press left to say: that there are no logs yet, or that the
@@ -45,18 +46,24 @@ export function DiagnosticsSettingsSection() {
         setOutcome({ kind: "failed", reason: String(reason), retry: () => viewLatest(kind) }));
   };
 
+  // On Android the game's logs are the game app's, and no file manager can
+  // open this app's folders: what is left is reading the client's own log.
+  const openable = foldersCanBeOpened();
+
   return (
     <SettingsGroup>
-      <SettingRow label={t("settings.diagnostics.gameLogs")} hint={t("settings.diagnostics.gameLogsHint")}>
-        <div className="settings-diagnostic-actions">
-          <Button onClick={() => viewLatest("game")}>{t("settings.diagnostics.viewLatest")}</Button>
-          <Button onClick={() => openFolder("game")}>{t("settings.diagnostics.openFolder")}</Button>
-        </div>
-      </SettingRow>
+      {!theGameIsItsOwnApp() && (
+        <SettingRow label={t("settings.diagnostics.gameLogs")} hint={t("settings.diagnostics.gameLogsHint")}>
+          <div className="settings-diagnostic-actions">
+            <Button onClick={() => viewLatest("game")}>{t("settings.diagnostics.viewLatest")}</Button>
+            {openable && <Button onClick={() => openFolder("game")}>{t("settings.diagnostics.openFolder")}</Button>}
+          </div>
+        </SettingRow>
+      )}
       <SettingRow label={t("settings.diagnostics.clientLogs")} hint={t("settings.diagnostics.clientLogsHint")}>
         <div className="settings-diagnostic-actions">
           <Button onClick={() => viewLatest("client")}>{t("settings.diagnostics.viewLatest")}</Button>
-          <Button onClick={() => openFolder("client")}>{t("settings.diagnostics.openFolder")}</Button>
+          {openable && <Button onClick={() => openFolder("client")}>{t("settings.diagnostics.openFolder")}</Button>}
         </div>
       </SettingRow>
       {outcome?.kind === "noLogs" && (

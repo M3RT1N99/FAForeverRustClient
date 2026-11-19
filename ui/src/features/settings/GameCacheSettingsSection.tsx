@@ -9,6 +9,7 @@ import { formatBytes } from "../../shared/format/formatBytes";
 import { formatDate } from "../../shared/format/dates";
 import { useTranslation } from "../../i18n/useTranslation";
 import { SettingRow, SettingsGroup, SettingsSwitch } from "./SettingControls";
+import { foldersCanBeOpened } from "../../shared/platform";
 import type { GamePreferencesPatch } from "../../ipc/bindings";
 import { cachedVersionRelease, cachedVersionReleaseId } from "./cachedVersionRelease";
 
@@ -166,7 +167,7 @@ export function GameCacheSettingsSection() {
           label={t("settings.game.cacheUsed", { size: formatBytes(cacheInfo?.totalSizeBytes ?? 0) })}
           hint={t("settings.game.cacheContents", { count: cacheInfo?.totalFiles ?? 0 })}
         >
-          <Button onClick={handleOpenCacheFolder}>{t("settings.game.openCacheFolder")}</Button>
+          {foldersCanBeOpened() && <Button onClick={handleOpenCacheFolder}>{t("settings.game.openCacheFolder")}</Button>}
           <Button onClick={handleRefreshCache}>{t("settings.game.refreshCache")}</Button>
           <Button onClick={handleClearCache}>{t("settings.game.clearCache")}</Button>
         </SettingRow>

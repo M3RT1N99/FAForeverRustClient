@@ -3,6 +3,7 @@ import { Button } from "../../design-system/Button";
 import { StatusNotice } from "../../design-system/StatusNotice";
 import { FOLDER_GROUPS, openFolderEntry, type FolderEntry } from "../../shared/gameFolders";
 import { plainError } from "../../shared/plainError";
+import { foldersCanBeOpened } from "../../shared/platform";
 import { SettingRow, SettingsGroup } from "./SettingControls";
 import { useTranslation } from "../../i18n/useTranslation";
 
@@ -24,6 +25,9 @@ export function FoldersSettingsSection() {
     setFailure(null);
     void openFolderEntry(entry).catch((reason) => setFailure({ entry, reason: String(reason) }));
   };
+
+  // Every entry would end in the opener's refusal (Android).
+  if (!foldersCanBeOpened()) return null;
 
   return (
     <SettingsGroup title={t("settings.section.folders.title")}>

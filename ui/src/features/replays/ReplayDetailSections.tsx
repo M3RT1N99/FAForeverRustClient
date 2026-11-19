@@ -21,6 +21,7 @@ import { ReplayDetailRoster, type KnownAvatar } from "./ReplayRoster";
 import { useHasReplayNote } from "./ReplayNotesEditor";
 import type { GeneratorProgress } from "./replayDetailPresentation";
 import type { GameRating } from "./useGameRating";
+import { foldersCanBeOpened } from "../../shared/platform";
 
 type ReplayTeams = Parameters<typeof ReplayDetailRoster>[0]["teams"];
 
@@ -394,7 +395,7 @@ export function ReplayDetailToolbar({
           <span>{t("replays.notes.open")}</span>
         </Button>
       )}
-      {localPath && (
+      {localPath && foldersCanBeOpened() && (
         <Button
           className="replay-detail-tool"
           title={t("replays.detail.showInExplorer")}

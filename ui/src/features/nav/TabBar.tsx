@@ -5,6 +5,7 @@
 import { ipc } from "../../ipc/client";
 import { useAppStore } from "../../store/store";
 import { GameFoldersMenu } from "../game-folders/GameFoldersMenu";
+import { foldersCanBeOpened } from "../../shared/platform";
 import { openTabForMode, TABS, tabsForMode } from "./tabs";
 import type { Tab } from "../../ipc/bindings";
 import { Icon } from "../../design-system/Icon";
@@ -158,8 +159,9 @@ export function TabBar({ onPointerSelect }: TabBarProps) {
             has no place in the registry. It sits here because this is where the
             issue put it, between the links out and the settings. Offline too:
             these folders are on this disk and are exactly what a session with
-            no account can still use. */}
-        <GameFoldersMenu />
+            no account can still use. Not on Android, where no file manager
+            can open them. */}
+        {foldersCanBeOpened() && <GameFoldersMenu />}
         {tabs.filter((id) => id === "settings").map(renderTab)}
       </div>
     </nav>

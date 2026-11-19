@@ -42,6 +42,15 @@ export function foldersCanBePicked(): boolean {
 }
 
 /**
+ * Whether the system can show one of the client's folders in its file
+ * manager. Android cannot: an app's own folders are closed to other apps, and
+ * the opener refuses them (`open_path`), so nothing there offers to.
+ */
+export function foldersCanBeOpened(): boolean {
+  return !runsOnAndroid();
+}
+
+/**
  * Whether the client starts programs of its own beside the game: the ICE
  * adapter (Java's faf-ice-adapter or Go's faf-pioneer) and the player's
  * companion programs.
