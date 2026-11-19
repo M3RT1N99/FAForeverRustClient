@@ -27,6 +27,8 @@ const CAUSES: { key: MessageKey; pattern: RegExp }[] = [
   { key: "errors.cause.missing", pattern: /os error (2|3)\b|cannot find the (file|path)|no such file or directory/i },
   { key: "errors.cause.signIn", pattern: /not logged in|not signed in|no (access )?token/i },
   { key: "errors.cause.lobbyDisconnected", pattern: /^The FAF lobby is disconnected\. Reconnect and try again\.$/ },
+  // `vault_install::NOT_ON_ANDROID`.
+  { key: "errors.cause.vaultInstallsAndroid", pattern: /^Maps and mods are not installed on Android yet\./ },
   { key: "errors.cause.lobbySendBusy", pattern: /^The FAF lobby send queue is full\. Wait a moment and try again\.$/ },
   { key: "errors.cause.timeout", pattern: /timed? ?out|os error (10060|110)\b/i },
   {

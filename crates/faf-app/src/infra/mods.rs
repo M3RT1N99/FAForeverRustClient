@@ -664,6 +664,7 @@ impl ModsPort for ModsClient {
         progress: VaultInstallProgress,
         called_off: tokio_util::sync::CancellationToken,
     ) -> Result<Option<Vec<InstalledMod>>, String> {
+        crate::infra::vault_install::allowed_here()?;
         // Nothing is written before the archive is whole: stopped at once.
         let downloading = self.download_mod_archive_reporting(&uid, &download_url, &*progress);
         let bytes = tokio::select! {
@@ -746,6 +747,7 @@ impl ModsPort for ModsClient {
         progress: VaultInstallProgress,
         called_off: tokio_util::sync::CancellationToken,
     ) -> Result<Option<Vec<InstalledMod>>, String> {
+        crate::infra::vault_install::allowed_here()?;
         // Fetched before anything is deleted. An update that fails on a flaky
         // connection has to leave the installed copy alone: the whole reason
         // this exists is that doing it by hand meant uninstalling first and

@@ -30,6 +30,12 @@ describe("plainError", () => {
     expect(plainError(own)).toBe(own);
   });
 
+  it("translates why the vaults install nothing on Android", () => {
+    // `vault_install::NOT_ON_ANDROID`, word for word.
+    const refused = "Maps and mods are not installed on Android yet. A later version hands them to the game app.";
+    expect(plainError(refused)).toBe(en["errors.cause.vaultInstallsAndroid"]);
+  });
+
   it("tidies what it does not recognise: no long paths, no snake case, a full stop", () => {
     expect(plainError("game_not_found")).toBe("Game not found.");
     expect(plainError("could not read D:\\Games\\FA\\maps\\scmp_009\\scmp_009_scenario.lua: bad header")).toBe(

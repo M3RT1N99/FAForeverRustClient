@@ -91,6 +91,25 @@ impl Drop for Armed {
     }
 }
 
+/// Why the vaults install nothing on Android, as the player is told.
+///
+/// The game there is the faf-re app's, whose folders this app cannot write,
+/// and a map or mod reaches it only through that app's own way in, which a
+/// later version brings. Installed here it would only take up space, so the
+/// vaults are for browsing until then.
+pub const NOT_ON_ANDROID: &str =
+    "Maps and mods are not installed on Android yet. A later version hands them to the game app.";
+
+/// Whether the vaults install anything on this platform: [`NOT_ON_ANDROID`]
+/// where they do not.
+pub fn allowed_here() -> Result<(), String> {
+    if cfg!(target_os = "android") {
+        Err(NOT_ON_ANDROID.to_string())
+    } else {
+        Ok(())
+    }
+}
+
 /// Generous enough for large content packages, bounded enough that a broken
 /// or hostile server cannot consume all process memory.
 pub const MAX_DOWNLOAD_BYTES: u64 = 512 * 1024 * 1024;

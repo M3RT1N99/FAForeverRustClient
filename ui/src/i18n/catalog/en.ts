@@ -6352,6 +6352,7 @@ export const en = {
   "errors.cause.signIn": "You are signed out. Sign in and try again.",
   "errors.cause.lobbyDisconnected": "The FAF lobby is disconnected. Reconnect and try again.",
   "errors.cause.lobbySendBusy": "The FAF lobby send queue is full. Wait a moment and try again.",
+  "errors.cause.vaultInstallsAndroid": "Maps and mods are not installed on Android yet. A later version hands them to the game app.",
   "errors.cause.unknown": "Something went wrong. Try again.",
   "replays.insights.from": "From",
   "replays.insights.transfers": "Transfers",

@@ -395,6 +395,7 @@ impl MapsPort for MapsClient {
         progress: VaultInstallProgress,
         called_off: tokio_util::sync::CancellationToken,
     ) -> Result<Option<Vec<InstalledMap>>, String> {
+        crate::infra::vault_install::allowed_here()?;
         // Not `self.http`: that client follows redirects without asking.
         install_vault_map(
             &crate::infra::http::no_redirect_http_client(),
