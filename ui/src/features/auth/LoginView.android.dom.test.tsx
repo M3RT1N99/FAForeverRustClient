@@ -11,6 +11,7 @@ import type { GameAppStatus } from "../../ipc/bindings";
 import { en } from "../../i18n/catalog/en";
 import { failOnConsoleError } from "../../testing/consoleGuard";
 import { clearSentCommands, sentCommands } from "../../testing/mounted";
+import { useGameAppStatusStore } from "../../shared/gameApp";
 import { LoginView } from "./LoginView";
 
 const { gameAppStatus, gameAppPlay } = vi.hoisted(() => ({ gameAppStatus: vi.fn(), gameAppPlay: vi.fn() }));
@@ -26,6 +27,8 @@ failOnConsoleError();
 beforeEach(() => {
   vi.clearAllMocks();
   clearSentCommands();
+  // The status is shared by every view, and outlives a test's render.
+  useGameAppStatusStore.setState({ status: null });
 });
 
 const READY: GameAppStatus = {
@@ -45,6 +48,7 @@ const READY: GameAppStatus = {
     engineCommit: "c4050b171",
   },
   lastGame: null,
+  silentUpdate: false,
 };
 
 const MISSING: GameAppStatus = {
@@ -54,6 +58,7 @@ const MISSING: GameAppStatus = {
   contract: "none",
   gameData: null,
   lastGame: null,
+  silentUpdate: false,
 };
 
 const playButton = () => screen.getByRole("button", { name: en["auth.playOffline"] });

@@ -14,6 +14,7 @@
 // bug report can still quote it.
 
 import { t, type MessageKey } from "../i18n";
+import { gameAppFailureIn } from "./gameAppFailures";
 
 /** A recognised cause, and what gives it away. Checked in order. */
 const CAUSES: { key: MessageKey; pattern: RegExp }[] = [
@@ -29,6 +30,12 @@ const CAUSES: { key: MessageKey; pattern: RegExp }[] = [
   { key: "errors.cause.lobbyDisconnected", pattern: /^The FAF lobby is disconnected\. Reconnect and try again\.$/ },
   // `vault_install::NOT_ON_ANDROID`.
   { key: "errors.cause.vaultInstallsAndroid", pattern: /^Maps and mods are not installed on Android yet\./ },
+  // Android's shell, before it hands a start to the FAF game app
+  // (`refusal_before_start` in `src-tauri/src/game_app.rs`).
+  { key: "android.gameApp.need.install", pattern: /^FAF's game app is not installed$/ },
+  { key: "android.gameApp.need.update", pattern: /^FAF's game app is too old to start games from the client$/ },
+  { key: "android.gameApp.need.allow", pattern: /^FAF's game app does not accept this client$/ },
+  { key: "android.gameApp.failure.running", pattern: /^a game is already running in FAF's game app$/ },
   // The shell's `pick_path` on Android, and what v3 still said there.
   { key: "errors.cause.notOnAndroid", pattern: /^(Choosing files and folders is not available on Android\.|folders cannot be picked on Android)$/i },
   { key: "errors.cause.lobbySendBusy", pattern: /^The FAF lobby send queue is full\. Wait a moment and try again\.$/ },
@@ -96,6 +103,8 @@ function tidy(reason: string): string {
 export function plainError(reason: string): string {
   const raw = reason.trim();
   if (!raw) return t("errors.cause.unknown");
+  const refusal = gameAppFailureIn(raw);
+  if (refusal) return t(refusal);
   for (const cause of CAUSES) {
     if (cause.pattern.test(raw)) return t(cause.key);
   }

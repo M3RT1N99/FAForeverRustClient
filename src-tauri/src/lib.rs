@@ -221,6 +221,10 @@ pub fn run() {
                 android::game_app_setup,
                 #[cfg(target_os = "android")]
                 android::game_app_play,
+                #[cfg(target_os = "android")]
+                android::game_app_update_check,
+                #[cfg(target_os = "android")]
+                android::game_app_update_install,
                 commands::webview_engine,
                 commands::system_date_pattern,
                 commands::map_generator_automatic_instances,

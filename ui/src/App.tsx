@@ -12,6 +12,7 @@ import { useAppStore } from "./store/store";
 import { t } from "./i18n";
 import { LoginView } from "./features/auth/LoginView";
 import { AppShell } from "./features/shell/AppShell";
+import { useGameAppUpdates } from "./shared/gameAppUpdate";
 import { CommandErrorBanner } from "./features/shell/CommandErrorBanner";
 import { ExitGuard } from "./features/shell/ExitGuard";
 import { StartupView } from "./features/shell/StartupView";
@@ -57,6 +58,7 @@ function browserStorage(): Storage | null {
 }
 
 export function App() {
+  useGameAppUpdates();
   const auth = useAppStore((s) => s.state.auth);
   const hydrated = useAppStore((s) => s.hydrated);
   const authStatus = auth.status;

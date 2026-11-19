@@ -92,6 +92,9 @@ pub struct GameAppStatus {
     pub game_data: Option<GameAppData>,
     /// The last game it ran, when it answers this client and ran one.
     pub last_game: Option<GameAppLastGame>,
+    /// Whether Android lets this client update it without asking: Android 12
+    /// or later, and this client installed it last.
+    pub silent_update: bool,
 }
 
 /// Whether the installed game app can be started from this client.
@@ -170,6 +173,29 @@ pub enum GameAppEnd {
     Ended,
     /// It did not run: the game app's code (`NO_SCFA`, `CALLER`, ...) and its
     /// reason in words.
+    Failed { failure: String, message: String },
+}
+
+/// A release of the game app newer than the one on this device.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GameAppUpdate {
+    /// Its version, `0.17.0`.
+    pub version: String,
+    /// Whether the phone is on a metered network now (mobile data, a hotspot,
+    /// a Wi-Fi set so): the download is then the player's to start.
+    pub metered: bool,
+}
+
+/// How an update of the game app ended.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum GameAppInstall {
+    /// Android installed it.
+    Installed,
+    /// It was not installed: why, as this client's code (`RUNNING`, `PACKAGE`,
+    /// `SIGNER`, `NOT_NEWER`, `ABORTED`, `CONFLICT`, `STORAGE`, `INSTALL`),
+    /// and Android's own words where it gave some.
     Failed { failure: String, message: String },
 }
 

@@ -1,12 +1,12 @@
 // Settings, Android: the FAF game app, the game this client starts on
-// Android. Its version, what of its game data it has, its own setup for what
-// is missing, and an offline game.
+// Android. Its version and updates, what of its game data it has, its own
+// setup for what is missing, and an offline game.
 
 import { useState } from "react";
 import { Button } from "../../design-system/Button";
 import { StatusNotice } from "../../design-system/StatusNotice";
 import { useTranslation } from "../../i18n/useTranslation";
-import type { GameAppData } from "../../ipc/native";
+import type { GameAppData, GameAppStatus } from "../../ipc/native";
 import {
   GAME_APP_NEED_TEXT,
   gameAppNeed,
@@ -15,6 +15,11 @@ import {
   setUpInGameApp,
   useGameAppStatus,
 } from "../../shared/gameApp";
+import {
+  installGameAppUpdate,
+  lookForGameAppUpdate,
+  useGameAppUpdateStore,
+} from "../../shared/gameAppUpdate";
 import { SettingRow, SettingsGroup } from "./SettingControls";
 
 function reasonOf(error: unknown): string {
@@ -27,9 +32,55 @@ function newerVersion(data: GameAppData): number | null {
   return newest !== null && !data.gameVersions.includes(newest) ? newest : null;
 }
 
+/** What the hint of the updates' row says. */
+function updateHint(
+  t: ReturnType<typeof useTranslation>["t"],
+  status: GameAppStatus,
+  { offer, phase, looked }: ReturnType<typeof useGameAppUpdateStore.getState>,
+): string {
+  if (phase === "looking") return t("android.gameApp.update.looking");
+  if (!offer) return t(looked ? "android.gameApp.update.upToDate" : "android.gameApp.update.notLooked");
+  const version = { version: offer.version };
+  if (phase === "installing") return t("android.gameApp.update.installing", version);
+  if (status.gameData?.gameRunning) return t("android.gameApp.update.availableAfterGame", version);
+  if (offer.metered) return t("android.gameApp.update.availableMetered", version);
+  return t(status.silentUpdate ? "android.gameApp.update.available" : "android.gameApp.update.availableAsks", version);
+}
+
+/** The game app's updates: what the last look found, and the one press for it. */
+function GameAppUpdateRow({ status }: { status: GameAppStatus }) {
+  const { t } = useTranslation();
+  const update = useGameAppUpdateStore();
+  const { offer, phase, failure } = update;
+  return (
+    <>
+      <SettingRow label={t("android.gameApp.update.title")} hint={updateHint(t, status, update)}>
+        {offer ? (
+          <Button
+            disabled={phase !== "idle" || (status.gameData?.gameRunning ?? false)}
+            onClick={() => void installGameAppUpdate()}
+          >
+            {t("android.gameApp.update.install")}
+          </Button>
+        ) : (
+          <Button disabled={phase !== "idle"} onClick={() => void lookForGameAppUpdate()}>
+            {t("android.gameApp.update.look")}
+          </Button>
+        )}
+      </SettingRow>
+      {failure && (
+        <StatusNotice tone="error" className="settings-inline-notice">
+          {failure}
+        </StatusNotice>
+      )}
+    </>
+  );
+}
+
 export function AndroidSettingsSection() {
   const { t } = useTranslation();
   const { status, refresh } = useGameAppStatus();
+  const offer = useGameAppUpdateStore((state) => state.offer);
   const [failure, setFailure] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
 
@@ -37,7 +88,10 @@ export function AndroidSettingsSection() {
   if (!status) return null;
   const need = gameAppNeed(status);
   const data = status.gameData;
-  const appAction = need === "install" || need === "update" || need === "allow" ? gameAppNeedAction(need) : null;
+  // A game app too old for the client takes the update below where one was
+  // found, its releases' page otherwise.
+  const appAction =
+    need === "install" || need === "allow" || (need === "update" && !offer) ? gameAppNeedAction(need) : null;
 
   // Whatever came of it, the status is asked again once the player is back.
   const run = (task: () => Promise<void>) => {
@@ -56,13 +110,14 @@ export function AndroidSettingsSection() {
       <SettingRow
         label={t("android.gameApp.app")}
         hint={
-          appAction
-            ? t(GAME_APP_NEED_TEXT[need as "install" | "update" | "allow"].title)
+          need === "install" || need === "update" || need === "allow"
+            ? t(GAME_APP_NEED_TEXT[need].title)
             : t("android.gameApp.appVersion", { version: status.versionName })
         }
       >
         {appAction && <Button onClick={() => run(appAction.run)}>{t(appAction.label)}</Button>}
       </SettingRow>
+      {status.installed && <GameAppUpdateRow status={status} />}
       {data && (
         <>
           <SettingRow
