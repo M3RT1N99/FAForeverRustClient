@@ -1,7 +1,7 @@
 //! What the client needs from Android itself, through its own Kotlin in
-//! `gen/android`: the browser for sign-in, the share sheet and the device's
-//! make for the logs and a problem report, and the FAF game app with its
-//! updates.
+//! `gen/android`: the browser for sign-in, a store for the remembered sign-in
+//! (`crate::keystore`), the share sheet and the device's make for the logs
+//! and a problem report, and the FAF game app with its updates.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -40,6 +40,13 @@ pub(crate) struct GameApp(PluginHandle<Wry>);
 pub(crate) fn init() -> TauriPlugin<Wry> {
     Builder::new("android")
         .setup(|app, api| {
+            // Before anything reads a secret: keyring builds an entry's
+            // credential from the store set when the entry is made.
+            keyring::set_default_credential_builder(Box::new(
+                crate::keystore::KeystoreCredentials(
+                    api.register_android_plugin(APP_PACKAGE, "SecureStorePlugin")?,
+                ),
+            ));
             let wait = api.register_android_plugin(APP_PACKAGE, "BrowserWaitPlugin")?;
             app.manage(Diagnostics(
                 api.register_android_plugin(APP_PACKAGE, "DiagnosticsPlugin")?,

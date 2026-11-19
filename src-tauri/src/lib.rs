@@ -24,6 +24,8 @@ mod commands;
 mod diagnostics;
 mod exit;
 mod game_app;
+#[cfg(target_os = "android")]
+mod keystore;
 mod navigation;
 mod notification_popup;
 mod picked_paths;
