@@ -123,7 +123,11 @@ fn default_vault_dirs_in(
             .join("Gas Powered Games")
             .join("Supreme Commander Forged Alliance")
     };
-    let mut dirs = vec![vault(documents.unwrap_or(Path::new(".")))];
+    // With no Documents folder (Android, whose app has only its HOME, or a
+    // Linux without XDG user directories) under home, as the Java client does,
+    // rather than under wherever the process was started: on Android that is
+    // `/`, where nothing can be written.
+    let mut dirs = vec![vault(documents.or(home).unwrap_or(Path::new(".")))];
     if !windows {
         if let Some(home) = home {
             let java = vault(home);
@@ -193,6 +197,19 @@ mod tests {
         assert_eq!(
             default_vault_dirs_in(true, Some(documents), Some(home)).len(),
             1
+        );
+    }
+
+    #[test]
+    fn makes_the_vault_under_home_where_there_is_no_documents_folder() {
+        // Android: the app's HOME is its private files, and there is no
+        // Documents folder. The process starts in `/`, so "." cannot be it.
+        let home = Path::new("/data/user/0/com.faforever.rustclient/files");
+        assert_eq!(
+            default_vault_dirs_in(false, None, Some(home)),
+            vec![PathBuf::from(
+                "/data/user/0/com.faforever.rustclient/files/My Games/Gas Powered Games/Supreme Commander Forged Alliance"
+            )]
         );
     }
 }
