@@ -37,6 +37,7 @@ sha2 = "0.10"
 # infra/training.rs). Already in the tree through tungstenite and zip.
 sha1 = "0.10"
 base64 = "0.22"
+regex = "1"
 rand = "0.8"
 # Decompresses `.fafreplay` bodies (see infra/replay.rs): "zstd" for
 # vault-downloaded replays, flate2 (zlib) for the legacy Qt `qCompress` format

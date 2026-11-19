@@ -103,6 +103,8 @@ pub(crate) mod league_keys;
 pub mod linux_runtime;
 pub mod lobby_fake;
 pub mod lobby_ws;
+pub mod log_export;
+pub mod log_scrub;
 pub mod map_analysis;
 pub mod map_generator;
 pub mod map_markers;
