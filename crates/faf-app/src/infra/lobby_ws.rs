@@ -35,7 +35,9 @@
 //! stdout. The binary path comes from `FAF_UID_PATH`; otherwise the provider
 //! searches the development/package `natives` directory and finally `PATH`.
 //! The live provider is selected for normal account sessions; without a working
-//! `faf-uid`, lobby auth fails and the stream ends.
+//! `faf-uid`, lobby auth fails and the stream ends. Android runs only FAF's
+//! official build, which the app ships, and holds the lobby back without it
+//! (`android_uid`).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -53,6 +55,7 @@ use crate::infra::session::TokenStore;
 use crate::infra::{env_or, fetch_access_url, validated_ws_url};
 use crate::ports::{LobbyPort, LobbySendError, LobbyUpdate};
 
+mod android_uid;
 mod session;
 use session::{Effect, SessionState};
 
@@ -123,9 +126,20 @@ impl LobbyConfig {
             user_api_base: env_or("FAF_USER_API_BASE", "https://user.faforever.com"),
             api_base: env_or("FAF_API_BASE", "https://api.faforever.com"),
             version: env_or("FAF_CLIENT_VERSION", env!("CARGO_PKG_VERSION")),
-            uid_path: env_or("FAF_UID_PATH", default_uid_path()),
+            uid_path: uid_path(),
         }
     }
+}
+
+/// The `faf-uid` this client runs. On Android that is FAF's official build in
+/// the app or none, and `FAF_UID_PATH` names no other program there.
+fn uid_path() -> String {
+    if cfg!(target_os = "android") {
+        return android_uid::official()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_default();
+    }
+    env_or("FAF_UID_PATH", default_uid_path())
 }
 
 fn default_uid_path() -> String {
@@ -222,15 +236,13 @@ impl LobbyClient {
 
 /// Why the lobby is not contacted from this device, if it is not.
 ///
-/// Android, until FAF publishes faf-uid for it (FAForever/uid#18): the
-/// lobby's `auth` needs the machine proof only FAF's own build of that program
-/// makes, and FAF's server takes a sign-in with any other proof for a fraud
-/// and bans the account. So the lobby is not contacted at all, here and only
-/// here; `FAF_UID_PATH` opens no way around it. When FAF's build exists, this
-/// is where its SHA-256 is pinned and checked against the program the app
-/// ships.
+/// Android, unless the app ships FAF's official faf-uid ([`android_uid`]):
+/// the lobby's `auth` needs the machine proof only FAF's own build of that
+/// program makes, and FAF's server takes a sign-in with any other proof for a
+/// fraud and bans the account. So without it the lobby is not contacted at
+/// all, here and only here; `FAF_UID_PATH` opens no way around it.
 fn android_hold_back() -> Option<LobbyUnavailable> {
-    if cfg!(target_os = "android") {
+    if cfg!(target_os = "android") && android_uid::official().is_none() {
         Some(LobbyUnavailable::AndroidNeedsOfficialUid)
     } else {
         None

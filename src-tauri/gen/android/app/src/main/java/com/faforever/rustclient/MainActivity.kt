@@ -1,6 +1,7 @@
 package com.faforever.rustclient
 
 import android.os.Bundle
+import android.provider.Settings
 import android.system.Os
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
@@ -14,6 +15,13 @@ class MainActivity : TauriActivity() {
     // app's own private folders take its place.
     Os.setenv("HOME", filesDir.absolutePath, true)
     Os.setenv("TMPDIR", cacheDir.absolutePath, true)
+    // faf-uid, which the lobby's sign-in runs (crates/faf-app/src/infra/lobby_ws/android_uid.rs):
+    // Android runs an app's own programs only from its native library folder, and faf-uid
+    // reports the ANDROID_ID only Java can read.
+    Os.setenv("FAF_NATIVE_LIBRARY_DIR", applicationInfo.nativeLibraryDir, true)
+    Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)?.let {
+      Os.setenv("FAF_UID_ANDROID_ID", it, true)
+    }
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     // From edge to edge the page would lie under the status and navigation bars
