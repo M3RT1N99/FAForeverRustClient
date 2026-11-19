@@ -181,6 +181,14 @@ pub trait ModsPort: Send + Sync {
         Ok(None)
     }
 
+    /// The file of the mod version `uid` on FAF's content server: the last
+    /// segment of its `downloadUrl` (`<name>.zip`). For a game that keeps
+    /// its own files, which fetches a game's simulation mods itself by these
+    /// names. The default knows no vault, and so no file.
+    async fn mod_file(&self, uid: &str) -> Result<String, String> {
+        Err(format!("no file is known for the simulation mod {uid}"))
+    }
+
     /// Install missing simulation mods required by a game and enable them.
     /// Already-installed versions are retained: this is compatibility
     /// preparation, not the intentionally excluded automatic mod updater.

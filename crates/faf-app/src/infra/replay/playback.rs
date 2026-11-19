@@ -366,6 +366,7 @@ async fn start_in_game_app(
         arguments: Vec::new(),
         map: replay.map_folder.as_deref().and_then(contract_map_name),
         replay: Some(replay.path.clone()),
+        ..GameAppStart::default()
     };
     // Its end is the game app's own business, as a replay window's is.
     game_app.start(start).await?;
@@ -637,6 +638,7 @@ mod tests {
                 arguments: Vec::new(),
                 map: Some("scmp_009".into()),
                 replay: Some(PathBuf::from("replay_00ff.scfareplay")),
+                ..GameAppStart::default()
             }]
         );
     }

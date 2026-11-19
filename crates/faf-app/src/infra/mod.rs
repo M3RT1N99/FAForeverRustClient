@@ -27,8 +27,10 @@
 //!   and the cheap half of the file format; `replay_analysis` reads the rest.
 //! * **Processes we start**: `game` (Forged Alliance), `ice_java`,
 //!   `ice_pioneer` and `ice_select` (the connectivity adapter and how one is
-//!   chosen), `connectivity` (the connectivity check: relay probes, the
-//!   adapters on disk, the adapter log), `java_runtime`, `map_generator`, `galactic_war`, and
+//!   chosen), `ice_native` (no adapter: the game's own links, which the
+//!   client bridges to the lobby), `connectivity` (the connectivity check:
+//!   relay probes, the adapters on disk, the adapter log), `java_runtime`,
+//!   `map_generator`, `galactic_war`, and
 //!   `client_update` (the installer), `steam_presence`, which is this
 //!   client's own executable started again to show a game on Steam, and
 //!   `companions`, the player's own programs started alongside the game.
@@ -92,6 +94,7 @@ pub mod guides;
 mod history_cache;
 pub(crate) mod http;
 pub mod ice_java;
+pub mod ice_native;
 pub mod ice_pioneer;
 pub mod ice_select;
 mod interrupted_work;
@@ -163,6 +166,7 @@ pub use galactic_war::{FakeGalacticWar, GalacticWarConfig, GalacticWarGateway};
 pub use game::{FakeGame, GameConfig, GameProcess};
 pub use guides::{FakeGuides, GuidesClient, GuidesConfig};
 pub use ice_java::{JavaAdapter, JavaConfig};
+pub use ice_native::NativeNetwork;
 pub use ice_pioneer::{FakeIce, IceConfig, PioneerAdapter};
 pub use ice_select::SelectableIce;
 pub use irc::{IrcClient, IrcConfig};
@@ -175,7 +179,7 @@ pub use mods::{FakeMods, ModsClient, ModsConfig};
 pub use oauth::{OAuthAuth, OAuthConfig};
 pub use paths::{ConfiguredPaths, FakePaths};
 pub use player_card::{FakePlayerCard, PlayerCardClient, PlayerCardConfig};
-pub use relay::{GpgRelayServer, RelayChannels};
+pub use relay::{GameConnection, GameListener, GpgRelayServer, RelayChannels};
 pub use replay::{
     FakeReplay, ReplayAdapters, ReplayConfig, ReplayLibrary, ReplayPlayback, ReplayReader,
     ReplayVault,
@@ -944,12 +948,14 @@ pub fn real_ports() -> Ports {
 /// Build the connectivity backend.
 ///
 /// All adapters are constructed and handed to [`SelectableIce`], so the
-/// Settings toggle changes which one starts the next game without a restart.
+/// Settings toggle changes which one starts the next game without a restart,
+/// and so is the game's own network, which needs no adapter.
 fn select_ice_adapter(tokens: &TokenStore, sessions: &IceSessionMemory) -> Arc<dyn IcePort> {
     Arc::new(SelectableIce::new(
         Arc::new(JavaAdapter::faf(tokens.clone()).remembering(sessions.clone())),
         Arc::new(JavaAdapter::exp_faf(tokens.clone()).remembering(sessions.clone())),
         Arc::new(PioneerAdapter::faf(tokens.clone()).remembering(sessions.clone())),
+        Arc::new(NativeNetwork::faf(tokens.clone()).remembering(sessions.clone())),
     ))
 }
 

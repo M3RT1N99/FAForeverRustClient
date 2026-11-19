@@ -293,6 +293,10 @@ pub(crate) fn start_core(app: &tauri::App, backend_version: String) -> Arc<App> 
     // (`infra::LobbyClient`). Set FAF_FAKE_AUTH=1 to run fully offline
     // without a browser login during local dev.
     let ports = faf_app::infra::ports_from_env();
+    // Android has no ICE adapter to run: FAF's game app runs every game's
+    // links itself.
+    #[cfg(target_os = "android")]
+    ports.ice.force_native_network();
     let cleanup_files = !ports.offline_auth;
     let (core, app_loop) = App::new(backend_version, ports);
     let core = Arc::new(core);

@@ -2328,6 +2328,13 @@ export type ConnectivityPreferences = {
 	 *  to `Dynamic`, which behaves the same for every unmarked game.
 	 */
 	selectionVersion: number,
+	/**
+	 *  "Game's own network": a game whose executable is faf-re's runs its
+	 *  links itself, with no adapter, where it would run on the Java adapter.
+	 *  On by default; off, it runs on the adapters above like the original
+	 *  game, which always does.
+	 */
+	nativeNetwork: boolean,
 };
 
 /**  A change to [`ConnectivityPreferences`]. */
@@ -2335,6 +2342,7 @@ export type ConnectivityPreferencesPatch = {
 	adapter?: IceAdapter,
 	hostAdapter?: IceAdapter,
 	selectionVersion?: number,
+	nativeNetwork?: boolean,
 };
 
 export type ConnectivityState = {
@@ -9184,6 +9192,11 @@ export type RelayStatus =
 { type: "unsupported"; payload: {
 	adapter: IceAdapter,
 } } |
+/**
+ *  No adapter is running: the game runs its links itself (faf-re's
+ *  native mode) and shows them in its own network panel.
+ */
+{ type: "gameLinks" } |
 /**  The adapter did not answer its status call. */
 { type: "unavailable"; payload: {
 	reason: string,

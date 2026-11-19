@@ -55,6 +55,9 @@ pub struct HostedGame {
     /// checking the whole install a second time was most of the wait between
     /// pressing Host and the game window (#511).
     pub prepared: bool,
+    /// The map asked for, which the launch order does not name: for a game
+    /// that fetches its map itself (`ProcessPort::keeps_own_files`).
+    pub map: String,
 }
 
 /// The lobby connection's operational context: its single-flight guard, the

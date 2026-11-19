@@ -335,6 +335,15 @@ impl ModsClient {
     }
 }
 
+/// The file a `downloadUrl` names: its path's last segment, as the URL
+/// spells it, so that the content server's folder and this name make the
+/// same URL again.
+fn download_file_name(download_url: &str) -> Option<String> {
+    let url = url::Url::parse(download_url).ok()?;
+    let name = url.path_segments()?.next_back()?;
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
 /// The `latestVersion` of the mod a `modVersion` document's first record
 /// belongs to, from `include=mod.latestVersion`.
 fn parse_latest_mod_version(doc: &JsonApiDoc) -> Option<LatestModVersion> {
@@ -457,6 +466,12 @@ impl ModsPort for ModsClient {
             .append_pair("page[size]", "1");
         let document = fetch_document(&self.http, url, &token).await?;
         Ok(parse_latest_mod_version(&document))
+    }
+
+    async fn mod_file(&self, uid: &str) -> Result<String, String> {
+        let required = self.required_mod_version(uid).await?;
+        download_file_name(&required.download_url)
+            .ok_or_else(|| format!("simulation mod {uid} has no file in its download link"))
     }
 
     async fn list_vault(&self) -> Result<Vec<VaultMod>, String> {
@@ -2076,6 +2091,23 @@ impl ModsPort for FakeMods {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_mod_file_is_the_last_segment_of_its_download_link_as_spelled() {
+        assert_eq!(
+            download_file_name("https://content.example.invalid/mods/uveso-ai.v0154.zip").as_deref(),
+            Some("uveso-ai.v0154.zip")
+        );
+        // Left encoded: the content server's folder and this name make the
+        // link again.
+        assert_eq!(
+            download_file_name("https://content.example.invalid/mods/Score%20Board.v0019.zip?x=1")
+                .as_deref(),
+            Some("Score%20Board.v0019.zip")
+        );
+        assert_eq!(download_file_name("https://content.example.invalid/mods/"), None);
+        assert_eq!(download_file_name("not a link"), None);
+    }
 
     #[test]
     fn a_content_range_header_yields_the_whole_size() {

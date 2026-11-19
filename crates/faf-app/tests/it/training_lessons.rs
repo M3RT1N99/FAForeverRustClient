@@ -13,8 +13,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use faf_app::infra::fake_ports;
 use faf_app::ports::{
-    GameLaunchParams, GamePreparation, GameUpdaterPort, InstallPresence, ProcessPort, TrainingPort,
-    UpdateProgress,
+    GameExit, GameLaunchParams, GamePreparation, GameUpdaterPort, InstallPresence, ProcessPort,
+    TrainingPort, UpdateProgress,
 };
 use faf_app::{App, Ports};
 use faf_domain::state::{
@@ -153,8 +153,9 @@ impl ProcessPort for ScriptedGame {
         Ok(())
     }
     fn kill(&self) {}
-    async fn wait_for_exit(&self) {
-        self.exited.notified().await
+    async fn wait_for_exit(&self) -> GameExit {
+        self.exited.notified().await;
+        GameExit::Quit
     }
     fn set_paths(&self, _game_path: String, _replay_game_path: String) {}
     fn set_additional_arguments(&self, _arguments: Vec<String>) {}

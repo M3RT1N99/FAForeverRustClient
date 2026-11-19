@@ -22,8 +22,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use faf_app::infra::fake_ports;
 use faf_app::ports::{
-    GameLaunchParams, GamePreparation, GameUpdaterPort, InstallPresence, MapSearchPage, MapsPort,
-    ProcessPort, UpdateProgress,
+    GameExit, GameLaunchParams, GamePreparation, GameUpdaterPort, InstallPresence, MapSearchPage,
+    MapsPort, ProcessPort, UpdateProgress,
 };
 use faf_app::ports::{GeneratorUpdate, MapGeneratorPort};
 use faf_app::{App, Ports};
@@ -58,8 +58,8 @@ impl ProcessPort for LaunchableProcess {
         Ok(())
     }
     fn kill(&self) {}
-    async fn wait_for_exit(&self) {
-        std::future::pending::<()>().await
+    async fn wait_for_exit(&self) -> GameExit {
+        std::future::pending().await
     }
     fn set_paths(&self, _game_path: String, _replay_game_path: String) {}
     fn set_additional_arguments(&self, _arguments: Vec<String>) {}

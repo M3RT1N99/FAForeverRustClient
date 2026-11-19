@@ -2,4 +2,7 @@
     <string name="browser_wait_channel">Browser</string>
     <string name="browser_wait_title">Wartet auf den Browser</string>
     <string name="browser_wait_text">Der Client läuft weiter, bis du zurück bist.</string>
+    <string name="game_wait_channel">Spiel</string>
+    <string name="game_wait_title">Ein Spiel läuft</string>
+    <string name="game_wait_text">Der Client hält das Spiel verbunden, bis es endet.</string>
 </resources>

@@ -62,7 +62,9 @@ pub(super) use maps::{lease_map_folder, map_folder_in_any, unpack_map_leased};
 pub use replay_version::{
     extract_game_version, extract_map_folder, resolve_and_stage_replay_version, ReplayVersionInfo,
 };
-pub use update::{clear_file_list_cache, ensure_game_version, ensure_latest_game_version};
+pub use update::{
+    clear_file_list_cache, ensure_game_version, ensure_latest_game_version, latest_version,
+};
 
 /// Whether `name` has the shape of a featured mod's technical name: ASCII
 /// letters, digits, `_` and `-`, at most 64 of them.

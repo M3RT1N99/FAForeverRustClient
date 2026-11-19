@@ -178,6 +178,15 @@ pub trait GameUpdaterPort: Send + Sync {
     fn installed_build(&self) -> Option<InstalledBuild> {
         None
     }
+
+    /// The version a live game of `featured_mod` is on now, as a preparation
+    /// would install it: for a game that keeps its own files
+    /// (`ProcessPort::keeps_own_files`), which is told the version to play
+    /// rather than given an install. `None` where this updater cannot say,
+    /// which is the default for a test double without an API.
+    async fn current_version(&self, _featured_mod: &str) -> Result<Option<i32>, String> {
+        Ok(None)
+    }
 }
 
 #[cfg(test)]

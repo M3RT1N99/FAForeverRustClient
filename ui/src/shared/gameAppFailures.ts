@@ -25,9 +25,10 @@ export const GAME_APP_FAILURES: Readonly<Record<string, MessageKey>> = {
 /**
  * A launch's failure as the Android shell words a refusal of the game app's
  * (`failure_reason` in `src-tauri/src/game_app.rs`): the game app's own
- * words, and its code in brackets at the end.
+ * words, and its code in brackets at the end. An online game's failure has
+ * the launcher's words before them (`game launch: ...`).
  */
-const SHELL_REASON = /^FAF's game app did not start it\b[\s\S]*\(([A-Z_]+)\)$/;
+const SHELL_REASON = /\bFAF's game app did not start it\b[\s\S]*\(([A-Z_]+)\)$/;
 
 /** What a backend reason that is a refusal of the game app's says, if one. */
 export function gameAppFailureIn(reason: string): MessageKey | undefined {

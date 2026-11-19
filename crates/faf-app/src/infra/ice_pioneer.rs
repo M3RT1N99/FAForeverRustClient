@@ -30,7 +30,7 @@ use crate::infra::connectivity::IceSessionMemory;
 use crate::infra::free_port;
 use crate::infra::relay::GpgRelayServer;
 use crate::infra::session::TokenStore;
-use crate::ports::{ConnectivitySession, IceParams, IcePort, RelayMsg};
+use crate::ports::{ConnectivitySession, GameLinks, IceParams, IcePort, RelayMsg};
 
 /// Configuration for the real adapter.
 #[derive(Debug, Clone)]
@@ -259,21 +259,19 @@ impl IcePort for PioneerAdapter {
                 // does this itself). Without it the game waits on a black screen.
                 if is_game_state(&message, "Idle") {
                     tracing::info!("game reached Idle state; injecting CreateLobby");
-                    let create = GpgMessage::new(
-                        "CreateLobby",
-                        vec![
-                            GpgArg::Int(init_mode),
-                            GpgArg::Int(0),
-                            GpgArg::Str(player_login.clone()),
-                            GpgArg::Int(player_id),
-                            GpgArg::Int(1),
-                        ],
-                    );
-                    let _ = create_lobby_sink.try_send(create);
+                    let _ =
+                        create_lobby_sink.send(create_lobby(init_mode, &player_login, player_id));
                 }
+                let Some(args) = json_from_gpg_args(&message.args) else {
+                    tracing::debug!(
+                        command = %message.command,
+                        "pioneer bridge: a game message that carries data is not for the lobby"
+                    );
+                    continue;
+                };
                 let relay_msg = RelayMsg {
                     command: message.command,
-                    args: json_from_gpg_args(&message.args),
+                    args,
                 };
                 if to_lobby_tx.send(relay_msg).await.is_err() {
                     tracing::debug!(
@@ -298,7 +296,7 @@ impl IcePort for PioneerAdapter {
                     args = ?gpg.args,
                     "pioneer bridge: lobby -> adapter"
                 );
-                if to_adapter.send(gpg).await.is_err() {
+                if to_adapter.send(gpg).is_err() {
                     tracing::debug!(
                         "pioneer bridge: lobby->adapter pump ended (relay channel closed)"
                     );
@@ -310,6 +308,7 @@ impl IcePort for PioneerAdapter {
 
         Ok(ConnectivitySession {
             game_port,
+            links: GameLinks::Adapter,
             to_lobby: to_lobby_rx,
             from_lobby: from_lobby_tx,
             late_failure: None,
@@ -325,9 +324,25 @@ impl IcePort for PioneerAdapter {
 }
 
 /// Whether a message is `GameState` carrying the given state string.
-fn is_game_state(message: &GpgMessage, state: &str) -> bool {
+pub(crate) fn is_game_state(message: &GpgMessage, state: &str) -> bool {
     message.command == "GameState"
         && matches!(message.args.first(), Some(GpgArg::Str(s)) if s == state)
+}
+
+/// The `CreateLobby` the game waits for after `GameState Idle`, as the Java
+/// adapter sends it: init mode (1 for the matchmaker), port 0, the player's
+/// login and id, and 1.
+pub(crate) fn create_lobby(init_mode: i32, player_login: &str, player_id: i32) -> GpgMessage {
+    GpgMessage::new(
+        "CreateLobby",
+        vec![
+            GpgArg::Int(init_mode),
+            GpgArg::Int(0),
+            GpgArg::Str(player_login.to_string()),
+            GpgArg::Int(player_id),
+            GpgArg::Int(1),
+        ],
+    )
 }
 
 /// Translate a server-level game command into the exact GPGNet frame expected
@@ -398,11 +413,15 @@ fn int_arg(value: &Value) -> Option<GpgArg> {
     i32::try_from(value).ok().map(GpgArg::Int)
 }
 
-fn json_from_gpg_args(args: &[GpgArg]) -> Vec<Value> {
+/// A game message's arguments as the lobby server takes them. None for one
+/// that carries data (`ProcessNatPacket`): bytes the game's lobby port read
+/// off the network, which JSON has no type for and the server no use.
+pub(crate) fn json_from_gpg_args(args: &[GpgArg]) -> Option<Vec<Value>> {
     args.iter()
         .map(|arg| match arg {
-            GpgArg::Int(n) => Value::from(*n),
-            GpgArg::Str(s) => Value::from(s.clone()),
+            GpgArg::Int(n) => Some(Value::from(*n)),
+            GpgArg::Str(s) => Some(Value::from(s.clone())),
+            GpgArg::Data(_) => None,
         })
         .collect()
 }
@@ -419,6 +438,7 @@ impl IcePort for FakeIce {
         let (from_lobby_tx, _from_lobby_rx) = mpsc::channel::<RelayMsg>(1);
         Ok(ConnectivitySession {
             game_port: 0,
+            links: GameLinks::Adapter,
             to_lobby: to_lobby_rx,
             from_lobby: from_lobby_tx,
             late_failure: None,
@@ -445,8 +465,10 @@ mod tests {
         let gpg = vec![GpgArg::Int(42), GpgArg::Str("peer".into())];
         assert_eq!(
             json_from_gpg_args(&gpg),
-            vec![Value::from(42), Value::from("peer")]
+            Some(vec![Value::from(42), Value::from("peer")])
         );
+        let nat_packet = vec![GpgArg::Str("127.0.0.1:6000".into()), GpgArg::Data(vec![8])];
+        assert_eq!(json_from_gpg_args(&nat_packet), None, "no JSON for bytes");
     }
 
     #[test]

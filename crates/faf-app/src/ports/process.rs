@@ -14,7 +14,8 @@ use tokio::sync::mpsc;
 #[derive(Debug, Clone)]
 pub struct GameLaunchParams {
     pub game_id: i32,
-    /// GPGNet port the game connects to (the adapter's `--gpgnet-port`).
+    /// GPGNet port the game connects to: the adapter's `--gpgnet-port`, or
+    /// this client's own when the game runs its links itself.
     pub game_port: u16,
     /// Lobby init mode: 0 = normal (custom), 1 = auto (matchmaker).
     pub init_mode: i32,
@@ -27,6 +28,99 @@ pub struct GameLaunchParams {
     pub args: Vec<String>,
     /// What the recorded replay's header should say about this game.
     pub replay: ReplayMetadata,
+    /// Who runs the game's links to the other players.
+    pub network: GameNetwork,
+    /// What a game that keeps its own files is to have ready
+    /// ([`ProcessPort::keeps_own_files`]); nothing for a launch whose install
+    /// was prepared instead.
+    pub content: GameContent,
+}
+
+/// What a game that keeps its own files (FAF's game app) needs named for a
+/// launch, since nothing was put into an install for it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GameContent {
+    /// The featured mod's version the game plays: the current one, as the
+    /// updater resolves it for an install. `None` where nobody could say.
+    pub game_version: Option<i32>,
+    /// The map's folder name.
+    pub map: Option<String>,
+    /// The simulation mods, in the order of the game's list.
+    pub mods: Vec<GameMod>,
+}
+
+/// A simulation mod a game needs: its uid, and its file on FAF's content
+/// server, the last segment of the API's `downloadUrl` (`<name>.zip`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GameMod {
+    pub uid: String,
+    pub file: String,
+}
+
+/// How a game reaches the other players, as far as its command line goes
+/// (faf-re's `docs/LAUNCHER_NATIVE_NETWORK.md`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GameNetwork {
+    /// An adapter runs the links. `rebuilt_engine` when the executable is
+    /// faf-re's all the same: such a game is told it takes back a player
+    /// whose game crashed, because a match offers that only when every
+    /// player's game can.
+    Adapter { rebuilt_engine: bool },
+    /// The game runs every link itself (`/nativenet`).
+    Native {
+        /// Relayed candidates only (`/nativenetrelay`).
+        force_relay: bool,
+        /// Set when the game is started again to take its seat back after a
+        /// crash (#275).
+        rejoin: Option<Rejoin>,
+    },
+}
+
+/// What a game coming back to its match is started with:
+/// `/rejoin <player id=source,...> <source> 0`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rejoin {
+    /// The other players it links to, with their sources from the game's
+    /// `RejoinOffer`.
+    pub seats: Vec<RejoinSeat>,
+    /// The game's own source, the first field of its `RejoinOffer`.
+    pub source: i32,
+}
+
+impl Rejoin {
+    /// The seats as `player id=source,...`: `/rejoin`'s first value, and
+    /// FAF's game app's `REJOIN_PEERS`.
+    pub fn peers(&self) -> String {
+        self.seats
+            .iter()
+            .map(|seat| format!("{}={}", seat.player_id, seat.source))
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+}
+
+/// One player of a match and the command source their game plays as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RejoinSeat {
+    pub player_id: i32,
+    pub source: i32,
+}
+
+/// How a game a launcher started came to an end.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GameExit {
+    /// It quit by itself, saying all went well (exit status 0).
+    Quit,
+    /// It ended by itself any other way: a crash, as far as a launcher can
+    /// tell.
+    Crashed,
+    /// The launcher ended it ([`ProcessPort::kill`]), or cannot tell how it
+    /// ended.
+    Stopped,
+    /// It never ran: FAF's game app gave up the start it had taken, for
+    /// this reason (a map it could not fetch, say). A spawned process always
+    /// ran, so only a game app's start ends so.
+    Refused(String),
 }
 
 /// The game description written into a locally recorded replay's header.
@@ -178,21 +272,42 @@ pub trait ProcessPort: Send + Sync {
     /// full `/replay ... /init ... /nobugreport ...` list itself.
     async fn launch_replay(&self, args: Vec<String>) -> Result<(), String>;
 
-    /// Kill the game process, if running. Idempotent.
+    /// Kill the game process, if running. Idempotent. A game in FAF's game
+    /// app cannot be ended from the client: it is marked stopped, and no
+    /// longer waited for.
     fn kill(&self);
 
-    /// Resolve when the currently running game process exits.
+    /// Resolve when the currently running game process exits, with how it
+    /// ended.
     ///
     /// Without this the client has no idea the game ended: it stays `InGame`
     /// until the user explicitly terminates, so the Play tab keeps saying the
     /// player is in a game and refuses another join. Both reference clients
     /// watch the process instead (the Python client's `GameSession._exited` on
-    /// `QProcess.finished`, Java's `GameRunner`).
+    /// `QProcess.finished`, Java's `GameRunner`). How it ended is what tells a
+    /// crash, which can come back to its match, from a game the player left.
     ///
     /// The default never resolves, which is the honest answer for a fake that
     /// never starts a process: no exit will ever happen.
-    async fn wait_for_exit(&self) {
-        std::future::pending::<()>().await
+    async fn wait_for_exit(&self) -> GameExit {
+        std::future::pending().await
+    }
+
+    /// Whether the configured game executable is faf-re's rebuilt engine
+    /// rather than the original game, read from its version resource: only
+    /// faf-re's game can run its own links. A launcher with no executable to
+    /// read has none of faf-re's, which is the default.
+    async fn game_is_rebuilt_engine(&self) -> bool {
+        false
+    }
+
+    /// Whether the game keeps its own files: FAF's game app, where the game
+    /// is an app of its own, has its own game versions, maps and mods and
+    /// fetches what a launch names ([`GameLaunchParams::content`]). Nothing
+    /// is then patched or downloaded into an install for it. A launcher that
+    /// starts an install's executable keeps none, which is the default.
+    fn keeps_own_files(&self) -> bool {
+        false
     }
 
     /// Point the launcher at new install paths.

@@ -48,6 +48,10 @@ describe("plainError", () => {
       "FAF's game app did not start it: no game files of the featured mod \"coop\": the game has FAF's own (faf) only (NO_GAME_FILES)";
     expect(plainError(refused)).toBe(en["android.gameApp.failure.noGameFiles"]);
     expect(plainError("FAF's game app did not start it (NO_MAP)")).toBe(en["android.gameApp.failure.noMap"]);
+    // An online game's, with the launcher's words before the shell's.
+    expect(plainError("game launch: FAF's game app did not start it: a switch is refused (ARGUMENTS)")).toBe(
+      en["android.gameApp.failure.arguments"],
+    );
     // A code this client does not know yet keeps the game app's words.
     expect(plainError("FAF's game app did not start it: something new (NEW_CODE)")).toBe(
       "FAF's game app did not start it: something new (NEW_CODE).",

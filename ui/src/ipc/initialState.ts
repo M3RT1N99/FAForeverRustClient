@@ -962,7 +962,8 @@ export const INITIAL_STATE: AppState = {
     "connectivity": {
       "adapter": "dynamic",
       "hostAdapter": "java",
-      "selectionVersion": 2
+      "selectionVersion": 2,
+      "nativeNetwork": true
     },
     "debug": {
       "iceAdapterDebugWindow": false,

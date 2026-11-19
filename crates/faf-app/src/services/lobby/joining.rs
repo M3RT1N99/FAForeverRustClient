@@ -277,6 +277,7 @@ pub(super) async fn host(config: HostGameConfig, ctx: &ServiceCtx, out: &EventSi
             let hosted = super::HostedGame {
                 title: config.title.clone(),
                 prepared,
+                map: config.map.clone(),
             };
             let sent = operations.while_live(operation, || {
                 // A launch can answer immediately. It sees the host details

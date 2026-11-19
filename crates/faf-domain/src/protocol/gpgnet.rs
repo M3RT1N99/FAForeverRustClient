@@ -6,8 +6,9 @@
 //!
 //! ```text
 //! message  = string(command) argcount(i32) arg*
-//! arg      = type(u8: 0=int, 1=string) ( i32 | string )
+//! arg      = type(u8: 0=int, 1=string, 2=data) ( i32 | string | data )
 //! string   = len(i32) bytes(len, UTF-8)
+//! data     = len(i32) bytes(len)
 //! ```
 //!
 //! All integers are 32-bit little-endian, matching `QDataStream::writeInt` /
@@ -34,7 +35,8 @@
 /// buffer for an incomplete one: a frame that would need more is invalid.
 pub const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
 
-/// The longest single string (the command or one argument).
+/// The longest single string (the command or one argument), and the longest
+/// data argument.
 pub const MAX_STRING_BYTES: usize = 4 * 1024 * 1024;
 
 /// The most arguments one message may carry. Real messages carry a handful.
@@ -46,11 +48,16 @@ pub const MAX_ARGS: usize = 4096;
 pub enum GpgArg {
     Int(i32),
     Str(String),
+    /// Raw bytes, the engine's `NETARG_Data`: a datagram its lobby port read
+    /// off the network, which it hands on as `ProcessNatPacket [address,
+    /// data]`. Not text, so they are kept as they came.
+    Data(Vec<u8>),
 }
 
 impl GpgArg {
     const TYPE_INT: u8 = 0;
     const TYPE_STRING: u8 = 1;
+    const TYPE_DATA: u8 = 2;
 }
 
 /// One GPGNet message: a command name and its typed arguments.
@@ -83,6 +90,10 @@ pub fn encode(message: &GpgMessage) -> Vec<u8> {
             GpgArg::Str(s) => {
                 out.push(GpgArg::TYPE_STRING);
                 write_string(&mut out, s);
+            }
+            GpgArg::Data(bytes) => {
+                out.push(GpgArg::TYPE_DATA);
+                write_bytes(&mut out, bytes);
             }
         }
     }
@@ -177,6 +188,9 @@ fn parse_message(buf: &[u8]) -> Parsed<(GpgMessage, usize)> {
         let arg = match tag {
             GpgArg::TYPE_INT => read_i32(buf, &mut pos)?.map(GpgArg::Int),
             GpgArg::TYPE_STRING => read_string(buf, &mut pos)?.map(GpgArg::Str),
+            GpgArg::TYPE_DATA => {
+                read_bytes(buf, &mut pos, DATA)?.map(|bytes| GpgArg::Data(bytes.to_vec()))
+            }
             _ => return Err("unknown argument type"),
         };
         let Some(arg) = arg else {
@@ -218,23 +232,42 @@ fn read_i32(buf: &[u8], pos: &mut usize) -> Parsed<i32> {
 }
 
 fn read_string(buf: &[u8], pos: &mut usize) -> Parsed<String> {
+    let Some(bytes) = read_bytes(buf, pos, STRING)? else {
+        return Ok(None);
+    };
+    let text = std::str::from_utf8(bytes).map_err(|_| "string was not UTF-8")?;
+    Ok(Some(text.to_string()))
+}
+
+/// Why a length-prefixed field is refused: its length is negative, or over
+/// [`MAX_STRING_BYTES`].
+type Refusals = (&'static str, &'static str);
+const STRING: Refusals = ("negative string length", "string too long");
+const DATA: Refusals = ("negative data length", "data too long");
+
+/// A length and that many bytes, as `QDataStream::writeBytes` writes a string
+/// and a data argument alike.
+fn read_bytes<'a>(
+    buf: &'a [u8],
+    pos: &mut usize,
+    (negative, too_long): Refusals,
+) -> Parsed<&'a [u8]> {
     let start = *pos;
     let Some(len) = read_i32(buf, pos)? else {
         return Ok(None);
     };
-    let len = usize::try_from(len).map_err(|_| "negative string length")?;
+    let len = usize::try_from(len).map_err(|_| negative)?;
     if len > MAX_STRING_BYTES {
-        return Err("string too long");
+        return Err(too_long);
     }
     if require(buf, *pos, len)?.is_none() {
         // Rewind so a retry with more bytes re-reads the length too.
         *pos = start;
         return Ok(None);
     }
-    let slice = &buf[*pos..*pos + len];
-    let text = std::str::from_utf8(slice).map_err(|_| "string was not UTF-8")?;
+    let bytes = &buf[*pos..*pos + len];
     *pos += len;
-    Ok(Some(text.to_string()))
+    Ok(Some(bytes))
 }
 
 fn write_i32(out: &mut Vec<u8>, n: i32) {
@@ -242,8 +275,12 @@ fn write_i32(out: &mut Vec<u8>, n: i32) {
 }
 
 fn write_string(out: &mut Vec<u8>, s: &str) {
-    write_i32(out, s.len() as i32);
-    out.extend_from_slice(s.as_bytes());
+    write_bytes(out, s.as_bytes());
+}
+
+fn write_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
+    write_i32(out, bytes.len() as i32);
+    out.extend_from_slice(bytes);
 }
 
 #[cfg(test)]
@@ -415,6 +452,47 @@ mod tests {
         let mut buf = encode(&msg);
         let out = decode_all(&mut buf);
         assert_eq!(out, vec![msg]);
+    }
+
+    /// `ProcessNatPacket [address, data]`, as the engine writes a datagram
+    /// its lobby port read: the bytes are no text, and no reason to drop the
+    /// connection they came on.
+    #[test]
+    fn a_data_argument_is_its_bytes_as_they_came() {
+        let packet = vec![0x08, 0x00, 0xff];
+        let msg = GpgMessage::new(
+            "ProcessNatPacket",
+            vec![
+                GpgArg::Str("127.0.0.1:6000".into()),
+                GpgArg::Data(packet.clone()),
+            ],
+        );
+        let full = encode(&msg);
+        let mut expected = header("ProcessNatPacket", 2);
+        expected.push(GpgArg::TYPE_STRING);
+        write_string(&mut expected, "127.0.0.1:6000");
+        expected.push(2); // DATA tag
+        expected.extend_from_slice(&3i32.to_le_bytes());
+        expected.extend_from_slice(&packet);
+        assert_eq!(full, expected);
+
+        for cut in 0..full.len() {
+            assert_eq!(decode(&full[..cut]), Decoded::Incomplete, "cut at {cut}");
+        }
+        assert_eq!(decode(&full), Decoded::Complete(msg, full.len()));
+    }
+
+    #[test]
+    fn a_data_argument_has_a_strings_limits() {
+        let mut negative = header("ProcessNatPacket", 1);
+        negative.push(GpgArg::TYPE_DATA);
+        write_i32(&mut negative, -1);
+        assert_eq!(decode(&negative), Decoded::Invalid("negative data length"));
+
+        let mut long = header("ProcessNatPacket", 1);
+        long.push(GpgArg::TYPE_DATA);
+        write_i32(&mut long, (MAX_STRING_BYTES + 1) as i32);
+        assert_eq!(decode(&long), Decoded::Invalid("data too long"));
     }
 
     #[test]

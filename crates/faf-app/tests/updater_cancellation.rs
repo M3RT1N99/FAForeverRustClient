@@ -25,8 +25,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use faf_app::infra::{fake_ports, FakeAuth};
 use faf_app::ports::{
-    GameLaunchParams, GamePreparation, GameUpdaterPort, InstallPresence, PreparationPhase,
-    PreparationStep, ProcessPort, UpdateProgress,
+    GameExit, GameLaunchParams, GamePreparation, GameUpdaterPort, InstallPresence,
+    PreparationPhase, PreparationStep, ProcessPort, UpdateProgress,
 };
 use faf_app::{App, Ports};
 use faf_domain::state::{
@@ -71,8 +71,8 @@ impl ProcessPort for LaunchableProcess {
         Ok(())
     }
     fn kill(&self) {}
-    async fn wait_for_exit(&self) {
-        std::future::pending::<()>().await
+    async fn wait_for_exit(&self) -> GameExit {
+        std::future::pending().await
     }
     fn set_paths(&self, _game_path: String, _replay_game_path: String) {}
     fn set_additional_arguments(&self, _arguments: Vec<String>) {}

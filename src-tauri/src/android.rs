@@ -11,6 +11,7 @@ use faf_app::infra::game_app_release::{GameAppRelease, GameAppReleases};
 use faf_app::infra::log_export::export_client_logs;
 use faf_app::infra::log_scrub::Scrubber;
 use faf_app::ports::game_app::{GameAppPort, GameAppRun, GameAppStart};
+use faf_app::ports::GameExit;
 use faf_ipc::shell::{
     GameAppEnd, GameAppInstall, GameAppLaunch, GameAppStatus, GameAppUpdate, ReportContext,
 };
@@ -332,8 +333,8 @@ pub(crate) async fn game_app_play(
         .map_err(|error| format!("could not start the game app: {error}"))
 }
 
-/// The game app as `faf_app` starts replays in it: its PLAY, with a replay
-/// file handed over through this app's file provider.
+/// The game app as `faf_app` starts games and replays in it: its PLAY, with
+/// a replay file handed over through this app's file provider.
 struct GameAppLauncher {
     plugin: PluginHandle<Wry>,
     /// Where a replay waits for the game app to read it: the cache, which the
@@ -347,16 +348,9 @@ const TAKEOVER_POLL: Duration = Duration::from_millis(500);
 /// waiting: the game app's game process is up within a second or two.
 const TAKEOVER_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// What `GameAppPlugin.play` takes for a start of `faf_app`'s.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PlayStart {
-    game_version: Option<i32>,
-    featured_mod: Option<String>,
-    arguments: Option<Vec<String>>,
-    map: Option<String>,
-    replay_path: Option<String>,
-}
+/// How far before the start the status provider's row of it may say it
+/// began: the two read one clock, which may be set back a little meanwhile.
+const CLOCK_SLACK_MS: f64 = 5_000.0;
 
 impl GameAppLauncher {
     /// Copy `replay` where the file provider shares it, as the only replay
@@ -382,13 +376,26 @@ impl GameAppLauncher {
     }
 }
 
-/// How a PLAY ended, as `faf_app` reads it: over, or why not.
-fn outcome_of(
+/// How a PLAY ended, as `faf_app` reads it: how its game ended, which the
+/// status provider says once the start answered, or why it did not run.
+async fn outcome_of(
+    plugin: &PluginHandle<Wry>,
     answered: Result<Result<serde_json::Value, String>, tokio::task::JoinError>,
-) -> Result<(), String> {
+    started_after: f64,
+) -> Result<GameExit, String> {
     match answered {
         Ok(Ok(raw)) => match crate::game_app::end_from(raw) {
-            GameAppEnd::Ended => Ok(()),
+            GameAppEnd::Ended => {
+                let status: Result<serde_json::Value, String> = call(plugin, "status", ()).await;
+                let last_game = match status.and_then(crate::game_app::status_from) {
+                    Ok(status) => status.last_game,
+                    Err(reason) => {
+                        tracing::warn!(%reason, "could not ask how the game app's game ended");
+                        None
+                    }
+                };
+                Ok(crate::game_app::exit_from(last_game.as_ref(), started_after))
+            }
             GameAppEnd::Failed { failure, message } => {
                 Err(crate::game_app::failure_reason(&failure, &message))
             }
@@ -398,11 +405,23 @@ fn outcome_of(
     }
 }
 
+/// Milliseconds since 1970 on this device's clock, the status provider's.
+fn now_ms() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |since| since.as_millis() as f64)
+}
+
 #[async_trait::async_trait]
 impl GameAppPort for GameAppLauncher {
     /// The start is the game app's once its game process runs, which its
     /// status says, or once it answered, which it does at once when it
     /// refuses. The answer that ends the game resolves the run's `ended`.
+    ///
+    /// Right before PLAY, while the client is still in front, the Kotlin
+    /// starts the service that keeps the client running for an online game
+    /// or a live replay; the answer ends it, and so does the run's `ended`
+    /// dropped by a caller that stops waiting.
     async fn start(&self, start: GameAppStart) -> Result<GameAppRun, String> {
         let raw = call(&self.plugin, "status", ())
             .await
@@ -416,33 +435,41 @@ impl GameAppPort for GameAppLauncher {
             Some(replay) => Some(self.hand_over(replay).await?),
             None => None,
         };
-        let play = PlayStart {
-            game_version: start.game_version,
-            featured_mod: start.featured_mod,
-            arguments: (!start.arguments.is_empty()).then_some(start.arguments),
-            map: start.map,
-            replay_path,
-        };
+        let play = crate::game_app::play_start(start, replay_path);
+        let started_after = now_ms() - CLOCK_SLACK_MS;
         let plugin = self.plugin.clone();
         let mut answer = tokio::spawn(async move { call(&plugin, "play", play).await });
-        let (sender, ended) = tokio::sync::oneshot::channel();
+        let (mut sender, ended) = tokio::sync::oneshot::channel();
         let deadline = tokio::time::Instant::now() + TAKEOVER_TIMEOUT;
         loop {
             tokio::select! {
                 answered = &mut answer => {
                     // Refused, or over before its game was seen running.
-                    outcome_of(answered)?;
-                    let _ = sender.send(Ok(()));
+                    let exit = outcome_of(&self.plugin, answered, started_after).await?;
+                    let _ = sender.send(Ok(exit));
                     return Ok(GameAppRun { ended });
                 }
                 () = tokio::time::sleep(TAKEOVER_POLL) => {
                     if self.game_running().await || tokio::time::Instant::now() >= deadline {
+                        let plugin = self.plugin.clone();
                         tokio::spawn(async move {
-                            let outcome = outcome_of(answer.await);
-                            if let Err(reason) = &outcome {
-                                tracing::warn!(%reason, "the game app gave a start up");
+                            tokio::select! {
+                                answered = answer => {
+                                    let outcome = outcome_of(&plugin, answered, started_after).await;
+                                    if let Err(reason) = &outcome {
+                                        tracing::warn!(%reason, "the game app gave a start up");
+                                    }
+                                    let _ = sender.send(outcome);
+                                }
+                                // Nobody waits for the game any more: the
+                                // client need not keep running for it.
+                                () = sender.closed() => {
+                                    let released: Result<(), String> = call(&plugin, "release", ()).await;
+                                    if let Err(reason) = released {
+                                        tracing::warn!(%reason, "could not let the client go for the game");
+                                    }
+                                }
                             }
-                            let _ = sender.send(outcome);
                         });
                         return Ok(GameAppRun { ended });
                     }

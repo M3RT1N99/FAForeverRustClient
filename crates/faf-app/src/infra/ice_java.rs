@@ -30,7 +30,7 @@ use crate::infra::gpgnet_proxy::GpgNetProxy;
 use crate::infra::jsonrpc::{JsonRpcClient, RpcNotification};
 use crate::infra::session::TokenStore;
 use crate::infra::{console_window, free_ports};
-use crate::ports::{ConnectivitySession, IceDebugWindows, IceParams, IcePort, RelayMsg};
+use crate::ports::{ConnectivitySession, GameLinks, IceDebugWindows, IceParams, IcePort, RelayMsg};
 
 /// How long to wait for the adapter's RPC port to come up.
 const RPC_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -406,8 +406,9 @@ impl AdapterProcess {
 /// A started adapter: its GPGNet port, its control channel and what it says.
 type SpawnedAdapter = (u16, JsonRpcClient, mpsc::Receiver<RpcNotification>);
 
-/// What [`adapter_and_session`] reads from a session.
-trait ForcesRelay {
+/// What [`adapter_and_session`] and [`finish_late_session`] read from a
+/// session.
+pub(crate) trait ForcesRelay {
     fn force_relay(&self) -> bool;
 }
 
@@ -498,7 +499,10 @@ where
 ///
 /// The other way round is left running: an adapter that relays although the
 /// session would allow direct connections still connects.
-async fn finish_late_session<S, Session>(
+///
+/// The game's own links have the same switch on their command line
+/// (`/nativenetrelay`), so they take the same answer.
+pub(crate) async fn finish_late_session<S, Session>(
     session: Session,
     adapter_forces_relay: bool,
     seen: &AtomicBool,
@@ -795,14 +799,7 @@ impl IcePort for JavaAdapter {
         let api_base = self.config.api_base.clone();
         // Owned, so that it can go on after this call.
         let session = Box::pin(async move {
-            let ice = fetch_ice_servers_retrying(&http, &api_base, &token, game_id)
-                .await
-                // Said in so many words when they are missing: the bare status
-                // read as if the adapter on the player's machine had failed,
-                // when it was never run.
-                .map_err(|reason| {
-                    format!("the FAF server did not hand out this game's relay servers ({reason})")
-                })?;
+            let ice = ice_session(&http, &api_base, &token, game_id).await?;
             tracing::info!(
                 game_id,
                 milliseconds = asked.elapsed().as_millis() as u64,
@@ -853,6 +850,7 @@ impl IcePort for JavaAdapter {
 
         Ok(ConnectivitySession {
             game_port,
+            links: GameLinks::Adapter,
             to_lobby: to_lobby_rx,
             from_lobby: from_lobby_tx,
             late_failure: Some(failed_rx),
@@ -955,7 +953,25 @@ pub(crate) fn parse_status(answer: &Value) -> Option<RelaySnapshot> {
 
 pub(crate) struct IceServers {
     pub(crate) servers: Vec<Value>,
-    force_relay: bool,
+    pub(crate) force_relay: bool,
+}
+
+/// This game's ICE session, tried again while the API is busy: what the Java
+/// adapter is given, and the game's own links as well.
+pub(crate) async fn ice_session(
+    http: &reqwest::Client,
+    api_base: &str,
+    token: &str,
+    game_id: i32,
+) -> Result<IceServers, String> {
+    fetch_ice_servers_retrying(http, api_base, token, game_id)
+        .await
+        // Said in so many words when they are missing: the bare status read
+        // as if the adapter on the player's machine had failed, when it was
+        // never run.
+        .map_err(|reason| {
+            format!("the FAF server did not hand out this game's relay servers ({reason})")
+        })
 }
 
 /// Waits between attempts at the ICE session when the API answers "try again".

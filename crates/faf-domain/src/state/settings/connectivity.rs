@@ -71,6 +71,11 @@ pub struct ConnectivityPreferences {
     /// `java` from it is the default rather than a choice: version two moves it
     /// to `Dynamic`, which behaves the same for every unmarked game.
     pub selection_version: u8,
+    /// "Game's own network": a game whose executable is faf-re's runs its
+    /// links itself, with no adapter, where it would run on the Java adapter.
+    /// On by default; off, it runs on the adapters above like the original
+    /// game, which always does.
+    pub native_network: bool,
 }
 
 const CONNECTIVITY_SELECTION_VERSION: u8 = 2;
@@ -81,6 +86,7 @@ impl Default for ConnectivityPreferences {
             adapter: IceAdapter::Dynamic,
             host_adapter: IceAdapter::Java,
             selection_version: CONNECTIVITY_SELECTION_VERSION,
+            native_network: true,
         }
     }
 }
@@ -108,6 +114,8 @@ impl<'de> Deserialize<'de> for ConnectivityPreferences {
             adapter: IceAdapter,
             host_adapter: Option<IceAdapter>,
             selection_version: u8,
+            // Absent before the setting existed, and on is its default.
+            native_network: Option<bool>,
         }
 
         let wire = Wire::deserialize(deserializer)?;
@@ -133,6 +141,7 @@ impl<'de> Deserialize<'de> for ConnectivityPreferences {
             adapter,
             host_adapter,
             selection_version: CONNECTIVITY_SELECTION_VERSION,
+            native_network: wire.native_network.unwrap_or(true),
         })
     }
 }
@@ -198,6 +207,7 @@ preference_patch! {
         adapter: IceAdapter,
         host_adapter: IceAdapter,
         selection_version: u8,
+        native_network: bool,
     }
 }
 
@@ -313,6 +323,23 @@ mod tests {
             serde_json::from_str(r#"{"connectivity":{"adapter":"dynamic","selectionVersion":2}}"#)
                 .unwrap();
         assert_eq!(settings.connectivity.hosting(), IceAdapter::Java);
+    }
+
+    #[test]
+    fn the_games_own_network_is_on_unless_turned_off() {
+        assert!(SettingsState::default().connectivity.native_network);
+        // A file from before the setting existed has the default.
+        let settings: SettingsState =
+            serde_json::from_str(r#"{"connectivity":{"adapter":"dynamic","selectionVersion":2}}"#)
+                .unwrap();
+        assert!(settings.connectivity.native_network);
+
+        let settings: SettingsState = serde_json::from_str(
+            r#"{"connectivity":{"adapter":"java","selectionVersion":2,"nativeNetwork":false}}"#,
+        )
+        .unwrap();
+        assert!(!settings.connectivity.native_network);
+        assert_eq!(settings.connectivity.adapter, IceAdapter::Java);
     }
 
     #[test]

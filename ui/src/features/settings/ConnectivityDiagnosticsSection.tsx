@@ -476,6 +476,8 @@ export function LiveRelay({ relay }: { relay: RelayStatus }) {
       return <p className="setting-block connectivity-relay-note">{t("settings.liveRelay.asking")}</p>;
     case "unsupported":
       return <p className="setting-block connectivity-relay-note">{t("settings.liveRelay.unsupported")}</p>;
+    case "gameLinks":
+      return <p className="setting-block connectivity-relay-note">{t("settings.liveRelay.gameLinks")}</p>;
     case "unavailable":
       return (
         <p className="setting-block connectivity-relay-note" role="alert">

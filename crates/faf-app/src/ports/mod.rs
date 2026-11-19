@@ -63,7 +63,7 @@ pub use galactic_war::{GalacticWarPort, InstallProgress};
 pub use game_cache::GameCachePort;
 pub use game_logs::GameLogsPort;
 pub use guides::{DeviceCode, GuidesPort};
-pub use ice::{ConnectivitySession, IceDebugWindows, IceParams, IcePort, RelayMsg};
+pub use ice::{ConnectivitySession, GameLinks, IceDebugWindows, IceParams, IcePort, RelayMsg};
 pub use leaderboard::LeaderboardPort;
 pub use linux_runtime::{LinuxRuntimePort, NoLinuxRuntime, RuntimeCheck, RuntimeProgress};
 pub use lobby::{LobbyPort, LobbySendError, LobbyUpdate, ServerNoticeStyle};
@@ -74,7 +74,8 @@ pub use notification_sounds::NotificationSoundsPort;
 pub use paths::PathsPort;
 pub use player_card::PlayerCardPort;
 pub use process::{
-    DiscoveredInstallPaths, GameLaunchParams, InstallPresence, ProcessPort, ReplayMetadata,
+    DiscoveredInstallPaths, GameContent, GameExit, GameLaunchParams, GameMod, GameNetwork,
+    InstallPresence, ProcessPort, Rejoin, RejoinSeat, ReplayMetadata,
 };
 pub use replay::{
     PreparationSink, ReplayDetailsPort, ReplayLibraryPort, ReplayPlaybackPort, ReplayVaultPort,

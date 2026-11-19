@@ -8,11 +8,13 @@
 
 use std::cmp::Ordering;
 
+use faf_app::ports::game_app::GameAppStart;
+use faf_app::ports::{GameExit, Rejoin};
 use faf_domain::state::compare_versions;
 use faf_ipc::shell::{
     GameAppContract, GameAppData, GameAppEnd, GameAppInstall, GameAppLastGame, GameAppStatus,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Android's `Activity.RESULT_FIRST_USER`: the game app did not start a game,
 /// and says why.
@@ -176,6 +178,67 @@ pub(crate) fn install_from(raw: serde_json::Value) -> GameAppInstall {
     }
 }
 
+/// What `GameAppPlugin.play` takes (`PlayArgs`): one start's extras.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PlayStart {
+    game_version: Option<i32>,
+    featured_mod: Option<String>,
+    arguments: Option<Vec<String>>,
+    map: Option<String>,
+    mods: Option<Vec<String>>,
+    mod_files: Option<Vec<String>>,
+    rejoin_offer: bool,
+    rejoin_peers: Option<String>,
+    rejoin_source: Option<i32>,
+    replay_path: Option<String>,
+    /// Keep the client running while the game plays (`GameWaitService`):
+    /// it holds the lobby's connection and serves the game's GPGNet link or
+    /// a live replay's stream on the loopback, and Android freezes or ends a
+    /// process in the back. A replay file is the game app's own copy once
+    /// its game starts, and needs nothing of the client.
+    keep_client: bool,
+}
+
+/// The extras of `start`, whose replay was handed over as `replay_path`.
+pub(crate) fn play_start(start: GameAppStart, replay_path: Option<String>) -> PlayStart {
+    let (mods, mod_files): (Vec<String>, Vec<String>) = start
+        .mods
+        .into_iter()
+        .map(|game_mod| (game_mod.uid, game_mod.file))
+        .unzip();
+    PlayStart {
+        game_version: start.game_version,
+        featured_mod: start.featured_mod,
+        arguments: (!start.arguments.is_empty()).then_some(start.arguments),
+        map: start.map,
+        mods: (!mods.is_empty()).then_some(mods),
+        mod_files: (!mod_files.is_empty()).then_some(mod_files),
+        rejoin_offer: start.rejoin_offer,
+        rejoin_peers: start.rejoin.as_ref().map(Rejoin::peers),
+        rejoin_source: start.rejoin.map(|rejoin| rejoin.source),
+        keep_client: replay_path.is_none(),
+        replay_path,
+    }
+}
+
+/// How the game of a start that answered came to its end, from the status
+/// provider's `last_game`: its crash is a crash, the program's exit code 0
+/// a quit, and any other end of its process a crash too, as the desktop
+/// counts a process that ended without success. No row, or one of a start
+/// before `started_after` (ms since 1970, the device's clock as the row's),
+/// cannot say (`Stopped`).
+pub(crate) fn exit_from(last_game: Option<&GameAppLastGame>, started_after: f64) -> GameExit {
+    let Some(last) = last_game.filter(|last| last.ended && last.started_at >= started_after) else {
+        return GameExit::Stopped;
+    };
+    if last.crashed || last.exit_code != Some(0) {
+        GameExit::Crashed
+    } else {
+        GameExit::Quit
+    }
+}
+
 /// What `GameAppPlugin.ended` answered, for a start or the setup screen.
 /// `RESULT_FIRST_USER` is a refusal even without its code: it never means a
 /// game ran.
@@ -193,7 +256,102 @@ pub(crate) fn end_from(raw: serde_json::Value) -> GameAppEnd {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use faf_app::ports::{GameMod, RejoinSeat};
     use serde_json::json;
+
+    fn last_game(exit_code: Option<i32>, crashed: bool) -> GameAppLastGame {
+        GameAppLastGame {
+            started_at: 1_763_520_000_000.0,
+            ended: true,
+            exit_code,
+            crashed,
+            end: None,
+        }
+    }
+
+    #[test]
+    fn a_crash_is_a_crash_and_only_a_return_of_zero_a_quit() {
+        let after = 1_763_519_999_000.0;
+        let exit = |last: GameAppLastGame| exit_from(Some(&last), after);
+        assert_eq!(exit(last_game(None, true)), GameExit::Crashed);
+        assert_eq!(exit(last_game(Some(0), true)), GameExit::Crashed);
+        assert_eq!(exit(last_game(Some(0), false)), GameExit::Quit);
+        assert_eq!(exit(last_game(Some(3), false)), GameExit::Crashed);
+        // Ended by Android, as a process killed on the desktop.
+        assert_eq!(exit(last_game(None, false)), GameExit::Crashed);
+    }
+
+    #[test]
+    fn a_row_that_is_not_this_starts_end_says_nothing() {
+        assert_eq!(exit_from(None, 0.0), GameExit::Stopped);
+        let earlier = last_game(Some(0), false);
+        assert_eq!(
+            exit_from(Some(&earlier), earlier.started_at + 1.0),
+            GameExit::Stopped
+        );
+        let running = GameAppLastGame {
+            ended: false,
+            ..last_game(None, false)
+        };
+        assert_eq!(exit_from(Some(&running), 0.0), GameExit::Stopped);
+    }
+
+    #[test]
+    fn an_online_start_has_its_extras_and_keeps_the_client_running() {
+        let start = GameAppStart {
+            game_version: Some(3841),
+            featured_mod: Some("faf".into()),
+            arguments: vec!["/gpgnet".into(), "127.0.0.1:6112".into(), "/nativenet".into()],
+            map: Some("scmp_009".into()),
+            mods: vec![
+                GameMod {
+                    uid: "uid-one-0001".into(),
+                    file: "one.v0001.zip".into(),
+                },
+                GameMod {
+                    uid: "uid-two-0002".into(),
+                    file: "two.v0002.zip".into(),
+                },
+            ],
+            rejoin_offer: true,
+            rejoin: Some(Rejoin {
+                seats: vec![RejoinSeat {
+                    player_id: 101,
+                    source: 0,
+                }],
+                source: 1,
+            }),
+            replay: None,
+        };
+        assert_eq!(
+            serde_json::to_value(play_start(start, None)).unwrap(),
+            json!({
+                "gameVersion": 3841,
+                "featuredMod": "faf",
+                "arguments": ["/gpgnet", "127.0.0.1:6112", "/nativenet"],
+                "map": "scmp_009",
+                "mods": ["uid-one-0001", "uid-two-0002"],
+                "modFiles": ["one.v0001.zip", "two.v0002.zip"],
+                "rejoinOffer": true,
+                "rejoinPeers": "101=0",
+                "rejoinSource": 1,
+                "replayPath": null,
+                "keepClient": true,
+            })
+        );
+    }
+
+    #[test]
+    fn a_replay_file_needs_nothing_of_the_client() {
+        let start = GameAppStart {
+            replay: Some("replay.scfareplay".into()),
+            ..GameAppStart::default()
+        };
+        let play = serde_json::to_value(play_start(start, Some("copy".into()))).unwrap();
+        assert_eq!(play["keepClient"], json!(false));
+        assert_eq!(play["rejoinOffer"], json!(false));
+        assert_eq!(play["mods"], json!(null), "no empty list: the extra is left out");
+    }
 
     #[test]
     fn a_missing_game_app_has_no_contract_and_no_data() {
