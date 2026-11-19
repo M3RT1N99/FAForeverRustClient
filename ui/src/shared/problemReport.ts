@@ -36,12 +36,15 @@ export function problemReportBody(context: ReportContext): string {
   ].join("\n");
 }
 
-/** GitHub's new-issue page for a problem with this build on this device. */
+/**
+ * GitHub's new-issue page for a problem with this build on this device. The
+ * title says it is Android's: a label in the address would be dropped for
+ * anybody without triage rights, the players who report.
+ */
 export function problemReportUrl(context: ReportContext): string {
   const query = new URLSearchParams({
     title: "Android: ",
     body: problemReportBody(context),
-    labels: "android",
   });
   return `https://github.com/${REPORT_REPOSITORY}/issues/new?${query.toString()}`;
 }

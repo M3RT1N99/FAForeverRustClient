@@ -13,7 +13,6 @@ describe("problemReportUrl", () => {
     const url = new URL(problemReportUrl(CONTEXT));
     expect(`${url.origin}${url.pathname}`).toBe(`https://github.com/${REPORT_REPOSITORY}/issues/new`);
     expect(url.searchParams.get("title")).toBe("Android: ");
-    expect(url.searchParams.get("labels")).toBe("android");
     const body = url.searchParams.get("body") ?? "";
     expect(body).toContain("Client: 1.0.0 (4b5169f0)");
     expect(body).toContain("System: Android 16 (API 36)");
@@ -25,7 +24,7 @@ describe("problemReportUrl", () => {
     // The address is all a report has before the player writes in it: the
     // template, and the four facts about the build.
     const url = new URL(problemReportUrl(CONTEXT));
-    expect([...url.searchParams.keys()].sort()).toEqual(["body", "labels", "title"]);
+    expect([...url.searchParams.keys()].sort()).toEqual(["body", "title"]);
     const body = url.searchParams.get("body") ?? "";
     const facts = body.split("\n").filter((line) => /^(Client|System|Device):/.test(line));
     expect(facts).toHaveLength(3);
