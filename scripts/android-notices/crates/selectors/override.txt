@@ -1,0 +1,16 @@
+Packages:
+selectors 0.36.1
+
+Source:
+The crate's repository, servo/stylo, holds no licence file at
+635e1a19d02960588a00e189bd4bd5bdb150ec3d, the commit the crate was published from (its
+.cargo_vcs_info.json): its only licence files there belong to malloc_size_of/ and
+servo_arc/. So this is the standard text of its declared licence, MPL-2.0, with its own
+copyright line.
+LICENSE is the Mozilla Public License 2.0 as option-ext 0.2.0 ships it in
+~/.cargo/registry (LICENSE.txt), copied unchanged. It is the standard text: it equals
+https://www.mozilla.org/media/MPL/2.0/index.txt (fetched on 2026-11-19) but for a space
+at the end of line 38.
+COPYRIGHT is the copyright line, taken from the authors in selectors 0.36.1's Cargo.toml
+(authors = ["The Servo Project Developers"]); its source files carry the MPL notice and
+no copyright line.

@@ -1,0 +1,17 @@
+Packages:
+@tauri-apps/plugin-notification 2.3.3
+@tauri-apps/plugin-opener 2.5.4
+
+Source:
+The npm packages ship a LICENSE.spdx, which names their licences but holds no text.
+LICENSE_MIT and LICENSE_APACHE-2.0 are the licence files of the packages' own directories
+in their repository, tauri-apps/plugins-workspace, at the commits of their release tags:
+plugins/notification/ at notification-js-v2.3.3, e7a68fa63755603b9fa12d28e077eea645551d24,
+and plugins/opener/ at opener-js-v2.5.4, 5c7668b6bb7c9a509f394d584568b3a922161e50, where
+the two pairs of files are the same, unchanged:
+https://raw.githubusercontent.com/tauri-apps/plugins-workspace/e7a68fa63755603b9fa12d28e077eea645551d24/plugins/notification/LICENSE_MIT
+https://raw.githubusercontent.com/tauri-apps/plugins-workspace/e7a68fa63755603b9fa12d28e077eea645551d24/plugins/notification/LICENSE_APACHE-2.0
+Fetched on 2026-11-19, with the same two files under plugins/opener/ at
+5c7668b6bb7c9a509f394d584568b3a922161e50. The Rust crates tauri-plugin-notification 2.3.3
+and tauri-plugin-opener 2.5.4 were published from the same two commits and ship the same
+files.

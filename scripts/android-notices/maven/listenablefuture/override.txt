@@ -1,0 +1,9 @@
+Packages:
+com.google.guava:listenablefuture 1.0
+
+Source:
+COPYING is the licence file of the library's repository, google/guava, at
+b62d52926b904a8def90fd427acad53d79fa0e9f, the commit that introduced the library
+(futures/listenablefuture1/pom.xml at version 1.0), unchanged:
+https://raw.githubusercontent.com/google/guava/b62d52926b904a8def90fd427acad53d79fa0e9f/COPYING
+Fetched on 2026-11-19.

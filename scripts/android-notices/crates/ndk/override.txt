@@ -1,0 +1,12 @@
+Packages:
+ndk 0.9.0
+ndk-sys 0.6.0+11769913
+
+Source:
+LICENSE-MIT and LICENSE-APACHE are the licence files of the crates' repository,
+rust-mobile/ndk, at 49bbbba16c58ff63cb8a0ad0eca5a9fb7ecaec25, the commit both crates were
+published from (their .cargo_vcs_info.json, paths ndk/ and ndk-sys/ in that repository),
+unchanged:
+https://raw.githubusercontent.com/rust-mobile/ndk/49bbbba16c58ff63cb8a0ad0eca5a9fb7ecaec25/LICENSE-MIT
+https://raw.githubusercontent.com/rust-mobile/ndk/49bbbba16c58ff63cb8a0ad0eca5a9fb7ecaec25/LICENSE-APACHE
+Fetched on 2026-11-19. The repository's MIT file carries no copyright line.

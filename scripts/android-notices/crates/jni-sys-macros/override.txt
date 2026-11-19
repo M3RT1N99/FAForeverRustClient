@@ -1,0 +1,11 @@
+Packages:
+jni-sys-macros 0.4.1
+
+Source:
+LICENSE-MIT and LICENSE-APACHE are the licence files of the crate's repository,
+jni-rs/jni-sys, at 64d77b7a5f119d7b55b4e2c169a4668067ff59e6, the commit the crate was
+published from (its .cargo_vcs_info.json, path jni-sys-macros/ in that repository),
+unchanged:
+https://raw.githubusercontent.com/jni-rs/jni-sys/64d77b7a5f119d7b55b4e2c169a4668067ff59e6/LICENSE-MIT
+https://raw.githubusercontent.com/jni-rs/jni-sys/64d77b7a5f119d7b55b4e2c169a4668067ff59e6/LICENSE-APACHE
+Fetched on 2026-11-19.

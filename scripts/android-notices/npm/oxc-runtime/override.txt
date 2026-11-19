@@ -1,0 +1,10 @@
+Packages:
+@oxc-project/runtime 0.155.0
+
+Source:
+Oxc's transform helpers ("\0@oxc-project+runtime@0.155.0/helpers/...") come into the page
+bundle from inside Rolldown's native binding, so the package itself is not installed.
+LICENSE is the licence file of the package as npm publishes it, unchanged, from
+https://registry.npmjs.org/@oxc-project/runtime/-/runtime-0.155.0.tgz
+(integrity sha512-VbW9raczGS5ZZ1FMunUBYHe4uV/R684qlQCoMdE3n5JT1PcqQsvmFpMYkF8AD+W04fBLGAq6Tr7YsTk0jjvDBA==),
+fetched on 2026-11-19.

@@ -1,0 +1,8 @@
+Packages:
+org.jspecify:jspecify 1.0.0
+
+Source:
+LICENSE is the licence file of the library's repository, jspecify/jspecify, at its tag
+v1.0.0, commit b2a10e14bb81c1b7cb6e488c112fe55cb2218d7d, unchanged:
+https://raw.githubusercontent.com/jspecify/jspecify/v1.0.0/LICENSE
+Fetched on 2026-11-19.

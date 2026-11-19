@@ -1,0 +1,10 @@
+Packages:
+org.jetbrains.kotlinx:kotlinx-serialization-core-jvm 1.7.3
+
+Source:
+LICENSE.txt and NOTICE.txt are LICENSE.txt and license/NOTICE.txt of the library's
+repository, Kotlin/kotlinx.serialization, at its tag v1.7.3, commit
+d4d066d72a9f92f06c640be5a36a22f75d0d7659, unchanged:
+https://raw.githubusercontent.com/Kotlin/kotlinx.serialization/v1.7.3/LICENSE.txt
+https://raw.githubusercontent.com/Kotlin/kotlinx.serialization/v1.7.3/license/NOTICE.txt
+Fetched on 2026-11-19. license/LICENSE.txt there is a source file header, not a licence.

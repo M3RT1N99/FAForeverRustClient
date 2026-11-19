@@ -1,0 +1,11 @@
+Packages:
+org.jetbrains.kotlinx:kotlinx-coroutines-android 1.9.0
+org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm 1.9.0
+
+Source:
+LICENSE.txt and NOTICE.txt are LICENSE.txt and license/NOTICE.txt of the libraries'
+repository, Kotlin/kotlinx.coroutines, at its tag 1.9.0, commit
+d8d6f8f37978b8e202d93b34f23f101df9c5724d, unchanged:
+https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/1.9.0/LICENSE.txt
+https://raw.githubusercontent.com/Kotlin/kotlinx.coroutines/1.9.0/license/NOTICE.txt
+Fetched on 2026-11-19.
