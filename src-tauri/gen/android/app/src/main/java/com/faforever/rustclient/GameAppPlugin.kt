@@ -69,6 +69,9 @@ class PlayArgs {
   var rejoinPeers: String? = null
   var rejoinSource: Int? = null
   var replayPath: String? = null
+  // An online game or a live replay, which the client serves while the game
+  // app is in front (GameWaitService).
+  var keepClient: Boolean = false
 }
 
 @InvokeArg
@@ -125,7 +128,7 @@ class GameAppPlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
-  // Start a game; the answer comes when it ends or fails to start (ended).
+  // Start a game; the answer comes when it ends or fails to start (played).
   @Command
   fun play(invoke: Invoke) {
     val args = invoke.parseArgs(PlayArgs::class.java)
@@ -145,11 +148,37 @@ class GameAppPlugin(private val activity: Activity) : Plugin(activity) {
       intent.setData(FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", File(path)))
       intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
+    // Right before the start, while the client is still in front: Android
+    // starts a foreground service for no app in the back.
+    if (args.keepClient) {
+      try {
+        GameWaitService.start(activity)
+      } catch (refused: Exception) {
+        invoke.reject("the client could not keep running for the game: ${refused.message}")
+        return
+      }
+    }
     try {
-      startActivityForResult(invoke, intent, "ended")
+      startActivityForResult(invoke, intent, "played")
     } catch (missing: ActivityNotFoundException) {
+      GameWaitService.stop(activity)
       invoke.reject("the game app cannot be started from here")
     }
+  }
+
+  // A start's answer: its game ended, or the game app refused it. The client
+  // need not keep running for it any more.
+  @ActivityCallback
+  fun played(invoke: Invoke, result: ActivityResult) {
+    GameWaitService.stop(activity)
+    ended(invoke, result)
+  }
+
+  // The client stopped waiting for the game app's game, which goes on.
+  @Command
+  fun release(invoke: Invoke) {
+    GameWaitService.stop(activity)
+    invoke.resolve()
   }
 
   // How a start or the setup screen ended: `RESULT_FIRST_USER` with the game

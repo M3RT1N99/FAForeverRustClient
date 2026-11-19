@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- BrowserWaitService: the client kept running while sign-in waits in the browser. -->
+    <!-- BrowserWaitService: the client kept running while sign-in waits in the browser;
+         GameWaitService: while a game runs in the FAF game app. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- GameAppPlugin's updates of the FAF game app: whether the network is
          metered, the package installer, and its updates without a question
          once this app installed the game app last (Android 12 and later). -->
@@ -43,6 +45,15 @@
             android:name=".BrowserWaitService"
             android:exported="false"
             android:foregroundServiceType="shortService" />
+
+        <service
+            android:name=".GameWaitService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the game's network link and the lobby connection to the game server open while the game runs in the FAF game app, which connects to this app on the device's loopback." />
+        </service>
 
         <provider
           android:name="androidx.core.content.FileProvider"

@@ -4,4 +4,7 @@
     <string name="browser_wait_channel">Browser</string>
     <string name="browser_wait_title">Waiting for the browser</string>
     <string name="browser_wait_text">The client keeps running until you are back.</string>
+    <string name="game_wait_channel">Game</string>
+    <string name="game_wait_title">A game is running</string>
+    <string name="game_wait_text">The client keeps the game connected until it ends.</string>
 </resources>
