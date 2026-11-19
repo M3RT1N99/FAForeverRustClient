@@ -26,15 +26,22 @@ import { openHttpsUrl } from "../../shared/externalLinks";
 import { problemReportUrl } from "../../shared/problemReport";
 
 /**
- * What the last press left to say: that there are no logs yet, or that the
- * shell refused, with its reason and the press to repeat.
+ * What the last press left to say: that there are no logs yet, that the game
+ * app's logs are not in the export and its reason, or that the shell refused,
+ * with its reason and the press to repeat.
  */
-type Outcome = { kind: "noLogs" } | { kind: "failed"; reason: string; retry: () => void };
+type Outcome =
+  | { kind: "noLogs" }
+  | { kind: "noGameLogs"; reason: string }
+  | { kind: "failed"; reason: string; retry: () => void };
 
 export function DiagnosticsSettingsSection() {
   const { t } = useTranslation();
   const [preview, setPreview] = useState<LogPreview | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // The game app's logs come along, and it takes seconds to zip a long engine
+  // log: the export button says so meanwhile.
+  const [exporting, setExporting] = useState(false);
   const openFolder = (kind: LogKind) => {
     setOutcome(null);
     void native.openLogFolder(kind).catch((reason) =>
@@ -50,8 +57,13 @@ export function DiagnosticsSettingsSection() {
 
   const exportLogs = () => {
     setOutcome(null);
-    void native.shareClientLogs(t("settings.diagnostics.exportTitle")).catch((reason) =>
-      setOutcome({ kind: "failed", reason: String(reason), retry: exportLogs }));
+    setExporting(true);
+    void native.shareClientLogs(t("settings.diagnostics.exportTitle"))
+      .then((missing) => {
+        if (missing) setOutcome({ kind: "noGameLogs", reason: missing });
+      })
+      .catch((reason) => setOutcome({ kind: "failed", reason: String(reason), retry: exportLogs }))
+      .finally(() => setExporting(false));
   };
   const reportProblem = () => {
     setOutcome(null);
@@ -79,7 +91,11 @@ export function DiagnosticsSettingsSection() {
         <div className="settings-diagnostic-actions">
           <Button onClick={() => viewLatest("client")}>{t("settings.diagnostics.viewLatest")}</Button>
           {openable && <Button onClick={() => openFolder("client")}>{t("settings.diagnostics.openFolder")}</Button>}
-          {!openable && <Button onClick={exportLogs}>{t("settings.diagnostics.exportLogs")}</Button>}
+          {!openable && (
+            <Button onClick={exportLogs} disabled={exporting}>
+              {t(exporting ? "settings.diagnostics.exporting" : "settings.diagnostics.exportLogs")}
+            </Button>
+          )}
         </div>
       </SettingRow>
       {!openable && (
@@ -91,6 +107,13 @@ export function DiagnosticsSettingsSection() {
       )}
       {outcome?.kind === "noLogs" && (
         <p className="settings-inline-error" role="alert">{t("settings.diagnostics.noLogs")}</p>
+      )}
+      {/* In the text, not on hover: a phone has none, and it is all the
+          player learns of why. */}
+      {outcome?.kind === "noGameLogs" && (
+        <StatusNotice tone="info" className="settings-inline-notice">
+          {t("settings.diagnostics.noGameLogs", { reason: outcome.reason })}
+        </StatusNotice>
       )}
       {/* The shell's reason in a plain sentence, its own words ("could not
           read latest log: ...") on hover, and the same press again. */}

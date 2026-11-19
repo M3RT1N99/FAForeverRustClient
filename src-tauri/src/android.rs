@@ -138,6 +138,14 @@ struct ShareArgs {
     title: String,
 }
 
+/// What `DiagnosticsPlugin.share` answers: the game app's reason, when it
+/// gave one, for its logs not being in the share.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Shared {
+    game_logs_missing: Option<String>,
+}
+
 fn context_of(plugin: &PluginHandle<Wry>) -> Result<ReportContext, String> {
     let device: DeviceInfo = plugin
         .run_mobile_plugin("deviceInfo", ())
@@ -188,14 +196,16 @@ pub(crate) async fn report_context(
 }
 
 /// Zip the client's logs, scrubbed (`faf_app::infra::log_scrub`), into the
-/// app's cache and hand the zip to Android's share sheet under `title`.
+/// app's cache and hand the zip to Android's share sheet under `title`, with
+/// the game app's own beside it where it gives them. Answers the game app's
+/// reason when it could write none.
 #[tauri::command]
 pub(crate) async fn share_client_logs(
     title: String,
     app: tauri::AppHandle,
     core: tauri::State<'_, crate::Core>,
     diagnostics: tauri::State<'_, Diagnostics>,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     let log_dir = crate::commands::log_directory("client", &app)?;
     // The cache, which the app's FileProvider shares (`res/xml/file_paths.xml`).
     let out_dir = app
@@ -223,7 +233,7 @@ pub(crate) async fn share_client_logs(
             &mut scrubber,
         )?;
         plugin
-            .run_mobile_plugin::<()>(
+            .run_mobile_plugin::<Shared>(
                 "share",
                 ShareArgs {
                     path: path.to_string_lossy().into_owned(),
@@ -231,6 +241,7 @@ pub(crate) async fn share_client_logs(
                     title,
                 },
             )
+            .map(|shared| shared.game_logs_missing)
             .map_err(|error| format!("could not share the logs: {error}"))
     })
     .await

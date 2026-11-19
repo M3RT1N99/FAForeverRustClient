@@ -242,9 +242,10 @@ export const native = {
   /**
    * Android only: zip the client's logs, scrubbed of credentials, addresses
    * and other players' names, and hand the zip to the share sheet under
-   * `title`.
+   * `title`, with the game app's own where it gives them. Resolves with the
+   * game app's reason when it could write none, else `null`.
    */
-  shareClientLogs(title: string): Promise<void> {
+  shareClientLogs(title: string): Promise<string | null> {
     return invoke("share_client_logs", { title });
   },
 

@@ -42,7 +42,7 @@ import java.security.MessageDigest
 // Its updates come from its GitHub releases (the Rust side finds and
 // downloads them) and are installed here, through Android's package installer.
 private const val GAME_PACKAGE = "io.github.m3rt1n99.fafre"
-private const val STATUS_AUTHORITY = "io.github.m3rt1n99.fafre.status"
+internal const val STATUS_AUTHORITY = "io.github.m3rt1n99.fafre.status"
 private const val ACTION_PLAY = "io.github.m3rt1n99.fafre.action.PLAY"
 private const val ACTION_SETUP = "io.github.m3rt1n99.fafre.action.SETUP_GAME_DATA"
 private const val EXTRA = "io.github.m3rt1n99.fafre.extra."
