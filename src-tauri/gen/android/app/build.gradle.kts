@@ -21,6 +21,10 @@ val releaseKeystore: String? = System.getenv("ANDROID_KEYSTORE_PATH")?.takeIf { 
 
 android {
     compileSdk = 36
+    // The NDK the Rust library is built with (release.yml's NDK_VERSION). Without
+    // it AGP looks for its own default NDK to strip the library with, finds none,
+    // and packs it whole: a release APK carried 17 MB of symbol tables.
+    ndkVersion = "29.0.14206865"
     namespace = "com.faforever.rustclient"
     signingConfigs {
         create("release") {
@@ -78,6 +82,15 @@ android {
 
 rust {
     rootDirRel = "../../../"
+}
+
+// The template keeps the native library's symbols for debug builds (`packaging`
+// in the debug build type), but that setting is the whole app's, so release APKs
+// carried 17 MB of symbol tables. Release variants strip them again.
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.packaging.jniLibs.keepDebugSymbols.set(emptySet())
+    }
 }
 
 dependencies {
