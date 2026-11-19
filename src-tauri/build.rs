@@ -30,5 +30,23 @@ fn main() {
         env::set_var("TAURI_CONFIG", r#"{"bundle":{"resources":[]}}"#);
     }
 
+    // The commit a problem report names (`android::report_context`). Best
+    // effort: a build without git, or outside a checkout, says `unknown`.
+    let commit = std::process::Command::new("git")
+        .args(["rev-parse", "--short=8", "HEAD"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|commit| commit.trim().to_string())
+        .filter(|commit| !commit.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    println!("cargo:rustc-env=FAF_BUILD_COMMIT={commit}");
+    for watched in ["../.git/HEAD", "../.git/refs/heads"] {
+        if Path::new(watched).exists() {
+            println!("cargo:rerun-if-changed={watched}");
+        }
+    }
+
     tauri_build::build();
 }

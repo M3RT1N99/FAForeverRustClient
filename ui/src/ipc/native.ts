@@ -23,6 +23,7 @@ import type {
   NotificationPopupBatch,
   NotificationPopupCard,
   PickRequest,
+  ReportContext,
   UnitIconNames,
   WebviewEngine,
 } from "./bindings";
@@ -38,6 +39,7 @@ export type {
   MarkedMapPreview,
   NotificationPopupBatch,
   NotificationPopupCard,
+  ReportContext,
   WebviewEngine,
 } from "./bindings";
 
@@ -224,6 +226,20 @@ export const native = {
 
   readLatestLog(kind: LogKind): Promise<LogPreview | null> {
     return invoke<LogPreview | null>("read_latest_log", { kind });
+  },
+
+  /**
+   * Android only: zip the client's logs, scrubbed of credentials, addresses
+   * and other players' names, and hand the zip to the share sheet under
+   * `title`.
+   */
+  shareClientLogs(title: string): Promise<void> {
+    return invoke("share_client_logs", { title });
+  },
+
+  /** Android only: which build on which device, for a problem report. */
+  reportContext(): Promise<ReportContext> {
+    return invoke<ReportContext>("report_context");
   },
 
   revealReplay(path: string): Promise<void> {

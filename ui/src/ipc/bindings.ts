@@ -10155,6 +10155,21 @@ export type ReplayUnitStat = {
  */
 export type ReplaysSection = "live" | "online" | "local";
 
+/**
+ *  Which build on which device a problem report is about: what the report's
+ *  form and the exported logs say, and nothing about the player.
+ */
+export type ReportContext = {
+	/**  The client's version. */
+	version: string,
+	/**  The commit it was built from, or `unknown`. */
+	commit: string,
+	/**  The operating system and its version, such as `Android 16 (API 36)`. */
+	system: string,
+	/**  The maker and model, such as `samsung SM-S908B`. */
+	device: string,
+};
+
 export type ReportHistoryStatus = { type: "idle" } | { type: "loading" } | { type: "ready" } | { type: "failed"; payload: {
 	reason: string,
 } };

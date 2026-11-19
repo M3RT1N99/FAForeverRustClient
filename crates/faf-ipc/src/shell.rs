@@ -64,6 +64,21 @@ pub struct LogPreview {
     pub issues: Vec<LogIssue>,
 }
 
+/// Which build on which device a problem report is about: what the report's
+/// form and the exported logs say, and nothing about the player.
+#[derive(Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportContext {
+    /// The client's version.
+    pub version: String,
+    /// The commit it was built from, or `unknown`.
+    pub commit: String,
+    /// The operating system and its version, such as `Android 16 (API 36)`.
+    pub system: String,
+    /// The maker and model, such as `samsung SM-S908B`.
+    pub device: String,
+}
+
 /// Which rendering engine the client actually ended up in.
 ///
 /// Facts only. Which release is new enough is deliberately a frontend

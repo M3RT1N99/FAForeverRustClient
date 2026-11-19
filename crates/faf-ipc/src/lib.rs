@@ -26,7 +26,7 @@ use specta_typescript::Typescript;
 
 use shell::{
     FrontendMessage, LogPreview, NotificationDisplay, NotificationPopupBatch, PickRequest,
-    VersionedSnapshot, WebviewEngine,
+    ReportContext, VersionedSnapshot, WebviewEngine,
 };
 
 pub const HEADER: &str = "\
@@ -58,6 +58,7 @@ pub fn typescript_bindings() -> Result<String, specta_typescript::Error> {
         .register::<FrontendMessage>()
         .register::<VersionedSnapshot>()
         .register::<LogPreview>()
+        .register::<ReportContext>()
         .register::<WebviewEngine>()
         .register::<NotificationPopupBatch>()
         .register::<NotificationDisplay>()

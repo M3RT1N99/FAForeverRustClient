@@ -91,7 +91,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init());
-    // Sign-in's browser, which on Android only the app's own Kotlin reaches.
+    // Sign-in's browser, and the share sheet for the logs, which on Android
+    // only the app's own Kotlin reaches.
     #[cfg(target_os = "android")]
     let builder = builder.plugin(android::init());
     // Where the window was, how big, on which monitor, and whether it was
@@ -209,6 +210,10 @@ pub fn run() {
                 commands::open_installed_folder,
                 commands::reveal_replay,
                 commands::read_latest_log,
+                #[cfg(target_os = "android")]
+                android::share_client_logs,
+                #[cfg(target_os = "android")]
+                android::report_context,
                 commands::webview_engine,
                 commands::system_date_pattern,
                 commands::map_generator_automatic_instances,

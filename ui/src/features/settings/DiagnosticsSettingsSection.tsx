@@ -22,6 +22,8 @@ const LOG_ISSUE_HELP: Record<LogIssue, string> = {
 import { SettingRow, SettingsGroup } from "./SettingControls";
 import { useTranslation } from "../../i18n/useTranslation";
 import { foldersCanBeOpened, theGameIsItsOwnApp } from "../../shared/platform";
+import { openHttpsUrl } from "../../shared/externalLinks";
+import { problemReportUrl } from "../../shared/problemReport";
 
 /**
  * What the last press left to say: that there are no logs yet, or that the
@@ -46,8 +48,21 @@ export function DiagnosticsSettingsSection() {
         setOutcome({ kind: "failed", reason: String(reason), retry: () => viewLatest(kind) }));
   };
 
+  const exportLogs = () => {
+    setOutcome(null);
+    void native.shareClientLogs(t("settings.diagnostics.exportTitle")).catch((reason) =>
+      setOutcome({ kind: "failed", reason: String(reason), retry: exportLogs }));
+  };
+  const reportProblem = () => {
+    setOutcome(null);
+    void native.reportContext()
+      .then((context) => openHttpsUrl(problemReportUrl(context)))
+      .catch((reason) => setOutcome({ kind: "failed", reason: String(reason), retry: reportProblem }));
+  };
+
   // On Android the game's logs are the game app's, and no file manager can
-  // open this app's folders: what is left is reading the client's own log.
+  // open this app's folders: the client's own log is read here, and leaves
+  // the device through the share sheet, scrubbed.
   const openable = foldersCanBeOpened();
 
   return (
@@ -64,8 +79,16 @@ export function DiagnosticsSettingsSection() {
         <div className="settings-diagnostic-actions">
           <Button onClick={() => viewLatest("client")}>{t("settings.diagnostics.viewLatest")}</Button>
           {openable && <Button onClick={() => openFolder("client")}>{t("settings.diagnostics.openFolder")}</Button>}
+          {!openable && <Button onClick={exportLogs}>{t("settings.diagnostics.exportLogs")}</Button>}
         </div>
       </SettingRow>
+      {!openable && (
+        <SettingRow label={t("settings.diagnostics.report")} hint={t("settings.diagnostics.reportHint")}>
+          <div className="settings-diagnostic-actions">
+            <Button onClick={reportProblem}>{t("settings.diagnostics.reportOpen")}</Button>
+          </div>
+        </SettingRow>
+      )}
       {outcome?.kind === "noLogs" && (
         <p className="settings-inline-error" role="alert">{t("settings.diagnostics.noLogs")}</p>
       )}

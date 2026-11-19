@@ -48,6 +48,7 @@ const IGNORED_FILES = new Map([
   ["ui/src/features/training/RunMap.tsx", "marker type ids read out of the game's own map files"],
   ["ui/src/features/training/recording.ts", "the same marker type ids, on the analyser side"],
   ["ui/src/features/events/eventSubmission.ts", "the body of a GitHub issue, which is English wherever it is written from"],
+  ["ui/src/shared/problemReport.ts", "the body of a GitHub issue, which is English wherever it is written from"],
   ["ui/src/shared/components/MapPreviewZoom.tsx", "throw messages for a copy that falls back on its own; never rendered"],
   // Not a decision that they stay English: some 250 names in six languages
   // is translation work of its own, and the search vocabulary has to stay
