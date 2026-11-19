@@ -25,6 +25,7 @@ import { useAppStore } from "../../store/store";
 import { t } from "../../i18n";
 import { useTranslation } from "../../i18n/useTranslation";
 import { pickOriginalGameFolder, setOriginalGameDir } from "../../shared/originalGame";
+import { theGameIsItsOwnApp } from "../../shared/platform";
 
 const openSettings = () =>
   ipc.send({ kind: "Nav", command: { type: "select", payload: { tab: "settings" } } });
@@ -61,6 +62,11 @@ export function InstallBanner() {
   // know nothing, and flashing a warning at every launch would train the user
   // to ignore it.
   if (!install.checked || dismissed) return null;
+
+  // On Android the game is FAF's game app, with its own files: there is no
+  // install here to locate and no folder to choose, so the banner says where
+  // games run instead of offering either.
+  if (theGameIsItsOwnApp()) return <GameIsItsOwnApp onDismiss={() => setDismissed(true)} />;
 
   // FAF's own install that is neither there nor about to be downloaded comes
   // first: without it nothing starts, whatever else is found.
@@ -161,6 +167,38 @@ function OriginalGameMissing({ onDismiss }: { onDismiss: () => void }) {
         <Button onClick={() => void checkAgain()} title={t("shell.install.checkAgainTitle")}>
           {t("shell.install.checkAgain")}
         </Button>
+        <button
+          type="button"
+          className="install-banner-close"
+          aria-label={t("shell.install.dismiss")}
+          title={t("shell.install.dismissTitle")}
+          onClick={onDismiss}
+        >
+          <Icon name="close" size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Android: the game is FAF's game app, not a file or a folder on this device,
+ * so nothing here can locate or choose it. Says so, until a later version of
+ * the client starts that app itself; closing it is all there is to do.
+ */
+function GameIsItsOwnApp({ onDismiss }: { onDismiss: () => void }) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="install-banner" role="status">
+      <span className="install-banner-icon" aria-hidden="true">
+        <Icon name="info" size={16} />
+      </span>
+      <div className="install-banner-copy">
+        <strong>{t("shell.install.ownApp")}</strong>
+        <span className="muted">{t("shell.install.ownAppHint")}</span>
+      </div>
+      <div className="install-banner-actions">
         <button
           type="button"
           className="install-banner-close"

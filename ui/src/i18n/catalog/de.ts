@@ -274,6 +274,8 @@ export const de: Partial<Record<MessageKey, Message>> = {
   "shell.install.originalMissing": "Supreme Commander: Forged Alliance nicht gefunden",
   "shell.install.originalMissingHint": "FAF benötigt Forged Alliance von Steam, GOG oder Disc für Videos, Sounds und Schriften; das ursprüngliche Supreme Commander genügt nicht. Spiele können erst starten, wenn es gefunden wurde.",
   "shell.install.chooseOriginal": "Spielordner wählen",
+  "shell.install.ownApp": "Spiele laufen auf Android in der FAF-Spiel-App",
+  "shell.install.ownAppHint": "Diese Version des Clients kann sie noch nicht starten. Eine spätere richtet sie ein und startet deine Spiele von hier.",
 
   "auth.welcome": "Willkommen bei FAForever",
   "auth.subtitle": "Melde dich mit deinem FAF-Konto an, um fortzufahren.",
@@ -289,6 +291,7 @@ export const de: Partial<Record<MessageKey, Message>> = {
   "auth.playOfflineHint": "Offline spielen startet Forged Alliance allein, für Gefechte gegen die KI. Lokale Replays öffnet diesen Client mit den Replays und Einstellungen auf diesem Rechner. Für beides ist kein Konto nötig.",
   "auth.offlineSetupPending": "FAF hat das Spiel auf diesem Rechner noch nicht eingerichtet. Melde dich einmal an und wähle Offline spielen im Menü an deinem Namen, oder spiele oder schaue ein beliebiges Spiel, dann lädt der Client es herunter. Danach funktioniert dieser Button ohne Konto.",
   "auth.offlineSetupMissing": "Forged Alliance mit den Dateien von FAF wurde am Spielpfad nicht gefunden. Melde dich einmal an und wähle Offline spielen im Menü an deinem Namen, oder spiele oder schaue ein beliebiges Spiel, um es einzurichten. Oder wähle den Spielordner in den Einstellungen.",
+  "auth.offlineOwnApp": "Spiele laufen auf Android in der FAF-Spiel-App, die diese Version des Clients noch nicht starten kann. Eine spätere startet deine Spiele von hier.",
   "auth.localReplays": "Lokale Replays",
   "auth.signIn": "Anmelden",
   "auth.staySignedIn": "Auf diesem Computer angemeldet bleiben",

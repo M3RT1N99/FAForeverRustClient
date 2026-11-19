@@ -21,7 +21,7 @@ import type { PathPreferences, PathPreferencesPatch } from "../../ipc/bindings";
 import { useAppStore } from "../../store/store";
 import { GamePathsSection } from "./GamePathsSection";
 import { SettingsGroup } from "./SettingControls";
-import { gameNeedsALaunchWrapper } from "../../shared/platform";
+import { gameNeedsALaunchWrapper, theGameIsItsOwnApp } from "../../shared/platform";
 import { pickOriginalGameFolder } from "../../shared/originalGame";
 
 /** The configurable directories, in the order the tab lists them. */
@@ -72,7 +72,8 @@ function ContentPathRow({
   field: DirectoryField | FileField | WrapperField | OriginalGameField;
   paths: PathPreferences;
   resolved: string;
-  pick: () => Promise<string | null>;
+  /** Absent where nothing can be picked: the row then only says where it points. */
+  pick?: () => Promise<string | null>;
 }) {
   const { t } = useTranslation();
   const configured = paths[field];
@@ -85,9 +86,9 @@ function ContentPathRow({
     unset: t("settings.paths.automatic"),
   } as const;
 
-  const choose = () =>
+  const choose = (from: () => Promise<string | null>) =>
     ipc.run(
-      pick().then((picked) => {
+      from().then((picked) => {
         if (picked) setPaths({ [field]: picked });
       }),
     );
@@ -102,16 +103,18 @@ function ContentPathRow({
         <span className="settings-path-value">{resolved || t("settings.paths.unset")}</span>
         <span className={`settings-path-status is-${status}`}>{STATUS_LABEL[status]}</span>
       </div>
-      <div className="settings-path-actions">
-        <Button onClick={choose}>{t("settings.paths.browse")}</Button>
-        <Button
-          disabled={!configured}
-          onClick={() => setPaths({ [field]: "" })}
-          title={t("settings.paths.resetHint")}
-        >
-          {t("settings.paths.reset")}
-        </Button>
-      </div>
+      {pick && (
+        <div className="settings-path-actions">
+          <Button onClick={() => choose(pick)}>{t("settings.paths.browse")}</Button>
+          <Button
+            disabled={!configured}
+            onClick={() => setPaths({ [field]: "" })}
+            title={t("settings.paths.resetHint")}
+          >
+            {t("settings.paths.reset")}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -119,6 +122,19 @@ function ContentPathRow({
 export function PathsSettingsSection() {
   const paths = useAppStore((s) => s.state.settings.paths);
   const resolved = useAppStore((s) => s.state.install.resolved);
+
+  // On Android the game is its own app, with its own files and nothing here to
+  // point at, and the system cannot pick a folder: what is left is where this
+  // app keeps the vault and the rest, shown as it is.
+  if (theGameIsItsOwnApp()) {
+    return (
+      <SettingsGroup>
+        {DIRECTORY_FIELDS.map((field) => (
+          <ContentPathRow key={field} field={field} paths={paths} resolved={resolved[field]} />
+        ))}
+      </SettingsGroup>
+    );
+  }
 
   return (
     <SettingsGroup>

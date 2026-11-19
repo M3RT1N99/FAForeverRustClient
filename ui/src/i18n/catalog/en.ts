@@ -306,6 +306,8 @@ export const en = {
   "shell.install.originalMissing": "Supreme Commander: Forged Alliance not found",
   "shell.install.originalMissingHint": "FAF requires Forged Alliance from Steam, GOG or disc for movies, sounds and fonts; the original Supreme Commander is not sufficient. Games cannot start until it is found.",
   "shell.install.chooseOriginal": "Choose game folder",
+  "shell.install.ownApp": "Games on Android run in the FAF game app",
+  "shell.install.ownAppHint": "This version of the client cannot start it yet. A later one sets it up and starts your games from here.",
 
   // Login screen.
   "auth.welcome": "Welcome to FAForever",
@@ -322,6 +324,7 @@ export const en = {
   "auth.playOfflineHint": "Play offline starts Forged Alliance on its own, for skirmish against the AI. Local replays opens this client on the replays and settings on this machine. Neither needs an account.",
   "auth.offlineSetupPending": "FAF hasn't set the game up on this computer yet. Sign in once, then choose Play offline in the menu on your name, or play or watch any game, and the client downloads it. After that, this button works without an account.",
   "auth.offlineSetupMissing": "Forged Alliance with FAF's files was not found at the game path. Sign in once, then choose Play offline in the menu on your name, or play or watch any game, to set it up. Or choose the game's folder in Settings.",
+  "auth.offlineOwnApp": "Games on Android run in the FAF game app, which this version of the client cannot start yet. A later one starts your games from here.",
   "auth.localReplays": "Local replays",
   "auth.signIn": "Sign in",
   "auth.staySignedIn": "Stay signed in on this computer",

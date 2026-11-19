@@ -37,6 +37,7 @@ import { InstalledModsView } from "./InstalledModsView";
 // that is already installed, and `openUploadFromDisk` takes an archive straight
 // off the filesystem, which is what an author has after building one.
 import { openUploadFromDisk } from "../uploads/UploadDialog";
+import { foldersCanBePicked } from "../../shared/platform";
 import { ModRenameDialog } from "./ModRenameDialog";
 import { hasModVaultFocus, requestModVaultFocus, takeModVaultFocus } from "../../shared/modVaultFocus";
 import { modsMatchingQuery, modsPassingInstallFilter } from "./modVaultResults";
@@ -645,9 +646,12 @@ export function ModsView() {
           onChange={selectSubView}
           idPrefix="mods-section"
         />
-        <Button variant="ghost" className="mods-header-action" onClick={() => void openUploadFromDisk("mod")}>
-          <Icon name="upload" size={15} /> {t("mods.view.uploadFromDisk")}
-        </Button>
+        {/* A mod is uploaded as its folder, which Android cannot pick. */}
+        {foldersCanBePicked() && (
+          <Button variant="ghost" className="mods-header-action" onClick={() => void openUploadFromDisk("mod")}>
+            <Icon name="upload" size={15} /> {t("mods.view.uploadFromDisk")}
+          </Button>
+        )}
       </header>
       <div {...sectionPanelProps("mods-section", subView)}>
         {subView === "vault" ? (

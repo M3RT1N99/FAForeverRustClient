@@ -26,6 +26,7 @@ import {
 } from "../../design-system/SearchPanel";
 // Only the from-disk entry point: publishing an installed map has its own modal.
 import { openUploadFromDisk } from "../uploads/UploadDialog";
+import { foldersCanBePicked } from "../../shared/platform";
 import { Pagination } from "../../design-system/Pagination";
 import type { GeneratorStatus, InstalledMap, MapsSection, MapVaultQuery, MapSummary } from "../../ipc/bindings";
 import { ipc } from "../../ipc/client";
@@ -1217,9 +1218,12 @@ export function MapsView() {
           onChange={selectSubView}
           idPrefix="maps-section"
         />
-        <Button variant="ghost" className="maps-header-action" onClick={() => void openUploadFromDisk("map")}>
-          <Icon name="upload" size={15} /> {t("maps.view.uploadFromDisk")}
-        </Button>
+        {/* A map is uploaded as its folder, which Android cannot pick. */}
+        {foldersCanBePicked() && (
+          <Button variant="ghost" className="maps-header-action" onClick={() => void openUploadFromDisk("map")}>
+            <Icon name="upload" size={15} /> {t("maps.view.uploadFromDisk")}
+          </Button>
+        )}
       </header>
       <div {...sectionPanelProps("maps-section", subView)}>
         <Component busy={busy} />

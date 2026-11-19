@@ -12,6 +12,7 @@ import { Icon } from "../../design-system/Icon";
 import { StatusNotice } from "../../design-system/StatusNotice";
 import { ACCOUNT_LINKS, openExternalUrl } from "../../shared/externalLinks";
 import { plainError } from "../../shared/plainError";
+import { theGameIsItsOwnApp } from "../../shared/platform";
 import { useTranslation } from "../../i18n/useTranslation";
 
 /**
@@ -183,9 +184,17 @@ export function LoginView() {
         </div>
         {/* The button stays: the install may have arrived since the last
             look, and the click checks again and says why if not. */}
+        {/* On Android the game is its own app, with no game path or folder
+            here to set up, so the notice says where games run instead. */}
         {gameMissing && (
           <StatusNotice tone="info" className="login-offline-setup">
-            {t(gamePending ? "auth.offlineSetupPending" : "auth.offlineSetupMissing")}
+            {t(
+              theGameIsItsOwnApp()
+                ? "auth.offlineOwnApp"
+                : gamePending
+                  ? "auth.offlineSetupPending"
+                  : "auth.offlineSetupMissing",
+            )}
           </StatusNotice>
         )}
         <p className="login-hint">{t("auth.playOfflineHint")}</p>

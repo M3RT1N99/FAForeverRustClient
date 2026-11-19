@@ -7,6 +7,7 @@ import { Button } from "../../design-system/Button";
 import { Icon } from "../../design-system/Icon";
 import { native } from "../../ipc/native";
 import { isUsablePresetName, MAX_PRESET_NAME } from "../../shared/generatorPresets";
+import { foldersCanBePicked } from "../../shared/platform";
 import { GENERATION_TYPES, deletePreset, preflight, loadHelp } from "./generatorCommands";
 
 /**
@@ -135,15 +136,17 @@ export function GeneratorAdvancedOptions({ model }: {
               placeholder={t("maps.generate.outputPathHint")}
               title={form.outputPath || undefined}
             />
-            <Button
-              onClick={() => {
-                void native.selectDirectory(form.outputPath || undefined).then((folder) => {
-                  if (folder) set("outputPath", folder);
-                });
-              }}
-            >
-              {t("settings.paths.browse")}
-            </Button>
+            {foldersCanBePicked() && (
+              <Button
+                onClick={() => {
+                  void native.selectDirectory(form.outputPath || undefined).then((folder) => {
+                    if (folder) set("outputPath", folder);
+                  });
+                }}
+              >
+                {t("settings.paths.browse")}
+              </Button>
+            )}
             {form.outputPath !== "" && (
               <Button title={t("settings.paths.resetHint")} onClick={() => set("outputPath", "")}>
                 {t("settings.paths.reset")}
