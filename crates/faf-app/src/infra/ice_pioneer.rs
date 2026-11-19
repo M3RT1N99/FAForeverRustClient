@@ -259,11 +259,8 @@ impl IcePort for PioneerAdapter {
                 // does this itself). Without it the game waits on a black screen.
                 if is_game_state(&message, "Idle") {
                     tracing::info!("game reached Idle state; injecting CreateLobby");
-                    let _ = create_lobby_sink.try_send(create_lobby(
-                        init_mode,
-                        &player_login,
-                        player_id,
-                    ));
+                    let _ =
+                        create_lobby_sink.send(create_lobby(init_mode, &player_login, player_id));
                 }
                 let relay_msg = RelayMsg {
                     command: message.command,
@@ -292,7 +289,7 @@ impl IcePort for PioneerAdapter {
                     args = ?gpg.args,
                     "pioneer bridge: lobby -> adapter"
                 );
-                if to_adapter.send(gpg).await.is_err() {
+                if to_adapter.send(gpg).is_err() {
                     tracing::debug!(
                         "pioneer bridge: lobby->adapter pump ended (relay channel closed)"
                     );

@@ -318,6 +318,10 @@ impl RejoinOffer {
 }
 
 /// One game's messages, between its GPGNet connection and the lobby.
+///
+/// Nothing here waits on the game: what goes to it is queued for its
+/// connection (see `GameConnection::Connected`), so neither a game slow to
+/// read nor one that stopped keeps this from hearing the game or the lobby.
 struct Bridge {
     game: Arc<Mutex<Match>>,
     init_mode: i32,
@@ -328,7 +332,7 @@ struct Bridge {
 
 /// The game connected right now.
 struct Connected {
-    to_game: mpsc::Sender<GpgMessage>,
+    to_game: mpsc::UnboundedSender<GpgMessage>,
     /// It was sent its servers and `CreateLobby`: from here a new list goes
     /// to it as soon as there is one.
     set_up: bool,
@@ -352,13 +356,13 @@ impl Bridge {
                     match event {
                         GameConnection::Connected(to_game) => {
                             let mut game = Connected { to_game, set_up: false };
-                            self.welcome_back(&mut game, &servers).await;
+                            self.welcome_back(&mut game, &servers);
                             connected = Some(game);
                         }
                         GameConnection::Message(message) => {
                             if is_game_state(&message, "Idle") {
                                 if let Some(game) = connected.as_mut() {
-                                    self.set_up(game, &servers).await;
+                                    self.set_up(game, &servers);
                                 }
                             }
                             if !self.note(&message) {
@@ -383,7 +387,7 @@ impl Bridge {
                     self.game.lock().unwrap().remember(&message);
                     match &connected {
                         Some(game) => {
-                            let _ = game.to_game.send(gpg_message(&message)).await;
+                            let _ = game.to_game.send(gpg_message(&message));
                         }
                         // `IceMsg` among them: the links that sent those try
                         // again, and what the game needs of the rest is kept.
@@ -403,7 +407,7 @@ impl Bridge {
                     if let (Some(game), Some(list)) =
                         (connected.as_ref().filter(|game| game.set_up), list)
                     {
-                        let _ = game.to_game.send(ice_servers(list)).await;
+                        let _ = game.to_game.send(ice_servers(list));
                     }
                 }
             }
@@ -411,18 +415,18 @@ impl Bridge {
     }
 
     /// `IceServers` with the list known so far, then `CreateLobby`.
-    async fn set_up(&self, game: &mut Connected, servers: &watch::Receiver<Option<String>>) {
+    fn set_up(&self, game: &mut Connected, servers: &watch::Receiver<Option<String>>) {
         let list = servers.borrow().clone().unwrap_or_else(|| "[]".into());
-        let _ = game.to_game.send(ice_servers(list)).await;
+        let _ = game.to_game.send(ice_servers(list));
         let lobby = create_lobby(self.init_mode, &self.player_login, self.player_id);
-        let _ = game.to_game.send(lobby).await;
+        let _ = game.to_game.send(lobby);
         game.set_up = true;
     }
 
     /// A game coming back to its match gets what the first one got, at once:
     /// it reports no `GameState`, because the server would take a host's
     /// `Idle` for its game going back to a lobby.
-    async fn welcome_back(&self, game: &mut Connected, servers: &watch::Receiver<Option<String>>) {
+    fn welcome_back(&self, game: &mut Connected, servers: &watch::Receiver<Option<String>>) {
         let peers = {
             let mut kept = self.game.lock().unwrap();
             if !std::mem::take(&mut kept.returning) {
@@ -437,9 +441,9 @@ impl Bridge {
             peers = peers.len(),
             "the game came back to its match; sending it what it had"
         );
-        self.set_up(game, servers).await;
+        self.set_up(game, servers);
         for message in peers {
-            let _ = game.to_game.send(message).await;
+            let _ = game.to_game.send(message);
         }
     }
 

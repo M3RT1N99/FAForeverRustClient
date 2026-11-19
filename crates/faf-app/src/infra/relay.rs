@@ -28,7 +28,8 @@ pub struct RelayChannels {
     /// Messages decoded from the adapter (to be relayed to the lobby).
     pub from_adapter: mpsc::Receiver<GpgMessage>,
     /// Messages to encode and send to the adapter (relayed from the lobby).
-    pub to_adapter: mpsc::Sender<GpgMessage>,
+    /// Unbounded, as a game's are: see [`GameConnection::Connected`].
+    pub to_adapter: mpsc::UnboundedSender<GpgMessage>,
     /// Resolves when the adapter has connected to this parent relay. Pioneer
     /// opens its game-facing GPGNet listener immediately before this connection,
     /// so this is the safe readiness gate before launching Forged Alliance.
@@ -42,7 +43,14 @@ pub enum GameConnection {
     /// A game connected. What is sent here reaches it while it stays, and is
     /// dropped with the connection: a game that comes back gets nothing the
     /// one before it was meant to. Dropping the sender closes the connection.
-    Connected(mpsc::Sender<GpgMessage>),
+    ///
+    /// Unbounded, so that sending to a game never waits on it: whoever sends
+    /// here also hears the game, whose connection waits to be heard. With a
+    /// bound, a full queue left each waiting on the other for good, and the
+    /// lobby connection stalled behind them. What the lobby sends a game
+    /// comes at the server's pace, and a game that stops reading loses its
+    /// backlog with its connection.
+    Connected(mpsc::UnboundedSender<GpgMessage>),
     /// A message from the connected game.
     Message(GpgMessage),
     /// The connected game went away.
@@ -89,7 +97,7 @@ impl GpgRelayServer {
 
         // from_adapter: server → launcher.  to_adapter: launcher → server.
         let (from_tx, from_rx) = mpsc::channel::<GpgMessage>(64);
-        let (to_tx, to_rx) = mpsc::channel::<GpgMessage>(64);
+        let (to_tx, to_rx) = mpsc::unbounded_channel::<GpgMessage>();
         let (ready_tx, ready_rx) = oneshot::channel();
 
         tokio::spawn(async move {
@@ -149,7 +157,7 @@ impl GpgRelayServer {
 async fn run_relay(
     listener: TcpListener,
     from_adapter: mpsc::Sender<GpgMessage>,
-    mut to_adapter: mpsc::Receiver<GpgMessage>,
+    mut to_adapter: mpsc::UnboundedReceiver<GpgMessage>,
     ready: oneshot::Sender<()>,
     cancel: CancellationToken,
 ) {
@@ -198,7 +206,9 @@ async fn serve_games(
             }
         };
         tracing::info!("the game connected to its GPGNet port");
-        let (to_game, mut outgoing) = mpsc::channel(64);
+        // Unbounded: nothing that sends to the game may wait on it (see
+        // `GameConnection::Connected`).
+        let (to_game, mut outgoing) = mpsc::unbounded_channel();
         if events
             .send(GameConnection::Connected(to_game))
             .await
@@ -234,7 +244,7 @@ enum Pumped {
 async fn pump<T: From<GpgMessage>>(
     socket: TcpStream,
     incoming: &mpsc::Sender<T>,
-    outgoing: &mut mpsc::Receiver<GpgMessage>,
+    outgoing: &mut mpsc::UnboundedReceiver<GpgMessage>,
     cancel: &CancellationToken,
 ) -> Pumped {
     let (mut read_half, mut write_half) = socket.into_split();
@@ -442,9 +452,7 @@ mod tests {
             GameConnection::Closed
         ));
         // Sent too late for the first game; the second must not get it.
-        let _ = to_first
-            .send(GpgMessage::new("IceMsg", vec![GpgArg::Int(2)]))
-            .await;
+        let _ = to_first.send(GpgMessage::new("IceMsg", vec![GpgArg::Int(2)]));
 
         let mut second = tokio::net::TcpStream::connect(("127.0.0.1", listener.port))
             .await
@@ -460,7 +468,7 @@ mod tests {
         ));
 
         let lobby = GpgMessage::new("CreateLobby", vec![GpgArg::Int(0)]);
-        to_second.send(lobby.clone()).await.unwrap();
+        to_second.send(lobby.clone()).unwrap();
         let mut received = Vec::new();
         let mut chunk = [0_u8; 256];
         while received.len() < encode(&lobby).len() {
