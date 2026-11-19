@@ -262,6 +262,22 @@ async fn game_app_status_of(game_app: &GameApp) -> Result<GameAppStatus, String>
     crate::game_app::status_from(raw)
 }
 
+/// The licences of everything this app is built from: the NOTICE its build
+/// writes into the APK's assets, or `None` for a build without one.
+#[tauri::command]
+pub(crate) async fn client_notices(
+    diagnostics: tauri::State<'_, Diagnostics>,
+) -> Result<Option<String>, String> {
+    #[derive(Deserialize)]
+    struct Notices {
+        text: Option<String>,
+    }
+    let notices: Notices = call(&diagnostics.0, "notices", ())
+        .await
+        .map_err(|error| format!("could not read the licences: {error}"))?;
+    Ok(notices.text)
+}
+
 /// The FAF game app: whether it is there, whether it lets this client in, and
 /// its game data.
 #[tauri::command]

@@ -69,4 +69,18 @@ class DiagnosticsPlugin(private val activity: Activity) : Plugin(activity) {
   // The game app's results zip, as a content address with a read grant, once
   // its exported action for it exists (after E2b). Until then there is none.
   private fun gameLogs(): Uri? = null
+
+  // The licences of everything the app is built from, which its build writes
+  // into the APK's assets (scripts/android-notices); no text where a build
+  // carries none.
+  @Command
+  fun notices(invoke: Invoke) {
+    val answer = JSObject()
+    try {
+      activity.assets.open("NOTICE.txt").bufferedReader(Charsets.UTF_8).use { answer.put("text", it.readText()) }
+    } catch (missing: java.io.IOException) {
+      // The answer says so by having no text.
+    }
+    invoke.resolve(answer)
+  }
 }
