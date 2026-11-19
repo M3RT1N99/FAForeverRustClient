@@ -5,7 +5,8 @@
 // the player to its screen that sets the game data up, and starts games in it
 // (`native.gameApp*`). This is what those answers mean for the page.
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect } from "react";
+import { create } from "zustand";
 import type { MessageKey } from "../i18n";
 import { t } from "../i18n";
 import { native, type GameAppStatus } from "../ipc/native";
@@ -141,32 +142,65 @@ export async function playOfflineInGameApp(): Promise<void> {
 const BUSY_POLL_MS = 3000;
 
 /**
- * The game app's status, on Android; `null` elsewhere, and until the first
- * answer. Asked again when the client comes back to the front (from the game
- * app's setup or a game), and every few seconds while its setup runs.
+ * The game app's status as last asked, one for every view that shows it, so
+ * that an answer one of them asked for (after the setup screen, say) reaches
+ * the others too. Views read it through `useGameAppStatus`.
  */
-export function useGameAppStatus(): { status: GameAppStatus | null; refresh: () => void } {
-  const [status, setStatus] = useState<GameAppStatus | null>(null);
-  const refresh = useCallback(() => {
-    if (!theGameIsItsOwnApp()) return;
-    void native.gameAppStatus().then(setStatus, () => setStatus(null));
-  }, []);
+export const useGameAppStatusStore = create<{ status: GameAppStatus | null }>(() => ({ status: null }));
+
+let asking: Promise<void> | null = null;
+let askAgain = false;
+
+/**
+ * Ask the game app for its status, and give every view the answer: `null`
+ * when it could not be asked. A call while an answer is on the way asks once
+ * more after it, so the status kept is never older than the call.
+ */
+export function refreshGameAppStatus(): Promise<void> {
+  if (!theGameIsItsOwnApp()) return Promise.resolve();
+  if (asking) {
+    askAgain = true;
+    return asking;
+  }
+  asking = (async () => {
+    do {
+      askAgain = false;
+      const status = await native.gameAppStatus().catch((error: unknown) => {
+        console.warn("could not ask the game app for its status", error);
+        return null;
+      });
+      useGameAppStatusStore.setState({ status });
+    } while (askAgain);
+  })().finally(() => {
+    asking = null;
+  });
+  return asking;
+}
+
+/**
+ * The game app's status, on Android; `null` elsewhere, and until the first
+ * answer. Asked again when a view showing it mounts, when the client comes
+ * back to the front (from the game app's setup or a game), and every few
+ * seconds while its setup runs.
+ */
+export function useGameAppStatus(): { status: GameAppStatus | null; refresh: () => Promise<void> } {
+  const status = useGameAppStatusStore((state) => state.status);
 
   useEffect(() => {
-    refresh();
+    void refreshGameAppStatus();
     const onVisible = () => {
-      if (document.visibilityState === "visible") refresh();
+      if (document.visibilityState === "visible") void refreshGameAppStatus();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [refresh]);
+  }, []);
 
   const busy = status ? gameAppNeed(status) === "busy" : false;
   useEffect(() => {
     if (!busy) return undefined;
-    const timer = window.setInterval(refresh, BUSY_POLL_MS);
+    const timer = window.setInterval(() => void refreshGameAppStatus(), BUSY_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [busy, refresh]);
+  }, [busy]);
 
-  return { status, refresh };
+  return { status, refresh: refreshGameAppStatus };
 }

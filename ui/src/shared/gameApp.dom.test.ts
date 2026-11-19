@@ -3,7 +3,7 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { GameAppStatus } from "../ipc/bindings";
-import { useGameAppStatus } from "./gameApp";
+import { refreshGameAppStatus, useGameAppStatus, useGameAppStatusStore } from "./gameApp";
 
 const { gameAppStatus, ownApp } = vi.hoisted(() => ({
   gameAppStatus: vi.fn(),
@@ -15,6 +15,7 @@ vi.mock("./platform", () => ({ theGameIsItsOwnApp: () => ownApp.value }));
 beforeEach(() => {
   vi.useFakeTimers();
   ownApp.value = true;
+  useGameAppStatusStore.setState({ status: null });
 });
 afterEach(() => {
   cleanup();
@@ -102,11 +103,37 @@ it("asks every few seconds while the game app's setup runs, and stops after it",
 });
 
 it("forgets an answer it can no longer get", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
   gameAppStatus.mockResolvedValueOnce(status(null)).mockRejectedValueOnce(new Error("binder died"));
   const hook = renderHook(() => useGameAppStatus());
   await settle();
   expect(hook.result.current.status).not.toBeNull();
-  act(() => hook.result.current.refresh());
-  await settle();
+  await act(() => hook.result.current.refresh());
   expect(hook.result.current.status).toBeNull();
+  expect(warn).toHaveBeenCalledOnce();
+  warn.mockRestore();
+});
+
+it("gives every view the answer one of them asked for", async () => {
+  gameAppStatus.mockResolvedValueOnce(status(null)).mockResolvedValue(status("copying"));
+  const banner = renderHook(() => useGameAppStatus());
+  const settings = renderHook(() => useGameAppStatus());
+  await settle();
+  await act(() => settings.result.current.refresh());
+  expect(banner.result.current.status?.gameData?.jobStep).toBe("copying");
+});
+
+it("asks once more for calls while an answer is on the way, not once for each", async () => {
+  let answer: (value: GameAppStatus) => void = () => undefined;
+  gameAppStatus
+    .mockImplementationOnce(() => new Promise<GameAppStatus>((resolve) => (answer = resolve)))
+    .mockResolvedValue(status("copying"));
+  const asked = refreshGameAppStatus();
+  void refreshGameAppStatus();
+  void refreshGameAppStatus();
+  answer(status(null));
+  await asked;
+  expect(gameAppStatus).toHaveBeenCalledTimes(2);
+  // The status kept is the later answer, which came after the calls.
+  expect(useGameAppStatusStore.getState().status?.gameData?.jobStep).toBe("copying");
 });
