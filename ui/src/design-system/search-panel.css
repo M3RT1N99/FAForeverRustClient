@@ -190,21 +190,21 @@ button.search-panel-control {
   }
 }
 
-/* A finger (`pointer: coarse`): fields and the ticks beside them at least
-   40 px high, as every button is on a touch screen (styles.css), and typed
+/* A finger (`pointer: coarse`): fields and the ticks beside them a touch
+   target high (tokens.css), as every button is on a touch screen, and typed
    text at 16 px, the size FAF's web client gives its fields on a phone. */
 @media (pointer: coarse) {
   .search-panel-control,
   .search-panel-submit {
-    height: 40px;
+    height: var(--touch-target);
   }
 
   input.search-panel-control {
     font-size: 16px;
-    line-height: 38px;
+    line-height: calc(var(--touch-target) - 2px);
   }
 
   .search-panel-check {
-    min-height: 40px;
+    min-height: var(--touch-target);
   }
 }

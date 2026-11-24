@@ -597,12 +597,12 @@
 }
 
 
-/* A finger (`pointer: coarse`): the view switch's two buttons 40 px square,
-   as every button is on a touch screen (styles.css). */
+/* A finger (`pointer: coarse`): the view switch's two buttons touch-target
+   squares, as every button is on a touch screen (styles.css). */
 @media (pointer: coarse) {
   .replay-view-switch button {
-    width: 40px;
-    min-height: 40px;
+    width: var(--touch-target);
+    min-height: var(--touch-target);
   }
 }
 

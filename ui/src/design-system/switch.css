@@ -68,14 +68,14 @@
   cursor: not-allowed;
 }
 
-/* A finger (`pointer: coarse`): the switch takes a press anywhere in 40 x 40
-   px around its track, which keeps its size. The input under the track fills
+/* A finger (`pointer: coarse`): the switch takes a press anywhere in a
+   touch target's square around its track, which keeps its size. The input under the track fills
    the label, so the label's size is what can be hit. */
 @media (pointer: coarse) {
   .switch {
     align-items: center;
     justify-content: center;
-    min-width: 40px;
-    min-height: 40px;
+    min-width: var(--touch-target);
+    min-height: var(--touch-target);
   }
 }

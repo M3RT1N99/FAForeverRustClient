@@ -276,7 +276,7 @@ describe("UpdateNotice in the rail", () => {
 
   it("is its icon alone in the rail a narrow window draws, as in the dragged one", () => {
     setScreen({ ...DESKTOP, width: 800 });
-    addStylesheets("ui/src/features/updates/updates.css");
+    addStylesheets("ui/src/design-system/tokens.css", "ui/src/features/updates/updates.css");
     available();
     render(<div className="app-shell"><UpdateNotice /></div>);
     expect(getComputedStyle(label()).display).toBe("none");
@@ -285,7 +285,7 @@ describe("UpdateNotice in the rail", () => {
 
   it("is a 40 px square in a phone's rail, and has its label again in the drawer", () => {
     setScreen(PHONE_LYING_DOWN);
-    addStylesheets("ui/src/features/updates/updates.css");
+    addStylesheets("ui/src/design-system/tokens.css", "ui/src/features/updates/updates.css");
     available();
     const view = render(<div className="app-shell is-sidebar-rail"><UpdateNotice /></div>);
     const button = () => getComputedStyle(screen.getByRole("button", { name: "Update available" }));
@@ -300,7 +300,7 @@ describe("UpdateNotice in the rail", () => {
 
   it("keeps its label in a wide window's sidebar", () => {
     setScreen(DESKTOP);
-    addStylesheets("ui/src/features/updates/updates.css");
+    addStylesheets("ui/src/design-system/tokens.css", "ui/src/features/updates/updates.css");
     available();
     render(<div className="app-shell"><UpdateNotice /></div>);
     expect(getComputedStyle(label()).display).not.toBe("none");

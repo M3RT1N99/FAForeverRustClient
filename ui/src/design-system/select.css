@@ -202,11 +202,11 @@
   flex-shrink: 0;
 }
 
-/* A finger (`pointer: coarse`): the trigger and every option at least 40 px
-   high, as every button is on a touch screen (styles.css). */
+/* A finger (`pointer: coarse`): the trigger and every option at least a
+   touch target high (tokens.css), as every button is on a touch screen. */
 @media (pointer: coarse) {
   .select-trigger,
   .select-option {
-    min-height: 40px;
+    min-height: var(--touch-target);
   }
 }

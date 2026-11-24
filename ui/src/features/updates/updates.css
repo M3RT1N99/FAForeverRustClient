@@ -422,13 +422,13 @@
   clip-path: inset(50%);
 }
 
-/* A finger (`pointer: coarse`): the rail's notice a 40 px square, as the
-   rail's tabs above it are 40 px high on a touch screen (nav.css). The rail
+/* A finger (`pointer: coarse`): the rail's notice a touch target's square,
+   as the rail's tabs above it are that high on a touch screen (nav.css). The rail
    a phone keeps is the class's (`AppShell`). */
 @media (pointer: coarse) {
   .app-shell.is-sidebar-rail .update-notice-button {
-    width: 40px;
-    min-height: 40px;
+    width: var(--touch-target);
+    min-height: var(--touch-target);
   }
 }
 
@@ -441,7 +441,7 @@
 .app-shell.is-drawer-open .update-notice-button {
   justify-content: flex-start;
   width: 100%;
-  min-height: 40px;
+  min-height: var(--touch-target);
   padding: 7px 9px;
 }
 

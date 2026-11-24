@@ -16,6 +16,7 @@ import { addStylesheets, PHONE_LYING_DOWN, setScreen, SHORT_DESKTOP, type Screen
 import "../testing/mounted";
 
 const STYLESHEETS = [
+  "ui/src/design-system/tokens.css",
   "ui/src/styles.css",
   "ui/src/design-system/select.css",
   "ui/src/design-system/switch.css",
