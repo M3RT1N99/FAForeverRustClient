@@ -17,6 +17,7 @@ import { applyEvent, clearSentCommands, seedStore, sentCommands } from "../../te
 import { UpdateNotice } from "./UpdateNotice";
 import { UpdateGate } from "./UpdateGate";
 import { UpdatesSettingsSection } from "../settings/UpdatesSettingsSection";
+import { addStylesheets, DESKTOP, setScreen } from "../../testing/screens";
 
 vi.mock("../../ipc/client");
 
@@ -263,5 +264,31 @@ describe("UpdateNotice, What's new", () => {
     await user.click(screen.getByRole("button", { name: en["updates.whatsNew"] }));
     expect(open).toHaveBeenCalledWith(notesUrl, "_blank", "noopener,noreferrer");
     expect(sentCommands()).toEqual([]);
+  });
+});
+
+describe("UpdateNotice in the rail", () => {
+  const available = () => seedStore((state) => ({
+    ...state,
+    clientUpdate: { ...state.clientUpdate, release, overdue: false, status: { type: "available" } },
+  }));
+  const label = () => document.querySelector(".update-notice-label")!;
+
+  it("is its icon alone in the rail a narrow window draws, as in the dragged one", () => {
+    setScreen({ ...DESKTOP, width: 800 });
+    addStylesheets("ui/src/features/updates/updates.css");
+    available();
+    render(<div className="app-shell"><UpdateNotice /></div>);
+    expect(getComputedStyle(label()).display).toBe("none");
+    expect(getComputedStyle(screen.getByRole("button", { name: "Update available" })).width).toBe("32px");
+  });
+
+  it("keeps its label in a wide window's sidebar", () => {
+    setScreen(DESKTOP);
+    addStylesheets("ui/src/features/updates/updates.css");
+    available();
+    render(<div className="app-shell"><UpdateNotice /></div>);
+    expect(getComputedStyle(label()).display).not.toBe("none");
+    expect(getComputedStyle(screen.getByRole("button", { name: "Update available" })).width).toBe("100%");
   });
 });

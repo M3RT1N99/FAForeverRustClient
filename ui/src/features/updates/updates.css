@@ -314,6 +314,27 @@
   display: none;
 }
 
+/* The rail a narrow window draws (`shell.css`, under 900 px) is the same 64 px
+   rail, and the notice was not told: its label was drawn on past the rail's
+   edge, over the page beside it. */
+@media (max-width: 900px) {
+  .update-notice {
+    display: flex;
+    justify-content: center;
+  }
+
+  .update-notice-button {
+    justify-content: center;
+    width: 32px;
+    min-height: 32px;
+    padding: 0;
+  }
+
+  .update-notice-label {
+    display: none;
+  }
+}
+
 /* The popover, beside the sidebar like the notification panel next to it,
    and on that panel's layer: over the workspace, under modals (100). */
 .update-notice-popover {
