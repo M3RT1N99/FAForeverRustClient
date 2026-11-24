@@ -67,6 +67,7 @@ mod mod_update;
 mod mods_reload;
 mod native_network;
 mod offline_game;
+mod play_not_offered;
 mod player_notes;
 mod reconnects_and_retries;
 mod relay_across_reconnects;

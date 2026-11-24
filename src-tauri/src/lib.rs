@@ -230,6 +230,7 @@ pub fn run() {
                 #[cfg(target_os = "android")]
                 android::game_app_update_install,
                 commands::webview_engine,
+                commands::play_offered,
                 commands::system_date_pattern,
                 commands::map_generator_automatic_instances,
                 commands::report_webview_stall,
@@ -316,6 +317,14 @@ mod tests {
             engine.platform,
             "windows" | "macos" | "linux" | "other"
         ));
+    }
+
+    /// The desktop plays with the Android flag or without it; only an
+    /// Android build without it watches replays alone.
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn the_desktop_offers_play() {
+        assert!(crate::commands::play_offered());
     }
 
     /// Also proves the FFI declaration links: a renamed or missing symbol fails

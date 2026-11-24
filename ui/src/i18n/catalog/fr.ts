@@ -253,6 +253,8 @@ export const fr: Partial<Record<MessageKey, Message>> = {
   "notifications.msg.cannotJoinParty.title": "Impossible de rejoindre le groupe",
   "notifications.msg.contactChangeFailed.title": "Impossible de mettre à jour les contacts",
   "notifications.msg.contactChangeFailed.body": "Vérifiez la connexion au salon et réessayez.",
+  "notifications.msg.playNotOffered.title": "Pas dans cette version",
+  "notifications.msg.playNotOffered.body": "Cette version du client ne fait que regarder des replays. Créer une partie, la rejoindre et le matchmaking viendront dans une prochaine.",
   "notifications.msg.searchFailed.title": "Impossible de lancer la recherche",
   "notifications.msg.searchStopFailed.title": "Impossible d’arrêter la recherche",
   "notifications.msg.hostFailed.title": "Impossible d'héberger la partie",

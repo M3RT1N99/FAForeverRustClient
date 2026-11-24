@@ -737,6 +737,7 @@ pub fn fake_ports() -> Ports {
         // depending on the developer's shell.
         os_language: String::new(),
         test_login_roles: Vec::new(),
+        play_offered: PLAY_OFFERED,
     }
 }
 
@@ -953,6 +954,7 @@ pub fn real_ports() -> Ports {
         offline_auth: false,
         os_language: os_language(),
         test_login_roles: oauth::roles_from_env(),
+        play_offered: PLAY_OFFERED,
     }
 }
 
@@ -999,6 +1001,25 @@ const FAKE_PORTS_ALLOWED: bool = fake_ports_allowed(
 ))]
 const _: () = assert!(!FAKE_PORTS_ALLOWED);
 
+/// Whether this build offers play: hosting, joining and the matchmaker.
+///
+/// Everywhere but in an Android build without the `android-play` feature.
+/// FAF wants replays on the phone first and play later, phone against phone,
+/// so that release watches replays only. The page asks the shell for this
+/// before its first render and hides every way into play
+/// (`ui/src/shared/platform.ts`); the lobby service refuses those requests,
+/// whoever sends them, through [`Ports::play_offered`], which is this.
+pub const PLAY_OFFERED: bool =
+    play_offered(cfg!(target_os = "android"), cfg!(feature = "android-play"));
+
+const fn play_offered(android: bool, feature: bool) -> bool {
+    !android || feature
+}
+
+// The build check: an Android build without the feature offers no play.
+#[cfg(all(target_os = "android", not(feature = "android-play")))]
+const _: () = assert!(!PLAY_OFFERED);
+
 /// A `FAF_FAKE_*` toggle, where this build may fake at all; set where it may
 /// not, it is said in the log and ignored.
 fn fake_enabled(name: &str) -> bool {
@@ -1043,6 +1064,20 @@ pub fn ports_from_env() -> Ports {
         ports
     } else {
         real_ports()
+    }
+}
+
+#[cfg(test)]
+mod play_tests {
+    use super::play_offered;
+
+    #[test]
+    fn only_an_android_build_without_the_feature_offers_no_play() {
+        // (android, feature)
+        assert!(!play_offered(true, false), "the Android release");
+        assert!(play_offered(true, true), "an Android build that plays");
+        assert!(play_offered(false, false), "the desktop, as before");
+        assert!(play_offered(false, true), "the desktop with the feature");
     }
 }
 

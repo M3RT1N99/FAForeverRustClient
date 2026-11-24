@@ -42,6 +42,34 @@ export function actionLabel(action: NotificationAction | null): string | null {
 }
 
 /**
+ * Whether a notification offers a way into play: a game to join, a party to
+ * accept, the matchmaker or the custom games to open. A build without play
+ * shows none of them (`playIsOffered`). Every action is named, so a new one
+ * is decided here before it compiles.
+ */
+export function offersPlay(action: NotificationAction | null): boolean {
+  if (!action) return false;
+  switch (action.type) {
+    case "openGame":
+    case "acceptPartyInvite":
+    case "openMatchmaking":
+    case "openCustomGames":
+      return true;
+    case "openChat":
+    case "focusGame":
+    case "openReview":
+    case "watchLive":
+    case "watchLiveWhenReady":
+    case "openSettings":
+    case "openEvent":
+    case "openTournamentDraft":
+    case "openStream":
+    case "updateClient":
+      return false;
+  }
+}
+
+/**
  * The action line of a card: the label above, or for a stream the platform it
  * opens as an icon and its name (#155), which says where the click goes more
  * plainly than "Watch the stream" did.

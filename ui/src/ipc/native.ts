@@ -347,6 +347,14 @@ export const native = {
     return invoke<WebviewEngine>("webview_engine");
   },
 
+  /**
+   * Whether this build offers hosting, joining and the matchmaker. Not an
+   * Android build without the `android-play` feature. See `shared/platform`.
+   */
+  playOffered(): Promise<boolean> {
+    return invoke<boolean>("play_offered");
+  },
+
   isWindowFocused(): Promise<boolean> {
     return getCurrentWindow().isFocused();
   },

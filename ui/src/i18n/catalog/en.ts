@@ -4040,6 +4040,8 @@ export const en = {
   "notifications.msg.cannotJoinParty.title": "Cannot join the party",
   "notifications.msg.contactChangeFailed.title": "Could not update contacts",
   "notifications.msg.contactChangeFailed.body": "Check the lobby connection and try again.",
+  "notifications.msg.playNotOffered.title": "Not in this version",
+  "notifications.msg.playNotOffered.body": "This version of the client watches replays only. Hosting, joining and the matchmaker come in a later one.",
   "notifications.msg.searchFailed.title": "Could not start the search",
   "notifications.msg.searchStopFailed.title": "Could not stop the search",
   "notifications.msg.hostFailed.title": "Could not host game",

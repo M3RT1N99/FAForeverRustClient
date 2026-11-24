@@ -3599,6 +3599,8 @@ export const de: Partial<Record<MessageKey, Message>> = {
   "notifications.msg.cannotJoinParty.title": "Beitritt zur Gruppe nicht möglich",
   "notifications.msg.contactChangeFailed.title": "Kontakte konnten nicht aktualisiert werden",
   "notifications.msg.contactChangeFailed.body": "Prüfe die Lobby-Verbindung und versuche es erneut.",
+  "notifications.msg.playNotOffered.title": "Nicht in dieser Version",
+  "notifications.msg.playNotOffered.body": "Diese Version des Clients zeigt nur Replays. Spiele erstellen, beitreten und der Matchmaker kommen in einer späteren.",
   "notifications.msg.searchFailed.title": "Suche konnte nicht gestartet werden",
   "notifications.msg.searchStopFailed.title": "Suche konnte nicht beendet werden",
   "notifications.msg.hostFailed.title": "Partie konnte nicht gehostet werden",

@@ -16,6 +16,7 @@ import { Icon } from "../../design-system/Icon";
 import { useTranslation } from "../../i18n/useTranslation";
 import { ipc } from "../../ipc/client";
 import { joinGame } from "../../shared/joinGame";
+import { playIsOffered } from "../../shared/platform";
 import { useNamedMapGeneration } from "../../shared/hooks/useNamedMapGeneration";
 import { GameSummaryCard } from "./roster/GameSummaryCard";
 import { gamePresenceForPlayer } from "./roster/gameSummary";
@@ -150,10 +151,14 @@ export function ConversationAside({
               {mapGen.generateLabel}
             </Button>
           )}
-          <Button variant="primary" className="chat-aside-action chat-aside-primary" onClick={act}>
-            <Icon name="play" size={15} />
-            {watching ? t("chat.aside.watch") : t("chat.aside.join")}
-          </Button>
+          {/* Joining is play, which a build without it does not offer;
+              watching a game in progress stays. */}
+          {(watching || playIsOffered()) && (
+            <Button variant="primary" className="chat-aside-action chat-aside-primary" onClick={act}>
+              <Icon name="play" size={15} />
+              {watching ? t("chat.aside.watch") : t("chat.aside.join")}
+            </Button>
+          )}
         </div>
       </div>
     </aside>

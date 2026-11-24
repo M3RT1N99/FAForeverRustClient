@@ -7,6 +7,7 @@ import { FAF_LOGO_URL } from "./shared/branding";
 import { installDesktopContextMenuPolicy } from "./shared/contextMenuPolicy";
 import { installStallReporter } from "./shared/stallReporter";
 import { loadSystemDatePattern } from "./shared/format/systemDate";
+import { loadPlayOffer } from "./shared/playOffer";
 import "./styles.css";
 import "./design-system/patterns.css";
 import "./design-system/vault.css";
@@ -29,8 +30,9 @@ window.addEventListener("scroll", () => {
 });
 
 // Before the first render, so no date is drawn in one order and then redrawn
-// in the other. It is one synchronous call in the shell and never rejects.
-void Promise.all([loadSystemDatePattern(), initializeLocale()]).then(() => {
+// in the other, and no way into play is drawn and then taken away. Both shell
+// questions are one synchronous call there, and neither rejects.
+void Promise.all([loadSystemDatePattern(), initializeLocale(), loadPlayOffer()]).then(() => {
   createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
       <AppErrorBoundary>

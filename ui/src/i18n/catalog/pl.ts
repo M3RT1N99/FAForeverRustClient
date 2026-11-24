@@ -254,6 +254,8 @@ export const pl: Partial<Record<MessageKey, Message>> = {
   "notifications.msg.cannotJoinParty.title": "Nie można dołączyć do drużyny",
   "notifications.msg.contactChangeFailed.title": "Nie udało się zaktualizować kontaktów",
   "notifications.msg.contactChangeFailed.body": "Sprawdź połączenie z lobby i spróbuj ponownie.",
+  "notifications.msg.playNotOffered.title": "Nie w tej wersji",
+  "notifications.msg.playNotOffered.body": "Ta wersja klienta służy tylko do oglądania powtórek. Zakładanie gier, dołączanie i matchmaking pojawią się w późniejszej.",
   "notifications.msg.searchFailed.title": "Nie udało się rozpocząć wyszukiwania",
   "notifications.msg.searchStopFailed.title": "Nie udało się zatrzymać wyszukiwania",
   "notifications.msg.hostFailed.title": "Nie udało się utworzyć gry",

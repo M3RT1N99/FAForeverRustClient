@@ -113,3 +113,26 @@ function userAgent(): string {
 export function mapsCanBeGenerated(): boolean {
   return !theGameIsItsOwnApp();
 }
+
+/** What the shell said about play (`shared/playOffer`); `null` until it has. */
+let shellOffersPlay: boolean | null = null;
+
+/**
+ * Whether this build offers play: hosting, joining and the matchmaker.
+ *
+ * Not in an Android build without the shell's `android-play` feature: FAF
+ * wants replays on the phone first, and play later, phone against phone.
+ * The shell says which before the first render (`play_offered`); until it
+ * has, or where it cannot, the platform's safe answer stands, which is that
+ * the desktop plays and Android does not. Every way into play is hidden
+ * where this is false (the Play tab, a player's menu, a chat link, an invite,
+ * a notice offering to join), and the core refuses those requests anyway.
+ */
+export function playIsOffered(): boolean {
+  return shellOffersPlay ?? !runsOnAndroid();
+}
+
+/** The shell's answer, or `null` to fall back on the platform's. */
+export function setPlayOffered(offered: boolean | null): void {
+  shellOffersPlay = offered;
+}

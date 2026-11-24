@@ -252,6 +252,8 @@ export const es: Partial<Record<MessageKey, Message>> = {
   "notifications.msg.cannotJoinParty.title": "No se puede unir al grupo",
   "notifications.msg.contactChangeFailed.title": "No se pudieron actualizar los contactos",
   "notifications.msg.contactChangeFailed.body": "Comprueba la conexión con la sala y vuelve a intentarlo.",
+  "notifications.msg.playNotOffered.title": "No en esta versión",
+  "notifications.msg.playNotOffered.body": "Esta versión del cliente solo reproduce repeticiones. Crear partidas, unirse y el emparejamiento llegarán en una posterior.",
   "notifications.msg.searchFailed.title": "No se pudo iniciar la búsqueda",
   "notifications.msg.searchStopFailed.title": "No se pudo detener la búsqueda",
   "notifications.msg.hostFailed.title": "No se pudo crear la partida",

@@ -260,6 +260,8 @@ export const ru: Partial<Record<MessageKey, Message>> = {
   "notifications.msg.cannotJoinParty.title": "Не удалось вступить в группу",
   "notifications.msg.contactChangeFailed.title": "Не удалось обновить контакты",
   "notifications.msg.contactChangeFailed.body": "Проверьте подключение к лобби и попробуйте снова.",
+  "notifications.msg.playNotOffered.title": "Не в этой версии",
+  "notifications.msg.playNotOffered.body": "Эта версия клиента только показывает реплеи. Создание игр, вход в них и подбор соперников появятся в одной из следующих.",
   "notifications.msg.searchFailed.title": "Не удалось начать поиск",
   "notifications.msg.searchStopFailed.title": "Не удалось остановить поиск",
   "notifications.msg.hostFailed.title": "Не удалось создать игру",
