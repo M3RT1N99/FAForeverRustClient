@@ -16,11 +16,8 @@ import androidx.webkit.WebViewFeature
 
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
-    // Before the client starts (TauriActivity's onCreate). It finds its folders as a
-    // Linux program does, under HOME, which an app's process does not have: the
-    // app's own private folders take its place.
-    Os.setenv("HOME", filesDir.absolutePath, true)
-    Os.setenv("TMPDIR", cacheDir.absolutePath, true)
+    // Before the client starts (TauriActivity's onCreate). Its folders, HOME and TMPDIR,
+    // it takes itself (adopt_app_folders in src-tauri/src/android.rs).
     // faf-uid, which the lobby's sign-in runs (crates/faf-app/src/infra/lobby_ws/android_uid.rs):
     // Android runs an app's own programs only from its native library folder, and faf-uid
     // reports the ANDROID_ID only Java can read.

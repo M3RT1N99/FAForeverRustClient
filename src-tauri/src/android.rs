@@ -2,7 +2,8 @@
 //! `gen/android`: the browser for sign-in, a store for the remembered sign-in
 //! (`crate::keystore`), the share sheet and the device's make for the logs
 //! and a problem report, and the FAF game app with its updates. And the
-//! page's renderer dying ([`renderer`]).
+//! page's renderer dying ([`renderer`]), and the app's own folders, which
+//! the client's files go in ([`adopt_app_folders`]).
 
 #[cfg(faf_uid_test_build)]
 pub(crate) mod faf_uid_check;
@@ -78,6 +79,21 @@ pub(crate) fn plugins(builder: tauri::Builder<Wry>) -> tauri::Builder<Wry> {
                 Ok(())
             },
         ))
+}
+
+/// Put the app's own folders in the client's environment, as `HOME` and
+/// `TMPDIR` ([`faf_app::infra::paths::android_folders`] says which and why).
+/// Before anything resolves a path: every default the client writes is below
+/// them.
+pub(crate) fn adopt_app_folders(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let path = app.path();
+    let folders =
+        faf_app::infra::paths::android_folders(&path.app_data_dir()?, &path.app_cache_dir()?)?;
+    for (variable, folder) in folders {
+        std::fs::create_dir_all(&folder)?;
+        std::env::set_var(variable, folder);
+    }
+    Ok(())
 }
 
 /// A Tauri plugin of its own name for the Kotlin plugin `class`, handed to

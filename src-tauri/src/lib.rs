@@ -146,6 +146,11 @@ pub fn run() {
         .setup(|app| {
             let log_dir = app.path().app_log_dir()?;
             app.manage(diagnostics::init(&log_dir)?);
+            // Before anything resolves a path, the migration below included:
+            // on Android the client has no home folder until this gives it
+            // the app's own.
+            #[cfg(target_os = "android")]
+            android::adopt_app_folders(app)?;
             // Before anything resolves a path: the client used to store its
             // cache, data and settings under "forgeclient/forge-client", and
             // this moves them to the current name once. Best effort, and a

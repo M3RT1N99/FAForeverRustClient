@@ -47,7 +47,8 @@ impl FileSettings {
     /// Use the standard per-app config directory (e.g.
     /// `%APPDATA%/FAForever/FAForever Client` on Windows,
     /// `~/.config/FAForever Client` on Linux). Falls back to the current
-    /// directory if no config dir can be resolved.
+    /// directory if no config dir can be resolved, except on Android
+    /// ([`crate::infra::paths::checked_default`]).
     pub fn faf() -> Self {
         Self::at(resolve_path())
     }
@@ -65,9 +66,17 @@ impl FileSettings {
 /// [`load_sync`]) before the async runtime: and therefore the [`SettingsPort`]
 ///: exists yet.
 pub fn resolve_path() -> PathBuf {
-    crate::infra::project_dirs()
-        .map(|dirs| dirs.config_dir().join("settings.json"))
-        .unwrap_or_else(|| PathBuf::from("settings.json"))
+    let config_dir = crate::infra::project_dirs().map(|dirs| dirs.config_dir().to_path_buf());
+    crate::infra::paths::checked_default(
+        cfg!(target_os = "android"),
+        settings_path_in(config_dir.as_deref()),
+    )
+}
+
+/// `settings.json` in the config folder, or in the working directory when
+/// there is none.
+pub(crate) fn settings_path_in(config_dir: Option<&Path>) -> PathBuf {
+    config_dir.unwrap_or(Path::new("")).join("settings.json")
 }
 
 /// Blocking read of persisted settings, for use before the async runtime

@@ -174,24 +174,42 @@ pub(crate) fn local_replays_dir() -> PathBuf {
             return PathBuf::from(dir);
         }
     }
-    let base = if cfg!(windows) {
+    let windows = cfg!(windows);
+    let base = if windows {
         std::env::var("ALLUSERSPROFILE").unwrap_or_else(|_| r"C:\ProgramData".to_string())
     } else {
         std::env::var("HOME").unwrap_or_default()
     };
-    let mut candidates = Vec::new();
-    if !cfg!(windows) {
-        candidates.extend(crate::infra::game::linux_faf_root().map(|root| root.join("replays")));
+    let candidates = default_replays_dirs(
+        windows,
+        &base,
+        (!windows)
+            .then(crate::infra::game::linux_faf_root)
+            .flatten(),
+        crate::infra::faf_content::java_client_prefs_dir("/data/baseDataDirectory"),
+    );
+    crate::infra::paths::checked_default(cfg!(target_os = "android"), pick_replays_dir(candidates))
+}
+
+/// [`local_replays_dir`]'s candidates, in order, below `base` (the all-users
+/// folder on Windows, the home folder elsewhere, empty when there is none),
+/// FAF's Linux root (`faf_root`) and the Java client's data folder (`java`).
+pub(crate) fn default_replays_dirs(
+    windows: bool,
+    base: &str,
+    faf_root: Option<PathBuf>,
+    java: Option<PathBuf>,
+) -> Vec<PathBuf> {
+    let mut candidates: Vec<PathBuf> = faf_root
+        .map(|root| root.join("replays"))
+        .into_iter()
+        .collect();
+    candidates.push(PathBuf::from(base).join("FAForever").join("replays"));
+    candidates.extend(java.map(|java| java.join("replays")));
+    if !windows && !base.is_empty() {
+        candidates.push(PathBuf::from(base).join(".faforever").join("replays"));
     }
-    candidates.push(PathBuf::from(&base).join("FAForever").join("replays"));
-    if let Some(java) = crate::infra::faf_content::java_client_prefs_dir("/data/baseDataDirectory")
-    {
-        candidates.push(java.join("replays"));
-    }
-    if !cfg!(windows) && !base.is_empty() {
-        candidates.push(PathBuf::from(&base).join(".faforever").join("replays"));
-    }
-    pick_replays_dir(candidates)
+    candidates
 }
 
 /// The first candidate with anything in it, else the first that exists, else

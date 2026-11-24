@@ -1299,7 +1299,7 @@ const GAME_PREFS_FILE: &str = "Game.prefs";
 
 /// The prefs file under `local`: the one on disk in whatever letter case it
 /// has, or where the game would write it when there is none yet.
-fn game_prefs_in(local: &Path) -> PathBuf {
+pub(crate) fn game_prefs_in(local: &Path) -> PathBuf {
     let dir = GAME_PREFS_DIR
         .iter()
         .fold(local.to_path_buf(), |path, part| path.join(part));
@@ -1343,7 +1343,7 @@ pub(crate) fn game_prefs_path() -> PathBuf {
             .map(|b| b.data_local_dir().to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."))
     });
-    game_prefs_in(&local)
+    crate::infra::paths::checked_default(cfg!(target_os = "android"), game_prefs_in(&local))
 }
 
 /// The Wine prefix to look inside, off Windows.

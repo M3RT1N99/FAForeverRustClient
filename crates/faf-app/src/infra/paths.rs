@@ -9,7 +9,7 @@
 //! change than the feature warrants, and the value is written twice in a
 //! session at most.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 
 use faf_domain::state::{PathPreferences, ResolvedPaths};
@@ -74,6 +74,61 @@ pub(crate) fn java_path() -> Option<PathBuf> {
 /// every other candidate, since a remembered install can have moved since.
 pub(crate) fn original_game_dir() -> Option<PathBuf> {
     configured(|paths| &paths.original_game_dir)
+}
+
+/// The folders an Android app's client keeps its files in, as the variables
+/// every default path is resolved from: `HOME`, which they are all below, is
+/// the app's own files folder, and `TMPDIR`, where temporary files go, its
+/// cache folder. Made from the app's data and cache folders as Tauri's path
+/// API names them; a relative one is refused.
+///
+/// The shell sets them in the client's own environment before anything
+/// resolves a path. The app's Kotlin used to, with `Os.setenv`, which writes
+/// the environment of the system's C library. An arm64 client on an x86_64
+/// device (an emulator, a Chromebook) runs translated, on a C library of its
+/// own whose environment never had them, and there every default came out
+/// relative, below the `/` an app starts in.
+pub fn android_folders(
+    data_dir: &Path,
+    cache_dir: &Path,
+) -> Result<[(&'static str, PathBuf); 2], String> {
+    if let Some(folder) = [data_dir, cache_dir]
+        .into_iter()
+        .find(|folder| !folder.has_root())
+    {
+        return Err(format!(
+            "the app's folder {} is not an absolute path",
+            folder.display()
+        ));
+    }
+    // Android's own files folder (`Context.getFilesDir`) is `files` in the
+    // data folder. HOME has always been that one, so nothing a client kept
+    // there moves.
+    Ok([
+        ("HOME", data_dir.join("files")),
+        ("TMPDIR", cache_dir.to_path_buf()),
+    ])
+}
+
+/// `path`, a default folder or file the client writes, checked on Android.
+///
+/// The defaults are below the home folder, and with none they fall back to a
+/// path relative to the working directory: on the desktop the folder the
+/// client was started from, as it always was. An Android app starts in `/`,
+/// which nothing can be written to, so there a relative default is a replay
+/// list that stays empty and a settings save that fails with "Read-only file
+/// system", far from the cause. Android's HOME is the app's own folder
+/// ([`android_folders`]); a relative default there means it was not set, and
+/// the client stops on it here, naming the path, instead of writing under `/`.
+pub(crate) fn checked_default(android: bool, path: PathBuf) -> PathBuf {
+    // `has_root`: on Android the same as `is_absolute`, and an Android path
+    // reads as one in the tests on Windows too.
+    assert!(
+        !android || path.has_root(),
+        "the default {} is relative: Android's HOME was not set when it was resolved",
+        path.display()
+    );
+    path
 }
 
 /// The adapter behind [`PathsPort`]. Stateless: the state is the global above,
@@ -198,6 +253,71 @@ mod tests {
                 );
             },
         );
+    }
+
+    const ANDROID_APP: &str = "/data/user/0/com.faforever.rustclient";
+
+    #[test]
+    fn android_folders_are_the_apps_files_and_cache_folders() {
+        let app = Path::new(ANDROID_APP);
+        assert_eq!(
+            android_folders(app, &app.join("cache")).unwrap(),
+            [("HOME", app.join("files")), ("TMPDIR", app.join("cache"))]
+        );
+        assert!(android_folders(Path::new("files"), &app.join("cache")).is_err());
+        assert!(android_folders(app, Path::new("")).is_err());
+    }
+
+    /// The Android path choice, from the folders Tauri names to where the
+    /// client's files go: each default it writes is below the app's own
+    /// folder. Without a HOME (the v6 test build's arm64 client, translated
+    /// on an x86_64 emulator) each falls back to a relative path, below the
+    /// `/` an app starts in: the desktop keeps that fallback, Android stops
+    /// on it.
+    #[test]
+    fn no_android_default_is_relative() {
+        use crate::infra::{faf_content, game, mods, replay, settings_file};
+
+        let app = Path::new(ANDROID_APP);
+        let [(_, home), (_, temp)] = android_folders(app, &app.join("cache")).unwrap();
+        // The folders `directories` names below HOME on Linux, which it takes
+        // Android for, with no XDG variable set.
+        let config = home.join(".config").join("faforeverclient");
+        let local_data = home.join(".local").join("share");
+        let faf_root = game::linux_faf_root_from(&home, None, |_| false);
+
+        let mut defaults = vec![
+            settings_file::settings_path_in(Some(&config)),
+            mods::game_prefs_in(&local_data),
+            temp,
+        ];
+        defaults.extend(faf_content::default_vault_dirs_in(false, None, Some(&home)));
+        defaults.extend(replay::default_replays_dirs(
+            false,
+            home.to_str().unwrap(),
+            Some(faf_root),
+            None,
+        ));
+        for path in defaults {
+            assert!(path.starts_with(app), "{} is not the app's", path.display());
+            assert_eq!(checked_default(true, path.clone()), path);
+        }
+
+        let without_home = [
+            settings_file::settings_path_in(None),
+            mods::game_prefs_in(Path::new(".")),
+            faf_content::default_vault_dirs_in(false, None, None).remove(0),
+            replay::default_replays_dirs(false, "", None, None).remove(0),
+        ];
+        for path in without_home {
+            assert!(!path.has_root(), "{}", path.display());
+            assert_eq!(checked_default(false, path.clone()), path, "the desktop's");
+            assert!(
+                std::panic::catch_unwind(|| checked_default(true, path.clone())).is_err(),
+                "Android took {}",
+                path.display()
+            );
+        }
     }
 
     /// The map generator is built while the client starts, before Settings is

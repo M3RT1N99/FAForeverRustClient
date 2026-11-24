@@ -23,11 +23,12 @@ pub(crate) fn vault_dir() -> PathBuf {
     }
 
     let candidates = default_vault_dirs();
-    java_client_vault_dir()
+    let vault = java_client_vault_dir()
         .filter(|path| holds_content(path))
         .or_else(|| candidates.iter().find(|path| holds_content(path)).cloned())
         .or_else(|| candidates.into_iter().next())
-        .unwrap_or_else(|| PathBuf::from("."))
+        .unwrap_or_else(|| PathBuf::from("."));
+    crate::infra::paths::checked_default(cfg!(target_os = "android"), vault)
 }
 
 fn holds_content(path: &Path) -> bool {
@@ -113,7 +114,7 @@ fn default_vault_dirs() -> Vec<PathBuf> {
     default_vault_dirs_in(cfg!(windows), documents.as_deref(), home.as_deref())
 }
 
-fn default_vault_dirs_in(
+pub(crate) fn default_vault_dirs_in(
     windows: bool,
     documents: Option<&Path>,
     home: Option<&Path>,
@@ -126,7 +127,7 @@ fn default_vault_dirs_in(
     // With no Documents folder (Android, whose app has only its HOME, or a
     // Linux without XDG user directories) under home, as the Java client does,
     // rather than under wherever the process was started: on Android that is
-    // `/`, where nothing can be written.
+    // `/`, where nothing can be written, and [`vault_dir`] refuses it there.
     let mut dirs = vec![vault(documents.or(home).unwrap_or(Path::new(".")))];
     if !windows {
         if let Some(home) = home {
