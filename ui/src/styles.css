@@ -373,6 +373,29 @@ html[data-reduced-motion="true"] *::after {
   border-color: transparent;
 }
 
+/* A finger rather than a mouse (`pointer: coarse`, a touch screen on any
+   platform): a button 40 px high, the height FAF's web client gives the
+   buttons of its touch sheets. Android asks for 48 dp, which would take a
+   toolbar row out of a phone lying down that is 340 px high. A mouse keeps
+   32 px at any window size and zoom. A feature that sizes its own button
+   keeps that size: weighted over it, this rule would take the 52 px of a
+   replay's Watch and the 44 of the sign-in button down to 40. Where such a
+   button is smaller than 40, its feature raises it on a touch screen too. */
+@media (pointer: coarse) {
+  .btn-primary,
+  .btn-ghost,
+  .btn-danger {
+    min-height: 40px;
+  }
+
+  .icon-button {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+  }
+}
+
 .error {
   margin-top: var(--space-3);
   color: var(--color-error-text);

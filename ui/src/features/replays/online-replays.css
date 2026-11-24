@@ -169,6 +169,19 @@ button.vault-input {
   outline-offset: -1px;
 }
 
+/* A finger (`pointer: coarse`): 40 px high and typed text at 16 px, as the
+   search panel's own fields are on a touch screen (search-panel.css). */
+@media (pointer: coarse) {
+  .vault-input {
+    height: 40px;
+  }
+
+  input.vault-input {
+    font-size: 16px;
+    line-height: 38px;
+  }
+}
+
 .vault-search-advanced {
   display: flex;
   flex-direction: column;
@@ -624,6 +637,14 @@ button.vault-input {
   padding: 0 18px;
   font-size: 13px;
   font-weight: 600;
+}
+
+/* A finger (`pointer: coarse`): as high as every button on a touch screen
+   (styles.css), which this rule's own 36 px would otherwise keep it under. */
+@media (pointer: coarse) {
+  .replay-card-watch {
+    min-height: 40px;
+  }
 }
 
 .replay-stars {

@@ -201,3 +201,12 @@
   color: var(--color-accent);
   flex-shrink: 0;
 }
+
+/* A finger (`pointer: coarse`): the trigger and every option at least 40 px
+   high, as every button is on a touch screen (styles.css). */
+@media (pointer: coarse) {
+  .select-trigger,
+  .select-option {
+    min-height: 40px;
+  }
+}

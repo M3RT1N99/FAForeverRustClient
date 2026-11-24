@@ -143,3 +143,12 @@
   top: 3px;
   right: 8px;
 }
+
+/* A finger (`pointer: coarse`): every entry at least 40 px high, in the
+   sidebar and in the rail, as every button is on a touch screen
+   (styles.css). */
+@media (pointer: coarse) {
+  .tab {
+    min-height: 40px;
+  }
+}

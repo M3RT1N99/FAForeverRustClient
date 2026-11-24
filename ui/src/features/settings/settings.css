@@ -1326,3 +1326,11 @@
   }
 
 }
+
+/* A finger (`pointer: coarse`): the section list's entries at least 40 px
+   high, as the shell's tabs they mirror are on a touch screen (nav.css). */
+@media (pointer: coarse) {
+  .settings-sidebar-item {
+    min-height: 40px;
+  }
+}
