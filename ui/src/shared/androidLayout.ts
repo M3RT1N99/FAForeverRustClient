@@ -5,39 +5,15 @@
 // and draws it at the scale the viewport names, so those two set how large
 // everything is drawn.
 //
-// The makers' layout is responsive, but made for a desktop window, which is
-// never smaller than 560 x 480 CSS px (src-tauri/src/window.rs). A phone lying
-// down is a short window: 866 x 364 CSS px on the test emulator. Drawn at
-// 100 % there, the page was the desktop layout cut to three quarters of the
-// smallest window's height, and the Replays tab's filters filled all of it.
-// So the page is drawn at the largest scale, up to 100 %, at which its layout
-// is still at least MIN_LAYOUT_WIDTH x MIN_LAYOUT_HEIGHT. A screen with room
-// to spare lays the page out at its own size, at 100 %, and one wider than
-// MAX_LAYOUT_WIDTH draws that layout larger. Never below MIN_DRAW_SCALE: a
-// screen too small for the smallest window at that scale has the page scroll
-// instead, as the makers' layout does in a short desktop window. The system's
-// font size scales the page as far as it still fits, never past it: a phone
-// lying down reaches that point at the default size already, so a larger font
-// leaves the page as it is there. The player's interface scale comes on top,
-// and may go past it.
-
-/**
- * The narrowest width every page fits without scrolling sideways, measured on
- * every tab at 1100 down to 640 CSS px: the leaderboard's table is the first
- * to stick out, below 680. The shell turns its sidebar into a rail by itself
- * below 900.
- */
-export const MIN_LAYOUT_WIDTH = 680;
-/** The desktop window's smallest height (`min_inner_size` in window.rs). */
-export const MIN_LAYOUT_HEIGHT = 480;
-/** The desktop's first window; a wider screen draws this layout larger. */
-export const MAX_LAYOUT_WIDTH = 1100;
-/**
- * The smallest the page is drawn at, so that its text stays readable: three
- * quarters, what the phone tests before the fit to the webview's width drew
- * it at on a phone lying down (an 1100 px layout on about 830 CSS px).
- */
-export const MIN_DRAW_SCALE = 0.75;
+// The page is drawn at 100 %, as the phone's own apps and FAF's web client
+// are, times the system's font size and the player's interface scale: at the
+// default font one CSS px is one dp, and the body's 14 px is 14 dp. It used to
+// be drawn smaller instead, until the desktop's smallest window (680 x 480)
+// fit, and a phone lying down drew it at 0.76: body text at 10.6 dp and a
+// replay card's facts at 8.3. A phone lying down is a short window, and the
+// stylesheets have rules of their own for a short window on a touch screen,
+// as they have for a narrow desktop window. A tablet lays the page out at its
+// own size, as before.
 
 /** A size in CSS px at 100 %. */
 export interface Size {
@@ -56,12 +32,11 @@ export interface AndroidLayout {
 /**
  * The layout for a webview `webview` CSS px large at the player's interface
  * scale (100 for 100 %) and the system's font scale (1 at the default size).
+ * The width is whole pixels, and the scale the one that fills the webview with
+ * it exactly.
  */
 export function androidLayout(webview: Size, interfaceScale: number, fontScale: number): AndroidLayout {
-  const fits = Math.min(webview.width / MIN_LAYOUT_WIDTH, webview.height / MIN_LAYOUT_HEIGHT);
-  const preferred = fontScale * Math.max(1, webview.width / MAX_LAYOUT_WIDTH);
-  const scale = Math.max(MIN_DRAW_SCALE, Math.min(preferred, fits));
-  const width = Math.round((webview.width * 100) / (scale * interfaceScale));
+  const width = Math.round((webview.width * 100) / (fontScale * interfaceScale));
   return { width, scale: webview.width / width };
 }
 

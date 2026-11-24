@@ -47,16 +47,14 @@ class MainActivity : TauriActivity() {
 
   // The page is laid out at the width its viewport names and drawn at the
   // scale it names, which App.tsx sets from the webview's own size
-  // (shared/androidLayout): the makers' responsive layout at the phone's
-  // size wherever the desktop's smallest window fits it, and drawn smaller
-  // below that.
+  // (shared/androidLayout): drawn at 100 % times the font size and the
+  // interface scale, and laid out at the width that leaves.
   //
   // The webview's own text zoom follows the system's font size and grows the
   // text alone, so at a larger font a label outgrew the box the layout keeps
   // for it and was cut off. The page is handed the font size instead and
-  // draws all of itself larger with it, as far as its layout still fits. The
-  // font size is read here once: a new one recreates the activity, and with
-  // it this webview.
+  // draws all of itself larger with it. The font size is read here once: a
+  // new one recreates the activity, and with it this webview.
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
     webView.settings.useWideViewPort = true

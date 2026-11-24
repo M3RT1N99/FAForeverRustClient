@@ -33,6 +33,18 @@ body {
   overscroll-behavior: none;
 }
 
+/* The 560 px floor is the desktop window's smallest width (window.rs). A
+   phone lying down is drawn at its font size and interface scale
+   (`shared/androidLayout`), and at a large one of each it is narrower than
+   that: held at 560 px, the page was cut off at the right with nothing to
+   scroll to it. There it lays out at its own width. */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 479px) {
+  html,
+  body {
+    min-width: 0;
+  }
+}
+
 /* Country assets have square canvases, including their transparent padding.
    Keep the whole image in a fixed slot: larger assets or a crowded player row
    must not enlarge, crop or squeeze a flag. Nearest-neighbour keeps the small
