@@ -66,6 +66,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
 use crate::infra::env_or;
+use crate::infra::http::error_chain;
 use crate::infra::irc_session::{
     self, Effect, HistoryLine, SessionContext, SessionEnd, SessionState,
 };
@@ -612,8 +613,14 @@ impl Supervisor {
             let _ = self.emitter.status(ChatStatus::Disconnected, "").await;
 
             match end {
-                AttemptEnd::Session(SessionEnd::Cancelled) => return,
-                AttemptEnd::Session(SessionEnd::AuthFailed) => {
+                AttemptEnd::Session(SessionOutcome {
+                    end: SessionEnd::Cancelled,
+                    ..
+                }) => return,
+                AttemptEnd::Session(SessionOutcome {
+                    end: SessionEnd::AuthFailed,
+                    ..
+                }) => {
                     tracing::error!("chat authentication was rejected; reconnect disabled");
                     return;
                 }
@@ -625,7 +632,10 @@ impl Supervisor {
                     tracing::warn!("chat stood down until the access token is renewed");
                     return;
                 }
-                AttemptEnd::Session(SessionEnd::Dropped) => failures += 1,
+                AttemptEnd::Session(SessionOutcome {
+                    end: SessionEnd::Dropped,
+                    registered,
+                }) => failures = failures_after_drop(failures, registered),
             }
 
             if failures >= MAX_CONSECUTIVE_FAILURES {
@@ -662,7 +672,7 @@ impl Supervisor {
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "could not obtain IRC token");
-                    return AttemptEnd::Session(SessionEnd::Dropped);
+                    return AttemptEnd::NOT_CONNECTED;
                 }
             };
 
@@ -671,19 +681,20 @@ impl Supervisor {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!(error = %e, "could not build chat WebSocket request");
-                return AttemptEnd::Session(SessionEnd::Dropped);
+                return AttemptEnd::NOT_CONNECTED;
             }
         };
         let ws = match tokio_tungstenite::connect_async(request).await {
             Ok((ws, _)) => ws,
             Err(e) => {
                 tracing::warn!(error = %e, "could not open chat WebSocket");
-                return AttemptEnd::Session(SessionEnd::Dropped);
+                return AttemptEnd::NOT_CONNECTED;
             }
         };
         tracing::info!("chat WebSocket connected");
+        let connected = std::time::Instant::now();
 
-        let end = run_session(
+        let session = run_session(
             ws,
             SessionParams {
                 username: self.username.clone(),
@@ -698,16 +709,52 @@ impl Supervisor {
             cancel,
         )
         .await;
-        AttemptEnd::Session(end)
+        tracing::info!(
+            end = ?session.end,
+            registered = session.registered,
+            lasted_seconds = connected.elapsed().as_secs(),
+            "chat session ended"
+        );
+        AttemptEnd::Session(session)
     }
 }
 
 /// How one connection attempt ended, from the supervisor's point of view.
 enum AttemptEnd {
-    Session(SessionEnd),
+    Session(SessionOutcome),
     /// The attempt never reached the socket because the FAF API rejected the
     /// access token we hold.
     Unauthorized,
+}
+
+impl AttemptEnd {
+    /// Dropped before a socket was open, let alone registered.
+    const NOT_CONNECTED: Self = Self::Session(SessionOutcome {
+        end: SessionEnd::Dropped,
+        registered: false,
+    });
+}
+
+/// How one session ended, and whether it had registered with the server,
+/// which is what tells a working connection that dropped from an attempt
+/// that never worked.
+struct SessionOutcome {
+    end: SessionEnd,
+    registered: bool,
+}
+
+/// The consecutive failures after a session that dropped.
+///
+/// One that had registered was a working connection, so the count of
+/// attempts that never got that far starts again from it. It used to only
+/// ever grow: ten drops over a long evening, each after hours of chat, ended
+/// chat for the rest of the run as if the server were down.
+fn failures_after_drop(failures: u32, registered: bool) -> u32 {
+    if registered {
+        1
+    } else {
+        failures.saturating_add(1)
+    }
 }
 
 struct SessionParams {
@@ -720,12 +767,33 @@ struct SessionParams {
     emitter: ChatEmitter,
 }
 
-/// Drive one chat connection from handshake to close.
+/// Drive one chat connection from handshake to close, and say whether it got
+/// as far as registering.
 async fn run_session<S>(
     ws: S,
     params: SessionParams,
     outgoing: &mut mpsc::Receiver<irc_session::Outgoing>,
     cancel: &CancellationToken,
+) -> SessionOutcome
+where
+    S: futures_util::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>
+        + Sink<Message>
+        + Unpin,
+{
+    let mut state = SessionState::new(params.username.clone());
+    let end = drive_session(ws, &params, outgoing, cancel, &mut state).await;
+    SessionOutcome {
+        end,
+        registered: state.registered,
+    }
+}
+
+async fn drive_session<S>(
+    ws: S,
+    params: &SessionParams,
+    outgoing: &mut mpsc::Receiver<irc_session::Outgoing>,
+    cancel: &CancellationToken,
+    state: &mut SessionState,
 ) -> SessionEnd
 where
     S: futures_util::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>
@@ -733,7 +801,6 @@ where
         + Unpin,
 {
     let (mut write, mut read) = ws.split();
-    let mut state = SessionState::new(params.username.clone());
 
     if !send_line(&mut write, "CAP LS 302".to_string()).await {
         tracing::error!("failed to start IRC capability negotiation");
@@ -759,8 +826,8 @@ where
                     let _ = write.send(Message::Close(None)).await;
                     return SessionEnd::Cancelled;
                 };
-                for effect in irc_session::outgoing(frame, &mut state) {
-                    if let Some(end) = perform(effect, &params, &mut write).await {
+                for effect in irc_session::outgoing(frame, state) {
+                    if let Some(end) = perform(effect, params, &mut write).await {
                         return end;
                     }
                 }
@@ -779,7 +846,7 @@ where
                 let Ok(text) = String::from_utf8(bytes) else { continue };
                 let Some(line) = irc::parse_line(&text) else { continue };
 
-                if let Some(end) = handle_line(&line, &mut state, &params, &mut write).await {
+                if let Some(end) = handle_line(&line, state, params, &mut write).await {
                     return end;
                 }
             }
@@ -917,13 +984,13 @@ async fn fetch_irc_token(
         .header(reqwest::header::ACCEPT, "application/json")
         .send()
         .await
-        .map_err(|e| TokenError::Failed(format!("request failed: {e}")))?;
+        .map_err(|e| TokenError::Failed(format!("request failed: {}", error_chain(&e))))?;
 
     let status = resp.status();
     let body = resp
         .text()
         .await
-        .map_err(|e| TokenError::Failed(format!("read failed: {e}")))?;
+        .map_err(|e| TokenError::Failed(format!("read failed: {}", error_chain(&e))))?;
     if !status.is_success() {
         let message = format!(
             "irc/ergochat/token returned {status}: {}",
@@ -956,5 +1023,56 @@ impl std::fmt::Display for TokenError {
         match self {
             Self::Unauthorized(message) | Self::Failed(message) => f.write_str(message),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_session_that_registered_starts_the_count_again() {
+        // Twenty drops, each after a session that worked: never the limit,
+        // and each retried at once, as the first drop is.
+        let mut failures = 0;
+        for _ in 0..20 {
+            failures = failures_after_drop(failures, true);
+            assert_eq!(failures, 1);
+        }
+        // Attempts that never register still count up to it.
+        let mut failures = 0;
+        for _ in 0..MAX_CONSECUTIVE_FAILURES {
+            failures = failures_after_drop(failures, false);
+        }
+        assert_eq!(failures, MAX_CONSECUTIVE_FAILURES);
+        // And one session that worked between them starts the count again.
+        assert_eq!(failures_after_drop(MAX_CONSECUTIVE_FAILURES - 1, true), 1);
+    }
+
+    #[tokio::test]
+    async fn a_token_request_that_fails_keeps_its_cause() {
+        // A server that takes the connection and closes it unanswered.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((socket, _)) = listener.accept().await {
+                drop(socket);
+            }
+        });
+        let result = fetch_irc_token(
+            &reqwest::Client::new(),
+            &format!("http://{address}"),
+            "access",
+        )
+        .await;
+        let Err(TokenError::Failed(message)) = result else {
+            panic!("a closed connection is a failure");
+        };
+        // reqwest's own text ends at "error sending request for url (...)".
+        assert!(
+            message.starts_with("request failed: error sending request for url"),
+            "{message}"
+        );
+        assert!(message.contains("connection closed"), "{message}");
     }
 }

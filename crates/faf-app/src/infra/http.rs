@@ -75,6 +75,28 @@ pub(crate) fn describe_transport_error(error: &reqwest::Error) -> String {
     }
 }
 
+/// An error and every cause under it, as `error: cause: root cause`, for a
+/// log line that has to say what went wrong.
+///
+/// reqwest's own text names only its layer ("error sending request for url
+/// (...)"); what actually failed (a refused connection, a certificate, a DNS
+/// lookup, a connection closed early) is in its source chain, which a
+/// formatted message drops. A cause whose text the line already carries is
+/// not repeated, since some layers quote the one beneath them.
+pub(crate) fn error_chain(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut text = error.to_string();
+    let mut cause = error.source();
+    while let Some(current) = cause {
+        let words = current.to_string();
+        if !text.contains(&words) {
+            text.push_str(": ");
+            text.push_str(&words);
+        }
+        cause = current.source();
+    }
+    text
+}
+
 /// Progress of a streamed upload body, for [`UploadWatch::guard`].
 #[derive(Clone)]
 pub(crate) struct UploadWatch {
@@ -429,6 +451,42 @@ mod tests {
             .guard(Duration::from_millis(150), Duration::from_secs(60), upload)
             .await;
         assert_eq!(result, Ok("done"));
+    }
+
+    /// An error with causes under it, the way reqwest nests hyper's.
+    #[derive(Debug)]
+    struct Layer(&'static str, Option<Box<Layer>>);
+
+    impl std::fmt::Display for Layer {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.0)
+        }
+    }
+
+    impl std::error::Error for Layer {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            self.1.as_deref().map(|cause| cause as _)
+        }
+    }
+
+    #[test]
+    fn an_error_s_chain_is_written_out_without_repeats() {
+        let error = Layer(
+            "error sending request for url (https://user.faforever.com/irc/ergochat/token)",
+            Some(Box::new(Layer(
+                "client error (Connect)",
+                Some(Box::new(Layer(
+                    "client error (Connect)",
+                    Some(Box::new(Layer("connection refused", None))),
+                ))),
+            ))),
+        );
+        assert_eq!(
+            error_chain(&error),
+            "error sending request for url (https://user.faforever.com/irc/ergochat/token): \
+             client error (Connect): connection refused"
+        );
+        assert_eq!(error_chain(&Layer("alone", None)), "alone");
     }
 
     /// A downgrade is refused before the request goes out, and says so.
