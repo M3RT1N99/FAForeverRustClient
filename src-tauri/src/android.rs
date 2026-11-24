@@ -157,10 +157,8 @@ fn context_of(plugin: &PluginHandle<Wry>) -> Result<ReportContext, String> {
         .run_mobile_plugin("deviceInfo", ())
         .map_err(|error| format!("could not read the device: {error}"))?;
     Ok(ReportContext {
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        commit: option_env!("FAF_BUILD_COMMIT")
-            .unwrap_or("unknown")
-            .to_string(),
+        version: crate::diagnostics::VERSION.to_string(),
+        commit: crate::diagnostics::COMMIT.to_string(),
         system: format!("Android {} (API {})", device.release, device.sdk),
         device: format!("{} {}", device.manufacturer, device.model),
     })
@@ -211,8 +209,13 @@ pub(crate) async fn share_client_logs(
     app: tauri::AppHandle,
     core: tauri::State<'_, crate::Core>,
     diagnostics: tauri::State<'_, Diagnostics>,
+    game_app: tauri::State<'_, GameApp>,
 ) -> Result<Option<String>, String> {
     let log_dir = crate::commands::log_directory("client", &app)?;
+    // Which game app the logs were written beside, from its status provider.
+    let game_app_status = game_app_status_of(&game_app).await;
+    let game_app_line =
+        crate::game_app::report_line(game_app_status.as_ref().map_err(String::as_str));
     // The cache, which the app's FileProvider shares (`res/xml/file_paths.xml`).
     let out_dir = app
         .path()
@@ -225,10 +228,7 @@ pub(crate) async fn share_client_logs(
     let plugin = diagnostics.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let context = context_of(&plugin)?;
-        let report = format!(
-            "FAForever client {} ({})\n{}\n{}\n",
-            context.version, context.commit, context.system, context.device
-        );
+        let report = crate::diagnostics::report_text(&context, &game_app_line);
         // A faf-uid test build's check: its line in the report, and faf-uid's
         // output as it is, in a file of its own.
         #[cfg(faf_uid_test_build)]

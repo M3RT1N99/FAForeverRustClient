@@ -27,6 +27,11 @@ const LOG_FILE_SUFFIX: &str = ".log";
 /// is in the middle of a line.
 const PANIC_WRITE_PATIENCE: Duration = Duration::from_millis(200);
 
+/// This build of the client, as its log and a problem report name it.
+pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The commit it was built from (`build.rs`), or `unknown`.
+pub(crate) const COMMIT: &str = env!("FAF_BUILD_COMMIT");
+
 pub struct DiagnosticsGuard {
     _writer: WorkerGuard,
 }
@@ -57,12 +62,27 @@ pub fn init(log_dir: &Path) -> Result<DiagnosticsGuard, String> {
         .map_err(|error| format!("could not install the diagnostics subscriber: {error}"))?;
 
     install_panic_hook(appender);
+    // Which build wrote the log, first: a phone run's log is often all there
+    // is to tell builds apart by.
     tracing::info!(
+        version = VERSION,
+        commit = COMMIT,
         retained_files = MAX_LOG_FILES,
         max_file_bytes = MAX_LOG_FILE_BYTES,
         "client diagnostics initialized"
     );
     Ok(DiagnosticsGuard { _writer: guard })
+}
+
+/// `report.txt`, the note a shared log zip opens with: the client's build, the
+/// system and device it ran on, and the game app beside it
+/// (`game_app::report_line`).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(crate) fn report_text(context: &faf_ipc::shell::ReportContext, game_app: &str) -> String {
+    format!(
+        "FAForever client {} ({})\n{}\n{}\n{game_app}\n",
+        context.version, context.commit, context.system, context.device
+    )
 }
 
 /// The rolling file, shared by the non-blocking writer's thread and the panic
@@ -400,6 +420,26 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::panic::take_hook();
         }
+    }
+
+    #[test]
+    fn a_report_names_the_client_s_build_and_the_game_app_s() {
+        let context = faf_ipc::shell::ReportContext {
+            version: VERSION.to_owned(),
+            commit: COMMIT.to_owned(),
+            system: "Android 16 (API 36)".to_owned(),
+            device: "samsung SM-S908B".to_owned(),
+        };
+        let report = report_text(&context, "FAF game app 0.16.0 (4490), engine fb096228e");
+        assert_eq!(
+            report,
+            format!(
+                "FAForever client {VERSION} ({COMMIT})\nAndroid 16 (API 36)\nsamsung SM-S908B\n\
+                 FAF game app 0.16.0 (4490), engine fb096228e\n"
+            )
+        );
+        // build.rs names the commit even where git cannot: never empty.
+        assert!(!COMMIT.is_empty());
     }
 
     #[test]

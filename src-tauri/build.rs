@@ -30,21 +30,24 @@ fn main() {
         env::set_var("TAURI_CONFIG", r#"{"bundle":{"resources":[]}}"#);
     }
 
-    // The commit a problem report names (`android::report_context`). Best
-    // effort: a build without git, or outside a checkout, says `unknown`.
-    let commit = std::process::Command::new("git")
-        .args(["rev-parse", "--short=8", "HEAD"])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .map(|commit| commit.trim().to_string())
-        .filter(|commit| !commit.is_empty())
-        .unwrap_or_else(|| "unknown".to_string());
+    // The commit the log and a problem report name (`diagnostics::COMMIT`).
+    // Best effort: a build without git, or outside a checkout, says `unknown`.
+    let commit = git(&["rev-parse", "--short=8", "HEAD"]).unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=FAF_BUILD_COMMIT={commit}");
-    for watched in ["../.git/HEAD", "../.git/refs/heads"] {
-        if Path::new(watched).exists() {
-            println!("cargo:rerun-if-changed={watched}");
+    // Run again when this checkout's HEAD moves: a checkout rewrites HEAD, and
+    // a commit, reset or checkout adds a line to its reflog. The paths are
+    // git's own, because in a worktree `.git` is a file and they lie
+    // elsewhere: the `../.git/HEAD` watched before did not exist there, and
+    // the commit stayed that of the first build in the target folder.
+    let branch = git(&["symbolic-ref", "-q", "HEAD"]);
+    let watched = [Some("HEAD"), Some("logs/HEAD"), branch.as_deref()];
+    for path in watched
+        .into_iter()
+        .flatten()
+        .filter_map(|path| git(&["rev-parse", "--git-path", path]))
+    {
+        if Path::new(&path).exists() {
+            println!("cargo:rerun-if-changed={path}");
         }
     }
 
@@ -62,4 +65,16 @@ fn main() {
     }
 
     tauri_build::build();
+}
+
+/// What `git args` prints, trimmed, when it succeeds and prints anything.
+fn git(args: &[&str]) -> Option<String> {
+    std::process::Command::new("git")
+        .args(args)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
 }

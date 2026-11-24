@@ -158,6 +158,32 @@ pub(crate) fn failure_reason(failure: &str, message: &str) -> String {
     }
 }
 
+/// The game app as a problem report names it (`diagnostics::report_text`):
+/// its version from the status provider, and the engine build it runs where
+/// it lets this client see its game data; or why there is none to name.
+pub(crate) fn report_line(status: Result<&GameAppStatus, &str>) -> String {
+    let status = match status {
+        Ok(status) if status.installed => status,
+        Ok(_) => return "FAF game app: not installed".to_owned(),
+        Err(reason) => return format!("FAF game app: its status could not be read ({reason})"),
+    };
+    let reach = match status.contract {
+        GameAppContract::Open => status
+            .game_data
+            .as_ref()
+            .map(|data| data.engine_commit.as_str())
+            .filter(|commit| !commit.is_empty())
+            .map(|commit| format!(", engine {commit}"))
+            .unwrap_or_default(),
+        GameAppContract::Refused => ", refuses this client".to_owned(),
+        GameAppContract::None => ", too old for the launcher contract".to_owned(),
+    };
+    format!(
+        "FAF game app {} ({}){reach}",
+        status.version_name, status.version_code
+    )
+}
+
 /// Whether a release `version` is newer than the game app on this device. A
 /// version name that is no release version, a build of one's own, is never
 /// offered one.
@@ -425,6 +451,31 @@ mod tests {
                 crashed: false,
                 end: Some("END ok".into()),
             })
+        );
+    }
+
+    #[test]
+    fn a_report_names_the_game_app_s_version_and_engine() {
+        let open = status_from(json!({
+            "installed": true, "versionName": "0.16.0", "versionCode": 4490, "contract": "open",
+            "gameData": { "engine_commit": "fb096228e" }
+        }))
+        .unwrap();
+        assert_eq!(
+            report_line(Ok(&open)),
+            "FAF game app 0.16.0 (4490), engine fb096228e"
+        );
+        let old = status_from(json!({ "installed": true, "versionName": "0.15.1", "versionCode": 4400, "contract": "none" }))
+            .unwrap();
+        assert_eq!(
+            report_line(Ok(&old)),
+            "FAF game app 0.15.1 (4400), too old for the launcher contract"
+        );
+        let missing = status_from(json!({ "installed": false })).unwrap();
+        assert_eq!(report_line(Ok(&missing)), "FAF game app: not installed");
+        assert_eq!(
+            report_line(Err("the provider did not answer")),
+            "FAF game app: its status could not be read (the provider did not answer)"
         );
     }
 
