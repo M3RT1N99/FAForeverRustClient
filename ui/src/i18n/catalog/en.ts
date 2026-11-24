@@ -1686,6 +1686,7 @@ export const en = {
   "shell.sidebar.noAccount": "No account",
   "shell.sidebar.logOut": "Log out",
   "shell.sidebar.resize": "Resize sidebar",
+  "shell.sidebar.menu": "Menu",
   "nav.placeholder": "This section is coming soon.",
   "home.eyebrow": "Command center",
   "home.welcomeBack": "Welcome back, {name}.",

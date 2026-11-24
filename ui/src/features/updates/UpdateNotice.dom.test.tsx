@@ -17,7 +17,7 @@ import { applyEvent, clearSentCommands, seedStore, sentCommands } from "../../te
 import { UpdateNotice } from "./UpdateNotice";
 import { UpdateGate } from "./UpdateGate";
 import { UpdatesSettingsSection } from "../settings/UpdatesSettingsSection";
-import { addStylesheets, DESKTOP, setScreen } from "../../testing/screens";
+import { addStylesheets, DESKTOP, PHONE_LYING_DOWN, setScreen } from "../../testing/screens";
 
 vi.mock("../../ipc/client");
 
@@ -281,6 +281,21 @@ describe("UpdateNotice in the rail", () => {
     render(<div className="app-shell"><UpdateNotice /></div>);
     expect(getComputedStyle(label()).display).toBe("none");
     expect(getComputedStyle(screen.getByRole("button", { name: "Update available" })).width).toBe("32px");
+  });
+
+  it("is a 40 px square in a phone's rail, and has its label again in the drawer", () => {
+    setScreen(PHONE_LYING_DOWN);
+    addStylesheets("ui/src/features/updates/updates.css");
+    available();
+    const view = render(<div className="app-shell is-sidebar-rail"><UpdateNotice /></div>);
+    const button = () => getComputedStyle(screen.getByRole("button", { name: "Update available" }));
+    expect(button().width).toBe("40px");
+    expect(button().minHeight).toBe("40px");
+    expect(getComputedStyle(label()).display).toBe("none");
+    view.unmount();
+    render(<div className="app-shell is-drawer-open"><UpdateNotice /></div>);
+    expect(button().width).toBe("100%");
+    expect(getComputedStyle(label()).display).toBe("inline");
   });
 
   it("keeps its label in a wide window's sidebar", () => {

@@ -21,7 +21,7 @@
  *
  * Of these, arrow-left, arrow-right, calendar, check, chevron-down,
  * chevron-right, chevron-up, clock, download, external-link, info, lock,
- * log-out, minus, plus, search, smile, trash-2, upload and x are derived
+ * log-out, menu, minus, plus, search, smile, trash-2, upload and x are derived
  * from the Feather project:
  *
  * The MIT License (MIT)
@@ -100,6 +100,8 @@ export type IconName =
   | "minus"
   | "refresh"
   | "list"
+  // Three lines: the menu that opens the sidebar on a phone.
+  | "menu"
   | "grid"
   | "close"
   | "external"
@@ -215,6 +217,8 @@ export function Icon({ name, size = 18, ...props }: IconProps) {
     refresh: <><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M8 16H3v5" /></>,
     // Lucide `list`.
     list: <><path d="M3 5h.01" /><path d="M3 12h.01" /><path d="M3 19h.01" /><path d="M8 5h13" /><path d="M8 12h13" /><path d="M8 19h13" /></>,
+    // Lucide `menu`.
+    menu: <><path d="M4 5h16" /><path d="M4 12h16" /><path d="M4 19h16" /></>,
     // Lucide `layout-grid`.
     grid: <><rect width="7" height="7" x="3" y="3" rx="1" /><rect width="7" height="7" x="14" y="3" rx="1" /><rect width="7" height="7" x="14" y="14" rx="1" /><rect width="7" height="7" x="3" y="14" rx="1" /></>,
     // Lucide `x`.

@@ -30,10 +30,21 @@ interface HappyDomWindow {
 
 const initial = { width: window.innerWidth, height: window.innerHeight };
 
-/** Size the window and say whether it is a touch screen. Undone after each test. */
+/**
+ * Size the window and say whether it is a touch screen. Undone after each
+ * test.
+ *
+ * happy-dom's media query lists tell their listeners of a change only on the
+ * window's `resize`, and each listener starts out believing its query does not
+ * match, whatever the screen. So the window says it was resized before the
+ * change, which brings every listener up to the screen as it is, and again
+ * after it, which is the change a browser would report.
+ */
 export function setScreen(screen: Screen): void {
+  window.dispatchEvent(new Event("resize"));
   (window as unknown as HappyDomWindow).happyDOM.setWindowSize({ width: screen.width, height: screen.height });
   Object.defineProperty(navigator, "maxTouchPoints", { configurable: true, get: () => (screen.touch ? 5 : 0) });
+  window.dispatchEvent(new Event("resize"));
 }
 
 /**

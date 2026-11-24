@@ -1386,6 +1386,7 @@ export const de: Partial<Record<MessageKey, Message>> = {
   "shell.sidebar.noAccount": "Kein Konto",
   "shell.sidebar.logOut": "Abmelden",
   "shell.sidebar.resize": "Seitenleiste anpassen",
+  "shell.sidebar.menu": "Menü",
   "nav.placeholder": "Dieser Bereich kommt noch.",
   "home.eyebrow": "Kommandozentrale",
   "home.welcomeBack": "Willkommen zurück, {name}.",

@@ -2,7 +2,7 @@
 // and the active tab's view. Routing is a pure lookup in the tab registry on nav
 // state: no router. Theme selection now lives in the Settings tab.
 
-import { memo, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import { ipc } from "../../ipc/client";
 import { ViewErrorBoundary } from "../../shared/components/ErrorBoundary";
@@ -18,6 +18,9 @@ import { UpdateNotice } from "../updates/UpdateNotice";
 import { UpdateGate } from "../updates/UpdateGate";
 import { WhatsNewDialog } from "../updates/WhatsNewDialog";
 import { BrandMark } from "../../design-system/BrandMark";
+import { Icon } from "../../design-system/Icon";
+import { overlayStack } from "../../design-system/overlayStack";
+import { useOverlayLayer } from "../../design-system/useOverlayLayer";
 import { PlayerCardModal } from "../player-card/PlayerCardModal";
 import { ContactsDialog } from "../contacts/ContactsDialog";
 import { openContacts } from "../../shared/contactsActions";
@@ -37,6 +40,8 @@ import { PlayerName } from "../../shared/components/nameColors";
 import { useLinkRequests } from "../../shared/deepLinks";
 import { playOfflineInGameApp } from "../../shared/gameApp";
 import { runsOnAndroid, theGameIsItsOwnApp } from "../../shared/platform";
+import { usePhoneLayout } from "../../shared/phoneLayout";
+import { useSystemBack } from "../../shared/hooks/useSystemBack";
 import "./shell.css";
 
 // Mirrors `MIN_SIDEBAR_WIDTH` / `MAX_SIDEBAR_WIDTH` / `SIDEBAR_RAIL_BELOW` in
@@ -46,6 +51,9 @@ const SIDEBAR_MAX_WIDTH = 400;
 /// Narrower than this and the labels come off, leaving the icon rail the shell
 /// already draws for a narrow window.
 const SIDEBAR_RAIL_BELOW = 150;
+
+/** What can take the focus inside the sidebar, for the drawer's Tab. */
+const FOCUSABLE = "button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
 const clampSidebarWidth = (width: number) =>
   Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
@@ -110,6 +118,56 @@ export function AppShell() {
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const contentRef = useRef<HTMLElement>(null);
+
+  // A phone lying down (`shared/phoneLayout`): the rail, always, and in the
+  // brand's place a menu that opens the sidebar with its labels as a drawer
+  // over the page. The rail alone names nothing, and a row of icons is a lot
+  // to learn on a first visit.
+  const phone = usePhoneLayout();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawer = phone && drawerOpen;
+  const sidebarRef = useRef<HTMLElement>(null);
+  const menuRef = useRef<HTMLButtonElement>(null);
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  // Closed without a place chosen (Escape, Back, a tap beside it, the menu
+  // again): the focus goes back to the menu that opened it, not to the page
+  // under the drawer or nowhere.
+  const dismissDrawer = useCallback(() => {
+    setDrawerOpen(false);
+    menuRef.current?.focus({ preventScroll: true });
+  }, []);
+  // A layer like any dialog, so Escape closes it and nothing under it; and
+  // on Android, Back closes it before Back leaves the app.
+  const drawerLayer = useOverlayLayer(drawer, dismissDrawer, { trapsFocus: true, elementRef: sidebarRef });
+  useSystemBack(drawer, dismissDrawer);
+  // A phone turned upright, or the window made taller, has no drawer, and it
+  // does not come back open when the phone is turned again.
+  useEffect(() => {
+    if (!phone) setDrawerOpen(false);
+  }, [phone]);
+  // Opened, the focus goes to the place on screen, where a reader of the
+  // drawer starts.
+  useEffect(() => {
+    if (!drawer) return;
+    const sidebar = sidebarRef.current;
+    (sidebar?.querySelector<HTMLElement>(".tab-active") ?? sidebar?.querySelector<HTMLElement>(".tab"))
+      ?.focus({ preventScroll: true });
+  }, [drawer]);
+  // The drawer holds Tab, as a dialog does: the page beside it is under the
+  // scrim and cannot be used until it closes.
+  const trapDrawerTab = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Tab" || overlayStack.topFocusTrap() !== drawerLayer) return;
+    const controls = Array.from(sidebarRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  };
 
   const openTab = openTabForMode(auth.mode, activeTab);
 
@@ -203,7 +261,8 @@ export function AppShell() {
   const friendColor = useAppStore((state) => state.state.settings.chat.nameColors.friends);
   const foeColor = useAppStore((state) => state.state.settings.chat.nameColors.foes);
   const shellStyle = {
-    "--sidebar-width": `${sidebarWidth}px`,
+    // The rail's own width on a phone, whatever the sidebar was dragged to.
+    "--sidebar-width": `${phone ? SIDEBAR_MIN_WIDTH : sidebarWidth}px`,
     ...(friendColor ? { "--color-friend": friendColor } : {}),
     ...(foeColor ? { "--color-foe": foeColor } : {}),
   } as CSSProperties;
@@ -213,20 +272,40 @@ export function AppShell() {
       className={[
         "app-shell",
         isResizingSidebar && "is-resizing-sidebar",
-        sidebarWidth < SIDEBAR_RAIL_BELOW && "is-sidebar-rail",
+        // The drawer is the sidebar with its labels, so the rail's rules
+        // step aside while it is open.
+        (phone ? !drawer : sidebarWidth < SIDEBAR_RAIL_BELOW) && "is-sidebar-rail",
+        drawer && "is-drawer-open",
       ].filter(Boolean).join(" ")}
       style={shellStyle}
     >
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-mark"><BrandMark size={38} /></span>
-          <span className="brand-copy">
-            <strong>FAForever</strong>
-            <small>{t(runsOnAndroid() ? "shell.sidebar.androidClient" : "shell.sidebar.desktopClient")}</small>
-          </span>
-        </div>
+      <aside ref={sidebarRef} className="sidebar" onKeyDown={drawer ? trapDrawerTab : undefined}>
+        {phone ? (
+          <button
+            ref={menuRef}
+            type="button"
+            className="sidebar-menu-button"
+            aria-label={t("shell.sidebar.menu")}
+            title={t("shell.sidebar.menu")}
+            aria-expanded={drawer}
+            onClick={() => (drawer ? dismissDrawer() : setDrawerOpen(true))}
+          >
+            <Icon name={drawer ? "close" : "menu"} size={20} />
+          </button>
+        ) : (
+          <div className="brand">
+            <span className="brand-mark"><BrandMark size={38} /></span>
+            <span className="brand-copy">
+              <strong>FAForever</strong>
+              <small>{t(runsOnAndroid() ? "shell.sidebar.androidClient" : "shell.sidebar.desktopClient")}</small>
+            </span>
+          </div>
+        )}
 
-        <TabBar onPointerSelect={() => contentRef.current?.focus({ preventScroll: true })} />
+        <TabBar
+          onPointerSelect={() => contentRef.current?.focus({ preventScroll: true })}
+          onSelect={closeDrawer}
+        />
 
         <div className="sidebar-footer">
           <UpdateNotice deferredVersion={deferredUpdate} />
@@ -278,19 +357,25 @@ export function AppShell() {
           )}
         </div>
 
-        <div
-          className="sidebar-resizer"
-          role="separator"
-          tabIndex={0}
-          aria-label={t("shell.sidebar.resize")}
-          aria-orientation="vertical"
-          aria-valuemin={SIDEBAR_MIN_WIDTH}
-          aria-valuemax={SIDEBAR_MAX_WIDTH}
-          aria-valuenow={sidebarWidth}
-          onKeyDown={handleSidebarKeyDown}
-          onMouseDown={handleSidebarMouseDown}
-        />
+        {/* A mouse's handle: a phone keeps the rail. */}
+        {!phone && (
+          <div
+            className="sidebar-resizer"
+            role="separator"
+            tabIndex={0}
+            aria-label={t("shell.sidebar.resize")}
+            aria-orientation="vertical"
+            aria-valuemin={SIDEBAR_MIN_WIDTH}
+            aria-valuemax={SIDEBAR_MAX_WIDTH}
+            aria-valuenow={sidebarWidth}
+            onKeyDown={handleSidebarKeyDown}
+            onMouseDown={handleSidebarMouseDown}
+          />
+        )}
       </aside>
+      {/* Over the page while the drawer is open: a tap on it closes the
+          drawer, as a tap beside a dialog closes it. */}
+      {drawer && <div className="drawer-scrim" aria-hidden="true" onClick={dismissDrawer} />}
 
       <main className="workspace">
         {/* One row, however many banners are up: both used to claim grid row 1

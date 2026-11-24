@@ -421,3 +421,30 @@
   border: 0;
   clip-path: inset(50%);
 }
+
+/* A finger (`pointer: coarse`): the rail's notice a 40 px square, as the
+   rail's tabs above it are 40 px high on a touch screen (nav.css). The rail
+   a phone keeps is the class's (`AppShell`). */
+@media (pointer: coarse) {
+  .app-shell.is-sidebar-rail .update-notice-button {
+    width: 40px;
+    min-height: 40px;
+  }
+}
+
+/* The shell's drawer on a phone (`AppShell`): the notice with its label
+   again, as wide as the drawer, and as tall as the tabs above it. */
+.app-shell.is-drawer-open .update-notice {
+  display: block;
+}
+
+.app-shell.is-drawer-open .update-notice-button {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 40px;
+  padding: 7px 9px;
+}
+
+.app-shell.is-drawer-open .update-notice-label {
+  display: inline;
+}
