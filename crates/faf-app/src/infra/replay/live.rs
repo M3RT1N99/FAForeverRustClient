@@ -565,16 +565,24 @@ async fn start_live_in_game_app(
             ),
         ),
     };
-    let run = game_app
-        .start(GameAppStart {
-            game_version,
-            featured_mod: Some(mod_name.to_owned()),
-            arguments,
-            map: contract_map_name(map),
-            mods,
-            ..GameAppStart::default()
-        })
-        .await?;
+    let start = GameAppStart {
+        game_version,
+        featured_mod: Some(mod_name.to_owned()),
+        arguments,
+        map: contract_map_name(map),
+        mods,
+        ..GameAppStart::default()
+    };
+    // As `playback::start_in_game_app` logs a replay file's.
+    tracing::info!(
+        game_version = ?start.game_version,
+        featured_mod = mod_name,
+        map = ?start.map,
+        mods = start.mods.len(),
+        mods_read = stream_mods.is_some(),
+        "handing the live game to the game app"
+    );
+    let run = game_app.start(start).await?;
     Ok((run, warning))
 }
 

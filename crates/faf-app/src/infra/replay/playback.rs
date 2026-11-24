@@ -179,7 +179,10 @@ impl ReplayPlaybackPort for ReplayPlayback {
             detail.clone(),
         ));
         let shown = std::sync::Mutex::new(None::<u8>);
+        let started = std::time::Instant::now();
+        let received_bytes = std::sync::atomic::AtomicU64::new(0);
         let on_bytes = |received: u64, total: Option<u64>| {
+            received_bytes.store(received, std::sync::atomic::Ordering::Relaxed);
             let Some(total) = total.filter(|total| *total > 0) else {
                 return;
             };
@@ -200,6 +203,14 @@ impl ReplayPlaybackPort for ReplayPlayback {
             .vault
             .download_vault_to(uid, cache_dir()?, &on_bytes)
             .await?;
+        // A failure needs no line here: the launch logs its reason. No bytes
+        // means the file was in the cache from an earlier watch.
+        tracing::info!(
+            uid,
+            bytes = received_bytes.load(std::sync::atomic::Ordering::Relaxed),
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "vault replay downloaded to watch"
+        );
         self.play_file(path).await
     }
 
@@ -441,6 +452,18 @@ async fn start_in_game_app(
         replay: Some(replay.path.clone()),
         ..GameAppStart::default()
     };
+    // What the game app is asked to play, for the log a phone run is read
+    // from: the answer is logged by the launch, and the game app's own code
+    // for a refusal by the shell.
+    tracing::info!(
+        uid = ?replay.uid,
+        game_version = ?start.game_version,
+        featured_mod = mod_name,
+        map = ?start.map,
+        mods = start.mods.len(),
+        mods_without_file = replay.game_app_mods().len().saturating_sub(start.mods.len()),
+        "handing the replay to the game app"
+    );
     // Its end is the game app's own business, as a replay window's is.
     game_app.start(start).await?;
     Ok(warning)
@@ -718,6 +741,28 @@ mod tests {
                 ..GameAppStart::default()
             }]
         );
+    }
+
+    #[tokio::test]
+    async fn the_hand_over_is_logged_with_its_version_map_and_mods() {
+        let (logs, _capture) = crate::test_log::capture();
+        let game_app = RecordingGameApp::default();
+        let content = game_app_content(&[("c3d4-reclaim", "reclaim_turret.v0004.zip")], Ok(None));
+        let replay = scfa_replay(vec![
+            sim_mod("a1b2-local", "My Local Build"),
+            sim_mod("c3d4-reclaim", "Reclaim Turret"),
+        ]);
+        start_in_game_app(&game_app, &content, &replay, "faf")
+            .await
+            .unwrap();
+        let line = logs.line("handing the replay to the game app");
+        assert_eq!(line.level, tracing::Level::INFO);
+        assert_eq!(line.field("uid"), Some("Some(25000000)"));
+        assert_eq!(line.field("game_version"), Some("Some(3841)"));
+        assert_eq!(line.field("featured_mod"), Some("faf"));
+        assert_eq!(line.field("map"), Some("Some(\"scmp_009\")"));
+        assert_eq!(line.field("mods"), Some("1"));
+        assert_eq!(line.field("mods_without_file"), Some("1"));
     }
 
     #[tokio::test]

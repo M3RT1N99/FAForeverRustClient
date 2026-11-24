@@ -148,6 +148,18 @@ enum LaunchTarget {
     File(String),
 }
 
+impl LaunchTarget {
+    /// The launch's kind and game id, for the log. A file's path stays out
+    /// of it: it is a folder of the player's, with their account name in it.
+    fn logged(&self) -> (&'static str, Option<i32>) {
+        match self {
+            Self::Vault(uid) => ("vault", Some(*uid)),
+            Self::Live(uid) => ("live", Some(*uid)),
+            Self::File(_) => ("file", None),
+        }
+    }
+}
+
 impl ReplaysContext {
     /// The Local tab's list generation, for a scan started outside a
     /// `LoadLocal` (the one after a game) to take its turn in the same order.
@@ -270,6 +282,11 @@ fn cancel_reads(key: &str, request_id: Option<u32>, ctx: &ServiceCtx, out: &Even
 struct LaunchTicket {
     id: u64,
     cancelled: tokio_util::sync::CancellationToken,
+    /// What it starts, as [`LaunchTarget::logged`] names it: the game id is
+    /// also what `Playing` reports.
+    kind: &'static str,
+    uid: Option<i32>,
+    started: std::time::Instant,
 }
 
 /// How many replay heads are fetched at the same time.
@@ -302,9 +319,12 @@ fn describe(seconds: u32) -> String {
 fn begin_launch(ctx: &ServiceCtx, out: &EventSink, target: LaunchTarget) -> Option<LaunchTicket> {
     let cancelled = tokio_util::sync::CancellationToken::new();
     let mut slot = ctx.replays.launch_slot();
+    let (kind, uid) = target.logged();
     if slot.cancellation.is_some() && slot.target.as_ref() == Some(&target) {
+        tracing::debug!(kind, uid, "replay already starting; the repeat is dropped");
         return None;
     }
+    tracing::info!(kind, uid, "starting a replay");
     slot.target = Some(target);
     slot.current = slot.current.wrapping_add(1);
     // Replacing an armed token cancels it: two launches cannot be in flight,
@@ -328,6 +348,9 @@ fn begin_launch(ctx: &ServiceCtx, out: &EventSink, target: LaunchTarget) -> Opti
     Some(LaunchTicket {
         id: slot.current,
         cancelled,
+        kind,
+        uid,
+        started: std::time::Instant::now(),
     })
 }
 
@@ -351,7 +374,6 @@ fn begin_launch(ctx: &ServiceCtx, out: &EventSink, target: LaunchTarget) -> Opti
 async fn launch(
     ticket: LaunchTicket,
     work: impl std::future::Future<Output = Result<Option<String>, String>>,
-    uid: Option<i32>,
     ctx: &ServiceCtx,
     out: &EventSink,
 ) {
@@ -359,15 +381,24 @@ async fn launch(
         result = work => Some(result),
         () = ticket.cancelled.cancelled() => None,
     };
+    let (kind, uid) = (ticket.kind, ticket.uid);
+    let elapsed_ms = ticket.started.elapsed().as_millis() as u64;
 
     // Checked and settled under one lock, with the events emitted inside it,
     // so a replacement cannot begin between the check and what follows it.
     let mut slot = ctx.replays.launch_slot();
     if slot.current != ticket.id {
+        tracing::info!(
+            kind,
+            uid,
+            elapsed_ms,
+            "replay start replaced by a newer one"
+        );
         return;
     }
     ctx.ports.replay_playback.set_preparation_progress(None);
     let Some(result) = result else {
+        tracing::info!(kind, uid, elapsed_ms, "replay start cancelled");
         out.emit(ReplayEvent::Closed);
         return;
     };
@@ -375,8 +406,14 @@ async fn launch(
     // status of a replay that is playing.
     slot.cancellation = None;
     match result {
-        Ok(warning) => out.emit(ReplayEvent::Playing { uid, warning }),
-        Err(reason) => fail(out, reason),
+        Ok(warning) => {
+            tracing::info!(kind, uid, elapsed_ms, warning = ?warning, "replay started");
+            out.emit(ReplayEvent::Playing { uid, warning });
+        }
+        Err(reason) => {
+            tracing::warn!(kind, uid, elapsed_ms, %reason, "replay did not start");
+            fail(out, reason);
+        }
     }
 }
 
@@ -470,8 +507,14 @@ async fn load_running_games(ctx: &ServiceCtx, out: &EventSink) {
     }
     out.emit(ReplayEvent::RunningGamesLoading);
     match ctx.ports.replay_vault.running_games().await {
-        Ok(games) => out.emit(ReplayEvent::RunningGamesLoaded { games }),
-        Err(reason) => out.emit(ReplayEvent::RunningGamesFailed { reason }),
+        Ok(games) => {
+            tracing::info!(games = games.len(), "running games listed from the API");
+            out.emit(ReplayEvent::RunningGamesLoaded { games })
+        }
+        Err(reason) => {
+            tracing::warn!(%reason, "could not list the running games from the API");
+            out.emit(ReplayEvent::RunningGamesFailed { reason })
+        }
     }
 }
 
@@ -516,11 +559,9 @@ async fn watch_live(target: LiveReplayTarget, ctx: &ServiceCtx, out: &EventSink)
             target: target.clone(),
         },
     });
-    let uid = target.uid;
     launch(
         ticket,
         ctx.ports.replay_playback.watch_live(target, player),
-        Some(uid),
         ctx,
         out,
     )
@@ -613,7 +654,6 @@ pub async fn handle(cmd: ReplayCommand, ctx: &ServiceCtx, out: &EventSink) {
             launch(
                 ticket,
                 ctx.ports.replay_playback.play_file(PathBuf::from(path)),
-                None,
                 ctx,
                 out,
             )
@@ -645,11 +685,21 @@ pub async fn handle(cmd: ReplayCommand, ctx: &ServiceCtx, out: &EventSink) {
                     // here it was a replay that did not exist (#399). Counted
                     // for `full_page` above first, so dropping it never makes
                     // a page look like the last one.
+                    let listed = search.replays.len();
                     search.replays.retain(|replay| !replay.end_time.is_empty());
                     let has_more = full_page
                         || search
                             .total_pages
                             .is_some_and(|pages| query.page < pages as u32);
+                    // Counts only: the query can name players.
+                    tracing::info!(
+                        page = query.page,
+                        rows = search.replays.len(),
+                        still_running = listed - search.replays.len(),
+                        has_more,
+                        total_records = ?search.total_records,
+                        "vault search answered"
+                    );
                     out.emit(ReplayEvent::VaultLoaded {
                         replays: search.replays,
                         query,
@@ -658,7 +708,10 @@ pub async fn handle(cmd: ReplayCommand, ctx: &ServiceCtx, out: &EventSink) {
                         total_records: search.total_records,
                     })
                 }
-                Err(reason) => out.emit(ReplayEvent::VaultLoadFailed { reason }),
+                Err(reason) => {
+                    tracing::warn!(page = query.page, %reason, "vault search failed");
+                    out.emit(ReplayEvent::VaultLoadFailed { reason })
+                }
             }
         }
         ReplayCommand::LoadRecentMatchmaker => {
@@ -704,14 +757,7 @@ pub async fn handle(cmd: ReplayCommand, ctx: &ServiceCtx, out: &EventSink) {
             // set the library download's status, which a watch could not be
             // told apart from, and whose end then cleared a real library
             // download running beside it.
-            launch(
-                ticket,
-                ctx.ports.replay_playback.watch_vault(uid),
-                Some(uid),
-                ctx,
-                out,
-            )
-            .await;
+            launch(ticket, ctx.ports.replay_playback.watch_vault(uid), ctx, out).await;
         }
         ReplayCommand::DownloadVault { uid } => {
             // Reachable before it is on screen, so the status bar's cancel

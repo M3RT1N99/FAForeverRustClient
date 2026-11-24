@@ -435,9 +435,18 @@ impl GameAppPort for GameAppLauncher {
         let raw = call(&self.plugin, "status", ())
             .await
             .map_err(|error| format!("could not ask FAF's game app: {error}"))?;
-        if let Some(refusal) =
-            crate::game_app::refusal_before_start(&crate::game_app::status_from(raw)?)
-        {
+        let status = crate::game_app::status_from(raw)?;
+        // Which game app is asked. What it is asked to play is logged by the
+        // caller, which knows the game, and so is a refusal, this one's or
+        // the game app's own.
+        tracing::info!(
+            game_app = %status.version_name,
+            game_app_code = status.version_code,
+            contract = ?status.contract,
+            replay = start.replay.is_some(),
+            "starting in FAF's game app"
+        );
+        if let Some(refusal) = crate::game_app::refusal_before_start(&status) {
             return Err(refusal.to_owned());
         }
         let replay_path = match &start.replay {
@@ -445,6 +454,7 @@ impl GameAppPort for GameAppLauncher {
             None => None,
         };
         let play = crate::game_app::play_start(start, replay_path);
+        let handed_over = tokio::time::Instant::now();
         let started_after = now_ms() - CLOCK_SLACK_MS;
         let plugin = self.plugin.clone();
         let mut answer = tokio::spawn(async move { call(&plugin, "play", play).await });
@@ -455,18 +465,27 @@ impl GameAppPort for GameAppLauncher {
                 answered = &mut answer => {
                     // Refused, or over before its game was seen running.
                     let exit = outcome_of(&self.plugin, answered, started_after).await?;
+                    tracing::info!(?exit, "the game app's game ended before it was seen running");
                     let _ = sender.send(Ok(exit));
                     return Ok(GameAppRun { ended });
                 }
                 () = tokio::time::sleep(TAKEOVER_POLL) => {
-                    if self.game_running().await || tokio::time::Instant::now() >= deadline {
+                    let running = self.game_running().await;
+                    if running || tokio::time::Instant::now() >= deadline {
+                        let waited_ms = handed_over.elapsed().as_millis() as u64;
+                        if running {
+                            tracing::info!(waited_ms, "FAF's game app runs the game");
+                        } else {
+                            tracing::warn!(waited_ms, "FAF's game app was not seen running the game; the start is left to it");
+                        }
                         let plugin = self.plugin.clone();
                         tokio::spawn(async move {
                             tokio::select! {
                                 answered = answer => {
                                     let outcome = outcome_of(&plugin, answered, started_after).await;
-                                    if let Err(reason) = &outcome {
-                                        tracing::warn!(%reason, "the game app gave a start up");
+                                    match &outcome {
+                                        Ok(exit) => tracing::info!(?exit, "the game app's game ended"),
+                                        Err(reason) => tracing::warn!(%reason, "the game app gave a start up"),
                                     }
                                     let _ = sender.send(outcome);
                                 }

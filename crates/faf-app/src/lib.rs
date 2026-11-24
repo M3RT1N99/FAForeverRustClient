@@ -12,6 +12,8 @@ pub mod infra;
 pub mod ports;
 pub mod runtime;
 pub mod services;
+#[cfg(test)]
+mod test_log;
 
 pub use ports::Ports;
 pub use runtime::{App, AppLoop, EventSink, ServiceCtx, VersionedEvent, VersionedSnapshot};

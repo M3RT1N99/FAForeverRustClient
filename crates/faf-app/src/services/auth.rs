@@ -339,6 +339,13 @@ fn commit_if_current(
         return;
     }
     if ctx.ports.auth.commit_session() {
+        // The id, not the name: a log leaves the device in a problem report.
+        // A restore is the one commit without a login's cancellation.
+        tracing::info!(
+            player_id = player.id,
+            restored = token.is_none(),
+            "signed in"
+        );
         out.emit(AuthEvent::LoggedIn { player });
     }
 }
