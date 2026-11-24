@@ -1,9 +1,11 @@
 package com.faforever.rustclient
 
+import android.graphics.Color
 import android.os.Bundle
 import android.provider.Settings
 import android.system.Os
 import android.webkit.WebView
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -22,7 +24,13 @@ class MainActivity : TauriActivity() {
     Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)?.let {
       Os.setenv("FAF_UID_ANDROID_ID", it, true)
     }
-    enableEdgeToEdge()
+    // Light icons in both bars, always: the page and the window behind the bars
+    // are dark, and the default would follow the system into dark icons
+    // whenever it is in light mode.
+    enableEdgeToEdge(
+      statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+      navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+    )
     super.onCreate(savedInstanceState)
     // From edge to edge the page would lie under the status and navigation bars
     // and the camera's cut-out, which a page made for a desktop window knows
