@@ -459,8 +459,8 @@ async fn start_in_game_app(
         ..GameAppStart::default()
     };
     // What the game app is asked to play, for the log a phone run is read
-    // from: the answer is logged by the launch, and the game app's own code
-    // for a refusal by the shell.
+    // from. Its answer is logged by the launch: a refusal's reason carries
+    // the game app's code (`failure_reason` in the shell).
     tracing::info!(
         uid = ?replay.uid,
         game_version = ?start.game_version,
