@@ -893,12 +893,13 @@ pub fn real_ports() -> Ports {
         Err(_) => Arc::new(FakeGalacticWar),
     };
 
-    // Always real, and never gated: Rich Presence needs no account, no install
-    // and no subprocess: just a local socket that is usually not there. When
-    // Discord is not running it is a reconnect timer and nothing else, and the
-    // user-facing off switch is the `discord.enabled` preference, which the
-    // presence watcher honours before anything is published.
-    let discord: Arc<dyn crate::ports::DiscordPort> = Arc::new(DiscordClient::faf());
+    // Real wherever Discord can be reached, and never gated: Rich Presence
+    // needs no account, no install and no subprocess: just a local socket
+    // that is usually not there. When Discord is not running it is a
+    // reconnect timer and nothing else, and the user-facing off switch is the
+    // `discord.enabled` preference, which the presence watcher honours before
+    // anything is published.
+    let discord = discord_port(cfg!(target_os = "android"));
 
     // Always built, never gated: it connects only while the player has turned
     // the web link on and is signed in, which the service checks, and it
@@ -1020,6 +1021,20 @@ const fn play_offered(android: bool, feature: bool) -> bool {
 #[cfg(all(target_os = "android", not(feature = "android-play")))]
 const _: () = assert!(!PLAY_OFFERED);
 
+/// Discord's Rich Presence, or the inert port ([`FakeDiscord`]) where Discord
+/// cannot be reached.
+///
+/// The inert one on Android: Discord's app there offers no local socket an
+/// app could talk to, so the real client did nothing but fail to find one,
+/// and said so every 15 seconds, about half of a phone run's log.
+fn discord_port(android: bool) -> Arc<dyn crate::ports::DiscordPort> {
+    if android {
+        Arc::new(FakeDiscord)
+    } else {
+        Arc::new(DiscordClient::faf())
+    }
+}
+
 /// A `FAF_FAKE_*` toggle, where this build may fake at all; set where it may
 /// not, it is said in the log and ignored.
 fn fake_enabled(name: &str) -> bool {
@@ -1064,6 +1079,23 @@ pub fn ports_from_env() -> Ports {
         ports
     } else {
         real_ports()
+    }
+}
+
+#[cfg(test)]
+mod discord_tests {
+    use super::discord_port;
+
+    #[tokio::test]
+    async fn android_takes_the_inert_discord_port() {
+        // The inert port's requests end at once: no reconnect loop runs, so
+        // nothing is attempted and nothing is logged.
+        let mut requests = discord_port(true).requests().await;
+        let ended = tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv()).await;
+        assert!(
+            matches!(ended, Ok(None)),
+            "the real client waits for Discord instead"
+        );
     }
 }
 
