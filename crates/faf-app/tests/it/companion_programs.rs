@@ -562,6 +562,8 @@ async fn a_replay_that_fails_to_open_lets_the_stopped_replays_companions_go() {
         faf_app::infra::TokenStore::default(),
         process.clone(),
         Arc::new(faf_app::infra::FakeMapGenerator),
+        Arc::new(faf_app::infra::FakeGameUpdater),
+        Arc::new(faf_app::infra::FakeMods),
     );
     let missing = std::env::temp_dir().join("faf-companion-test-missing.fafreplay");
     assert!(adapters.playback.play_file(missing).await.is_err());
@@ -687,6 +689,8 @@ async fn a_replay_request_called_off_during_the_stop_lets_the_companions_go() {
             faf_app::infra::TokenStore::default(),
             process.clone(),
             Arc::new(faf_app::infra::FakeMapGenerator),
+            Arc::new(faf_app::infra::FakeGameUpdater),
+            Arc::new(faf_app::infra::FakeMods),
         ));
         let request = {
             let adapters = Arc::clone(&adapters);

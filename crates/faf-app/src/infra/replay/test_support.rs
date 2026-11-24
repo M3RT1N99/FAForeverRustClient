@@ -1,19 +1,171 @@
 //! Fixtures the replay submodules' tests share: a stub map generator, replay
-//! preparation wired to it, and replay bodies built byte by byte.
+//! preparation wired to it, a game app, mod files and a version for the game
+//! app's path, and replay bodies built byte by byte.
 //!
 //! One place rather than a copy per submodule, because the bodies are only
 //! trustworthy as long as every test builds them the same way.
 
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use faf_domain::state::{GeneratorOptionQuery, GeneratorOptions, GeneratorPreset, GeneratorStatus};
+use faf_domain::protocol::vault_query::ModVaultQuery;
+use faf_domain::state::{
+    GeneratorOptionQuery, GeneratorOptions, GeneratorPreset, GeneratorStatus, InstalledMod,
+    ModDownloadSize, ModDownloadTarget, VaultMod,
+};
 use tokio::sync::mpsc;
 
-use crate::ports::GeneratorUpdate;
+use crate::ports::game_app::{GameAppPort, GameAppRun, GameAppStart};
+use crate::ports::{
+    GamePreparation, GameUpdaterPort, GeneratorUpdate, ModPrepFailure, ModSearchPage, ModsPort,
+    UpdateProgress,
+};
 
+use super::playback::GameAppContent;
 use super::preparation::ReplayPreparation;
 use super::ReplayConfig;
+
+/// A game app that takes every start, or refuses each with `refusal`.
+#[derive(Default)]
+pub(super) struct RecordingGameApp {
+    pub(super) starts: std::sync::Mutex<Vec<GameAppStart>>,
+    pub(super) refusal: Option<String>,
+}
+
+#[async_trait]
+impl GameAppPort for RecordingGameApp {
+    async fn start(&self, start: GameAppStart) -> Result<GameAppRun, String> {
+        self.starts.lock().unwrap().push(start);
+        if let Some(refusal) = &self.refusal {
+            return Err(refusal.clone());
+        }
+        let (_, ended) = tokio::sync::oneshot::channel();
+        Ok(GameAppRun { ended })
+    }
+}
+
+/// FAF's vault as the game app's path asks it: the file of a mod version by
+/// its uid, for the ones listed, and nothing else. The rest of the port is
+/// never reached from a replay.
+struct ModFiles(HashMap<String, String>);
+
+#[async_trait]
+impl ModsPort for ModFiles {
+    async fn mod_file(&self, uid: &str) -> Result<String, String> {
+        self.0
+            .get(uid)
+            .cloned()
+            .ok_or_else(|| format!("the vault knows no mod version {uid}"))
+    }
+
+    async fn list_vault(&self) -> Result<Vec<VaultMod>, String> {
+        unimplemented!("a replay never lists the vault")
+    }
+    async fn search_vault(&self, _query: ModVaultQuery) -> Result<ModSearchPage, String> {
+        unimplemented!()
+    }
+    async fn list_installed(&self) -> Result<Vec<InstalledMod>, String> {
+        unimplemented!()
+    }
+    async fn download_sizes(&self, _targets: Vec<ModDownloadTarget>) -> Vec<ModDownloadSize> {
+        unimplemented!()
+    }
+    async fn install_mod(
+        &self,
+        _uid: String,
+        _download_url: String,
+    ) -> Result<Vec<InstalledMod>, String> {
+        unimplemented!()
+    }
+    async fn update_mod(
+        &self,
+        _uid: String,
+        _folder_name: String,
+        _download_url: String,
+    ) -> Result<Vec<InstalledMod>, String> {
+        unimplemented!()
+    }
+    async fn uninstall_mod(&self, _folder_name: String) -> Result<Vec<InstalledMod>, String> {
+        unimplemented!()
+    }
+    async fn toggle_mod(&self, _uid: String, _enabled: bool) -> Result<Vec<InstalledMod>, String> {
+        unimplemented!()
+    }
+    async fn set_active_mods(&self, _uids: Vec<String>) -> Result<Vec<InstalledMod>, String> {
+        unimplemented!()
+    }
+    async fn ensure_game_mods(
+        &self,
+        _mods: &BTreeMap<String, String>,
+        _replace_conflicts: bool,
+    ) -> Result<(), ModPrepFailure> {
+        unimplemented!()
+    }
+}
+
+/// The updater of a client whose game keeps its own files: asked which
+/// version is current, and never to prepare an install.
+struct CurrentVersion(Result<Option<i32>, String>);
+
+#[async_trait]
+impl GameUpdaterPort for CurrentVersion {
+    async fn prepare(&self, _request: GamePreparation) -> mpsc::Receiver<UpdateProgress> {
+        unimplemented!("nothing is prepared for a game that keeps its own files")
+    }
+
+    async fn current_version(&self, featured_mod: &str) -> Result<Option<i32>, String> {
+        assert_eq!(featured_mod, "faf");
+        self.0.clone()
+    }
+}
+
+/// What the game app is told to fetch, from a vault that knows `files`
+/// (`uid`, file) and an updater that answers `version` for `faf`.
+pub(super) fn game_app_content(
+    files: &[(&str, &str)],
+    version: Result<Option<i32>, String>,
+) -> GameAppContent {
+    GameAppContent {
+        updater: Arc::new(CurrentVersion(version)),
+        mods: Arc::new(ModFiles(
+            files
+                .iter()
+                .map(|(uid, file)| ((*uid).to_owned(), (*file).to_owned()))
+                .collect(),
+        )),
+    }
+}
+
+/// A body's mod table as the engine writes it: one table of `mod_info.lua`
+/// fields per mod (`uid`, `name`, `ui_only`), keyed by its place in the list.
+pub(super) fn lua_mod_table(mods: &[(&str, &str, bool)]) -> Vec<u8> {
+    let mut table = vec![4];
+    for (index, (uid, name, ui_only)) in mods.iter().enumerate() {
+        table.extend(lua_number(index as f32 + 1.0));
+        table.push(4);
+        table.extend(lua_string("uid"));
+        table.extend(lua_string(uid));
+        table.extend(lua_string("name"));
+        table.extend(lua_string(name));
+        table.extend(lua_string("ui_only"));
+        table.extend_from_slice(&[3, u8::from(*ui_only)]);
+        table.push(5);
+    }
+    table.push(5);
+    table
+}
+
+/// The opening of a `.scfareplay` stream, up to and including `mod_table`:
+/// how a decompressed body begins, and what the replay server sends first.
+pub(super) fn stream_opening(mod_table: &[u8]) -> Vec<u8> {
+    let mut stream = Vec::new();
+    stream.extend_from_slice(b"Supreme Commander v1.50.3817\0\r\n\0");
+    stream.extend_from_slice(b"Replay v1.9\r\n/maps/SCMP_009/SCMP_009.scmap\0\r\n\x1a\0");
+    stream.extend_from_slice(&(mod_table.len() as u32).to_le_bytes());
+    stream.extend_from_slice(mod_table);
+    stream
+}
 
 /// Records what the launch path asked of the generator. Everything the
 /// replay path never touches is left unimplemented rather than faked, so a

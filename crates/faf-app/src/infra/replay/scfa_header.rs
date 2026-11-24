@@ -408,6 +408,54 @@ fn parse_local_body_info(body: &[u8]) -> LocalBodyInfo {
     }
 }
 
+/// The simulation mods a `.scfareplay` stream opens with, as `(uid, name)`:
+/// the engine's own mod table (see [`body_sim_mods`]), read from the first
+/// bytes of the stream alone.
+///
+/// For FAF's game app, which fetches a game's mods by their files and so
+/// needs their uids. A replay file the replay server wrote names its mods
+/// nowhere else (issue 638), and neither does a live game listed by FAF's
+/// API; both streams open with this table. `None` while `head` ends before
+/// the table does, which is not a game without mods: that is an empty list.
+pub(super) fn stream_sim_mods(head: &[u8]) -> Option<Vec<(String, String)>> {
+    let mut cursor = Cursor::new(head);
+    // The engine version, then the same two fixed-width fields around the
+    // scenario path that `parse_local_body_info` steps over.
+    replay_string(&mut cursor)?;
+    if !skip_replay_bytes(&mut cursor, 3) {
+        return None;
+    }
+    replay_string(&mut cursor)?;
+    if !skip_replay_bytes(&mut cursor, 4) {
+        return None;
+    }
+    replay_u32(&mut cursor)?;
+    let table = parse_replay_lua(&mut cursor, 0)?;
+    let Some(mods) = table.as_object() else {
+        return Some(Vec::new());
+    };
+    Some(
+        mods.values()
+            .filter(|entry| entry.get("ui_only").and_then(Value::as_bool) != Some(true))
+            .filter_map(|entry| {
+                let uid = entry.get("uid").and_then(Value::as_str)?.trim();
+                // A mod is fetched by its uid; one the table names without
+                // it cannot be, and is not handed on.
+                if uid.is_empty() {
+                    return None;
+                }
+                let name = entry
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or(uid);
+                Some((uid.to_owned(), name.to_owned()))
+            })
+            .collect(),
+    )
+}
+
 /// The names in the body's mod table.
 ///
 /// The engine writes the mods it loaded in front of the game options, one
@@ -630,6 +678,30 @@ mod tests {
         // An empty table is the body saying the game had none.
         assert_eq!(
             sim_mods_from_replay_head(&vault_head_with_mod_table(&[4, 5])),
+            Some(Vec::new())
+        );
+    }
+
+    #[test]
+    fn a_stream_names_its_sim_mods_by_uid_once_their_table_has_arrived() {
+        use super::super::test_support::{lua_mod_table, stream_opening};
+
+        let opening = stream_opening(&lua_mod_table(&[
+            ("a1b2-reclaim", "Reclaim Turret", false),
+            ("c3d4-notify", "Notify", true),
+        ]));
+        let mut stream = opening.clone();
+        stream.extend_from_slice(b"game options and the command stream after them");
+        let expected = Some(vec![("a1b2-reclaim".into(), "Reclaim Turret".into())]);
+        assert_eq!(stream_sim_mods(&stream), expected, "the UI mod is not one");
+        assert_eq!(stream_sim_mods(&opening), expected);
+        // Cut anywhere before the table's end: not yet an answer.
+        for cut in [0, 12, 40, opening.len() - 1] {
+            assert_eq!(stream_sim_mods(&opening[..cut]), None, "cut at {cut}");
+        }
+        // An empty table is a game without mods.
+        assert_eq!(
+            stream_sim_mods(&stream_opening(&lua_mod_table(&[]))),
             Some(Vec::new())
         );
     }

@@ -818,14 +818,25 @@ pub fn real_ports() -> Ports {
     // one: a replay recorded on a generated map has no vault archive to stage,
     // so the only way to put that map on disk before playback is to run the
     // generator again.
-    let replays = ReplayAdapters::faf(tokens.clone(), process.clone(), map_generator.clone());
+    //
+    // And the updater and the mods, for a game that is an app of its own: it
+    // is told the version a live game is on and each mod's file rather than
+    // given an install, the way the launcher tells it for a game.
+    //
+    // Mods have the same posture as maps below: pure API + filesystem
+    // (game.prefs), no subprocess.
+    let mods: Arc<dyn ModsPort> = Arc::new(ModsClient::faf(tokens.clone()));
+    let replays = ReplayAdapters::faf(
+        tokens.clone(),
+        process.clone(),
+        map_generator.clone(),
+        updater.clone(),
+        mods.clone(),
+    );
 
     // Vault browsing + local install management is pure API + filesystem,
     // no subprocess; it just needs the same bearer token.
     let maps: Arc<dyn MapsPort> = Arc::new(MapsClient::faf(tokens.clone()));
-
-    // Same posture as maps: pure API + filesystem (game.prefs), no subprocess.
-    let mods: Arc<dyn ModsPort> = Arc::new(ModsClient::faf(tokens.clone()));
 
     // Same posture as maps: pure API, no subprocess.
     let leaderboard: Arc<dyn crate::ports::LeaderboardPort> =

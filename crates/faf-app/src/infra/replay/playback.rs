@@ -32,16 +32,75 @@ use crate::infra::vault_install::MAX_DOWNLOAD_BYTES;
 use crate::infra::{cache_dir, game_updater};
 use crate::ports::game_app::{contract_map_name, GameAppPort, GameAppStart};
 use crate::ports::{
-    MapGeneratorPort, PreparationPhase, PreparationSink, PreparationStep, ProcessPort,
-    ReplayPlaybackPort,
+    GameMod, GameUpdaterPort, MapGeneratorPort, ModsPort, PreparationPhase, PreparationSink,
+    PreparationStep, ProcessPort, ReplayPlaybackPort,
 };
 
 use super::codec::decode_replay_body_to;
 use super::live::LiveStreamer;
 use super::names::{guess_mod_from_filename, normalize_mod};
 use super::preparation::ReplayPreparation;
+use super::scfa_header::stream_sim_mods;
 use super::vault::ReplayVault;
 use super::ReplayConfig;
+
+/// What FAF's game app is told to fetch for a replay: the version a live
+/// game is on, and the file of each simulation mod. The desktop puts both
+/// into the replay install instead ([`ReplayPreparation`]); the game app
+/// keeps its own files and is handed their names.
+pub(super) struct GameAppContent {
+    pub(super) updater: Arc<dyn GameUpdaterPort>,
+    pub(super) mods: Arc<dyn ModsPort>,
+}
+
+impl GameAppContent {
+    /// The version a live game of `featured_mod` is on now, asked the way the
+    /// online start asks it (`launcher::game_content`). A live stream names
+    /// no version, and without one the game app plays the newest it has,
+    /// which cannot load the stream once FAF has moved past it.
+    pub(super) async fn live_version(&self, featured_mod: &str) -> Result<Option<i32>, String> {
+        self.updater
+            .current_version(featured_mod)
+            .await
+            .map_err(|reason| {
+                format!("could not ask which version of {featured_mod} is current: {reason}")
+            })
+    }
+
+    /// `sim_mods`, `(uid, name)`, each with its file on FAF's content server,
+    /// which the game app fetches where it lacks the mod. A mod whose file
+    /// cannot be found is left out rather than failing the replay, and the
+    /// warning names it: the game app plays without it.
+    pub(super) async fn mods(
+        &self,
+        sim_mods: &[(String, String)],
+    ) -> (Vec<GameMod>, Option<String>) {
+        let files =
+            futures_util::future::join_all(sim_mods.iter().map(|(uid, _)| self.mods.mod_file(uid)))
+                .await;
+        let mut mods = Vec::with_capacity(sim_mods.len());
+        let mut missing = Vec::new();
+        for ((uid, name), file) in sim_mods.iter().zip(files) {
+            match file {
+                Ok(file) => mods.push(GameMod {
+                    uid: uid.clone(),
+                    file,
+                }),
+                Err(reason) => {
+                    tracing::warn!(uid, %reason, "no file for a replay's simulation mod");
+                    missing.push(name.as_str());
+                }
+            }
+        }
+        let warning = (!missing.is_empty()).then(|| {
+            format!(
+                "the game app plays this replay without its mods: {}",
+                missing.join(", ")
+            )
+        });
+        (mods, warning)
+    }
+}
 
 /// Launches replays: a file, a vault replay, or a live stream.
 ///
@@ -56,18 +115,22 @@ pub struct ReplayPlayback {
     preparation: ReplayPreparation,
     live: LiveStreamer,
     vault: Arc<ReplayVault>,
+    /// Where the game is an app of its own (Android), what it is told to
+    /// fetch in place of the preparation above.
+    content: GameAppContent,
     /// Playback preparation writes shared cache and preference files. Keep one
     /// launch pipeline active per client so concurrent UI commands cannot race.
     lock: Mutex<()>,
 }
 
 impl ReplayPlayback {
-    pub fn new(
+    pub(super) fn new(
         config: &ReplayConfig,
         tokens: TokenStore,
         process: Arc<dyn ProcessPort>,
         map_generator: Arc<dyn MapGeneratorPort>,
         vault: Arc<ReplayVault>,
+        content: GameAppContent,
     ) -> Self {
         Self {
             preparation: ReplayPreparation::new(config, map_generator),
@@ -75,6 +138,7 @@ impl ReplayPlayback {
             tokens,
             process,
             vault,
+            content,
             lock: Mutex::new(()),
         }
     }
@@ -89,7 +153,13 @@ impl ReplayPlaybackPort for ReplayPlayback {
     ) -> Result<Option<String>, String> {
         let _playback_guard = self.lock.lock().await;
         self.live
-            .start(&self.preparation, &self.process, target, player)
+            .start(
+                &self.preparation,
+                &self.process,
+                &self.content,
+                target,
+                player,
+            )
             .await
     }
 
@@ -172,7 +242,7 @@ impl ReplayPlayback {
         // Where the game is an app of its own (Android), it plays the replay
         // with its own files: nothing here is staged or activated for it.
         if let Some(game_app) = crate::infra::game_app::game_app() {
-            return start_in_game_app(game_app.as_ref(), &replay, &mod_name).await;
+            return start_in_game_app(game_app.as_ref(), &self.content, &replay, &mod_name).await;
         }
         let mut warning = None;
 
@@ -350,38 +420,30 @@ impl ReplayPlayback {
     }
 }
 
-/// Hand `replay` to the game app, with the version it was recorded with and
-/// its map, which the game app fetches where it lacks it. Not its sim mods:
-/// the game app takes mods by their files on FAF's content server, which a
-/// replay does not name, so a replay with mods plays without them, and the
-/// warning says so.
+/// Hand `replay` to the game app, with the version it was recorded with, its
+/// map and its simulation mods, which the game app fetches where it lacks
+/// them. It takes a mod by its file on FAF's content server, which a replay
+/// does not name, so each is looked up; a mod with no file there is played
+/// without, and the warning says so.
 async fn start_in_game_app(
     game_app: &dyn GameAppPort,
+    content: &GameAppContent,
     replay: &ScfaReplay,
     mod_name: &str,
 ) -> Result<Option<String>, String> {
+    let (mods, warning) = content.mods(replay.game_app_mods()).await;
     let start = GameAppStart {
         game_version: replay.game_version,
         featured_mod: Some(mod_name.to_owned()),
         arguments: Vec::new(),
         map: replay.map_folder.as_deref().and_then(contract_map_name),
+        mods,
         replay: Some(replay.path.clone()),
         ..GameAppStart::default()
     };
     // Its end is the game app's own business, as a replay window's is.
     game_app.start(start).await?;
-    if replay.sim_mods.is_empty() {
-        return Ok(None);
-    }
-    let names: Vec<&str> = replay
-        .sim_mods
-        .iter()
-        .map(|(_, name)| name.as_str())
-        .collect();
-    Ok(Some(format!(
-        "the game app plays this replay without its mods: {}",
-        names.join(", ")
-    )))
+    Ok(warning)
 }
 
 /// Everything extracted from a `.fafreplay`/`.scfareplay` source needed to
@@ -397,12 +459,31 @@ struct ScfaReplay {
     /// An overlay's own revision; see `ReplayVersionInfo::featured_mod_version`.
     featured_mod_version: Option<i32>,
     map_folder: Option<String>,
+    /// The envelope's `sim_mods`, `(uid, name)`: what this client and the
+    /// Python client write from the lobby's list. The desktop activates these.
     sim_mods: Vec<(String, String)>,
+    /// The body's own mod table (`stream_sim_mods`), `None` when the prefix
+    /// read ended before it.
+    body_sim_mods: Option<Vec<(String, String)>>,
     git_sha: Option<String>,
     git_short_sha: Option<String>,
     build_signature: Option<String>,
     version_name: Option<String>,
     launched_at: Option<u64>,
+}
+
+impl ScfaReplay {
+    /// The simulation mods the game app is handed: the envelope's, or the
+    /// body's own table where the envelope names none. That is every replay
+    /// from the vault, whose envelope the replay server writes without a mod
+    /// list (issue 638), and every `.scfareplay`, which has no envelope.
+    fn game_app_mods(&self) -> &[(String, String)] {
+        if self.sim_mods.is_empty() {
+            self.body_sim_mods.as_deref().unwrap_or_default()
+        } else {
+            &self.sim_mods
+        }
+    }
 }
 
 /// Resolve a `.fafreplay`/`.scfareplay` source to a playable `.scfareplay`
@@ -427,6 +508,7 @@ async fn prepare_scfareplay(path: &std::path::Path) -> Result<ScfaReplay, String
                 featured_mod_version: None,
                 map_folder: game_updater::extract_map_folder(&bytes),
                 sim_mods: Vec::new(),
+                body_sim_mods: stream_sim_mods(&bytes),
                 git_sha: None,
                 git_short_sha: None,
                 build_signature: None,
@@ -542,6 +624,7 @@ async fn decode_fafreplay_to(
         featured_mod_version: overlay_version_from_header(&header),
         map_folder: game_updater::extract_map_folder(&decompressed_prefix),
         sim_mods,
+        body_sim_mods: stream_sim_mods(&decompressed_prefix),
         git_sha,
         git_short_sha,
         build_signature,
@@ -585,25 +668,9 @@ async fn read_replay_prefix(path: &Path) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::game_app::GameAppRun;
-
-    /// A game app that takes every start, or refuses each with `refusal`.
-    struct RecordingGameApp {
-        starts: std::sync::Mutex<Vec<GameAppStart>>,
-        refusal: Option<String>,
-    }
-
-    #[async_trait]
-    impl GameAppPort for RecordingGameApp {
-        async fn start(&self, start: GameAppStart) -> Result<GameAppRun, String> {
-            self.starts.lock().unwrap().push(start);
-            if let Some(refusal) = &self.refusal {
-                return Err(refusal.clone());
-            }
-            let (_, ended) = tokio::sync::oneshot::channel();
-            Ok(GameAppRun { ended })
-        }
-    }
+    use crate::infra::replay::test_support::{
+        game_app_content, lua_mod_table, stream_opening, RecordingGameApp,
+    };
 
     fn scfa_replay(sim_mods: Vec<(String, String)>) -> ScfaReplay {
         ScfaReplay {
@@ -614,6 +681,7 @@ mod tests {
             featured_mod_version: None,
             map_folder: Some("SCMP_009".into()),
             sim_mods,
+            body_sim_mods: Some(Vec::new()),
             git_sha: None,
             git_short_sha: None,
             build_signature: None,
@@ -622,13 +690,22 @@ mod tests {
         }
     }
 
+    fn sim_mod(uid: &str, name: &str) -> (String, String) {
+        (uid.to_owned(), name.to_owned())
+    }
+
+    fn game_mod(uid: &str, file: &str) -> GameMod {
+        GameMod {
+            uid: uid.to_owned(),
+            file: file.to_owned(),
+        }
+    }
+
     #[tokio::test]
     async fn the_game_app_gets_the_replay_with_its_version_and_map() {
-        let game_app = RecordingGameApp {
-            starts: std::sync::Mutex::default(),
-            refusal: None,
-        };
-        let warning = start_in_game_app(&game_app, &scfa_replay(Vec::new()), "faf").await;
+        let game_app = RecordingGameApp::default();
+        let content = game_app_content(&[], Ok(None));
+        let warning = start_in_game_app(&game_app, &content, &scfa_replay(Vec::new()), "faf").await;
         assert_eq!(warning, Ok(None));
         assert_eq!(
             game_app.starts.lock().unwrap().as_slice(),
@@ -644,32 +721,112 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_replay_with_mods_plays_without_them_and_says_so() {
-        let game_app = RecordingGameApp {
-            starts: std::sync::Mutex::default(),
-            refusal: None,
-        };
-        let mods = vec![("a1b2c3d4-uid".into(), "Supreme Score Board".into())];
-        let warning = start_in_game_app(&game_app, &scfa_replay(mods), "faf").await;
+    async fn a_replay_s_mods_go_to_the_game_app_with_their_files() {
+        let game_app = RecordingGameApp::default();
+        let content = game_app_content(
+            &[
+                ("a1b2-score", "supreme_score_board.v0019.zip"),
+                ("c3d4-reclaim", "reclaim_turret.v0004.zip"),
+            ],
+            Ok(None),
+        );
+        let replay = scfa_replay(vec![
+            sim_mod("a1b2-score", "Supreme Score Board"),
+            sim_mod("c3d4-reclaim", "Reclaim Turret"),
+        ]);
+        let warning = start_in_game_app(&game_app, &content, &replay, "faf").await;
+        assert_eq!(warning, Ok(None));
+        assert_eq!(
+            game_app.starts.lock().unwrap()[0].mods,
+            [
+                game_mod("a1b2-score", "supreme_score_board.v0019.zip"),
+                game_mod("c3d4-reclaim", "reclaim_turret.v0004.zip"),
+            ],
+            "in the replay's order"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_mod_with_no_file_is_played_without_and_named() {
+        let game_app = RecordingGameApp::default();
+        let content = game_app_content(&[("c3d4-reclaim", "reclaim_turret.v0004.zip")], Ok(None));
+        let replay = scfa_replay(vec![
+            sim_mod("a1b2-local", "My Local Build"),
+            sim_mod("c3d4-reclaim", "Reclaim Turret"),
+        ]);
+        let warning = start_in_game_app(&game_app, &content, &replay, "faf").await;
         assert_eq!(
             warning,
             Ok(Some(
-                "the game app plays this replay without its mods: Supreme Score Board".into()
+                "the game app plays this replay without its mods: My Local Build".into()
             ))
+        );
+        let starts = game_app.starts.lock().unwrap();
+        assert_eq!(starts.len(), 1, "the replay still starts");
+        assert_eq!(
+            starts[0].mods,
+            [game_mod("c3d4-reclaim", "reclaim_turret.v0004.zip")]
         );
     }
 
     #[tokio::test]
     async fn the_game_app_s_refusal_is_the_launch_s_failure() {
         let game_app = RecordingGameApp {
-            starts: std::sync::Mutex::default(),
             refusal: Some("No FAF game files of version 3841 (NO_GAME_FILES)".into()),
+            ..RecordingGameApp::default()
         };
-        let result = start_in_game_app(&game_app, &scfa_replay(Vec::new()), "faf").await;
+        let content = game_app_content(&[], Ok(None));
+        let result = start_in_game_app(&game_app, &content, &scfa_replay(Vec::new()), "faf").await;
         assert_eq!(
             result,
             Err("No FAF game files of version 3841 (NO_GAME_FILES)".into())
         );
+    }
+
+    #[test]
+    fn the_game_app_takes_the_envelope_s_mods_or_else_the_body_s() {
+        let body = vec![sim_mod("e5f6-body", "From The Body")];
+        let mut replay = scfa_replay(vec![sim_mod("a1b2-envelope", "From The Envelope")]);
+        replay.body_sim_mods = Some(body.clone());
+        assert_eq!(
+            replay.game_app_mods(),
+            [sim_mod("a1b2-envelope", "From The Envelope")]
+        );
+        replay.sim_mods.clear();
+        assert_eq!(replay.game_app_mods(), body.as_slice());
+        replay.body_sim_mods = None;
+        assert!(replay.game_app_mods().is_empty());
+    }
+
+    /// Issue 638 on the game app's path: a vault replay's envelope names no
+    /// mods, so the ones the game ran with are read from its body.
+    #[tokio::test]
+    async fn a_vault_replay_s_mods_are_read_from_its_body() {
+        let mut body = stream_opening(&lua_mod_table(&[
+            ("e5f6-m28", "M28AI", false),
+            ("a7b8-notify", "Notify", true),
+        ]));
+        body.extend_from_slice(b"game options and the command stream");
+        let dir = std::env::temp_dir().join(format!(
+            "forge-replay-body-mods-test-{}",
+            std::process::id()
+        ));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let path = dir.join("vault.fafreplay");
+        let mut file = br#"{"compression":"zstd","featured_mod":"faf","uid":27457006}"#.to_vec();
+        file.push(b'\n');
+        file.extend(zstd::stream::encode_all(body.as_slice(), 0).unwrap());
+        tokio::fs::write(&path, &file).await.unwrap();
+
+        let replay = decode_fafreplay_to(&path, &dir.join("cache"))
+            .await
+            .expect("should decode");
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        assert!(
+            replay.sim_mods.is_empty(),
+            "the desktop's list is unchanged"
+        );
+        assert_eq!(replay.game_app_mods(), [sim_mod("e5f6-m28", "M28AI")]);
     }
 
     #[test]
