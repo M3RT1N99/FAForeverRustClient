@@ -3,11 +3,15 @@
 //! Windows release builds have no console, so diagnostics must go to a file.
 //! Files rotate daily or when they reach the byte limit and are capped to seven
 //! entries. The non-blocking guard is held by Tauri managed state for the
-//! process lifetime so shutdown flushes pending records.
+//! process lifetime so shutdown flushes pending records. A panic is written to
+//! the same file at once, past that writer ([`install_panic_hook`]).
 
+use std::any::Any;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError};
+use std::time::{Duration, Instant};
 
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::filter::EnvFilter;
@@ -19,13 +23,17 @@ const MAX_LOG_FILE_BYTES: u64 = 10 * 1024 * 1024;
 const LOG_FILE_PREFIX: &str = "faforever-client.";
 const LOG_FILE_SUFFIX: &str = ".log";
 
+/// How long the panic hook waits for the log file while the writer's thread
+/// is in the middle of a line.
+const PANIC_WRITE_PATIENCE: Duration = Duration::from_millis(200);
+
 pub struct DiagnosticsGuard {
     _writer: WorkerGuard,
 }
 
 pub fn init(log_dir: &Path) -> Result<DiagnosticsGuard, String> {
-    let appender = build_appender(log_dir)?;
-    let (writer, guard) = tracing_appender::non_blocking(appender);
+    let appender = SharedAppender::new(build_appender(log_dir)?);
+    let (writer, guard) = tracing_appender::non_blocking(appender.clone());
     let filter = EnvFilter::try_from_env("FAF_LOG")
         .unwrap_or_else(|_| EnvFilter::new("faf_app=info,faforever_rust_client_lib=info,warn"));
     let file = tracing_subscriber::fmt::layer()
@@ -48,12 +56,122 @@ pub fn init(log_dir: &Path) -> Result<DiagnosticsGuard, String> {
         .try_init()
         .map_err(|error| format!("could not install the diagnostics subscriber: {error}"))?;
 
+    install_panic_hook(appender);
     tracing::info!(
         retained_files = MAX_LOG_FILES,
         max_file_bytes = MAX_LOG_FILE_BYTES,
         "client diagnostics initialized"
     );
     Ok(DiagnosticsGuard { _writer: guard })
+}
+
+/// The rolling file, shared by the non-blocking writer's thread and the panic
+/// hook.
+#[derive(Clone)]
+struct SharedAppender(Arc<Mutex<SizeAndDateRollingAppender>>);
+
+impl SharedAppender {
+    fn new(appender: SizeAndDateRollingAppender) -> Self {
+        Self(Arc::new(Mutex::new(appender)))
+    }
+
+    fn lock(&self) -> MutexGuard<'_, SizeAndDateRollingAppender> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Write `record` now, waiting at most [`PANIC_WRITE_PATIENCE`] for the
+    /// writer's thread to finish its line. Gives up rather than waits on a
+    /// lock this very thread may hold: a panic inside a write.
+    fn write_now(&self, record: &str) {
+        let deadline = Instant::now() + PANIC_WRITE_PATIENCE;
+        let mut file = loop {
+            match self.0.try_lock() {
+                Ok(file) => break file,
+                Err(TryLockError::Poisoned(poisoned)) => break poisoned.into_inner(),
+                Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(TryLockError::WouldBlock) => return,
+            }
+        };
+        // Nowhere to report a failure: this is the logger, in a panic.
+        let _ = file.write_all(record.as_bytes());
+        let _ = file.flush();
+    }
+}
+
+impl Write for SharedAppender {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.lock().write(buffer)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.lock().flush()
+    }
+}
+
+/// Write every panic into the log file, with its message, place and thread,
+/// before the default hook prints it.
+///
+/// Straight into the file rather than through `tracing`: the non-blocking
+/// writer hands lines to a thread of its own, and a panic that ends the
+/// process (on Android one on a thread the system called into, which aborts)
+/// leaves that thread no time to write its queue. A phone's log then ended
+/// mid-session with no word of why.
+fn install_panic_hook(file: SharedAppender) {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        file.write_now(&panic_record(
+            time::OffsetDateTime::now_utc(),
+            thread.name().unwrap_or("unnamed"),
+            info.location(),
+            panic_message(info.payload()),
+        ));
+        previous(info);
+    }));
+}
+
+/// What a panic said: `panic!`'s text, or a placeholder for a payload that is
+/// not text (`std::panic::panic_any`).
+fn panic_message(payload: &(dyn Any + Send)) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("a panic without a message")
+}
+
+/// A panic as a line of the log, in the shape the file's other lines have:
+/// UTC time, level, target, then what happened.
+fn panic_record(
+    at: time::OffsetDateTime,
+    thread: &str,
+    location: Option<&std::panic::Location<'_>>,
+    message: &str,
+) -> String {
+    let place = location.map_or_else(
+        || "an unknown place".to_owned(),
+        |location| {
+            format!(
+                "{}:{}:{}",
+                location.file(),
+                location.line(),
+                location.column()
+            )
+        },
+    );
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:06}Z ERROR {}: panic in thread {thread} at {place}: {message}\n",
+        at.year(),
+        at.month() as u8,
+        at.day(),
+        at.hour(),
+        at.minute(),
+        at.second(),
+        at.microsecond(),
+        module_path!(),
+    )
 }
 
 fn build_appender(log_dir: &Path) -> Result<SizeAndDateRollingAppender, String> {
@@ -273,6 +391,80 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
+
+    /// Puts the default hook back however the test ends, so no other test
+    /// writes its panics into this one's file.
+    struct DefaultHookAfter;
+
+    impl Drop for DefaultHookAfter {
+        fn drop(&mut self) {
+            let _ = std::panic::take_hook();
+        }
+    }
+
+    #[test]
+    fn a_panic_reaches_the_log_file_with_its_message_and_place() {
+        let directory = test_directory("panic");
+        let file = SharedAppender::new(build_appender(&directory).expect("appender"));
+        let hook = DefaultHookAfter;
+        install_panic_hook(file);
+        let panicked = std::thread::Builder::new()
+            .name("probe".into())
+            .spawn(|| panic!("the probe's own panic, number {}", 7))
+            .unwrap()
+            .join();
+        drop(hook);
+        assert!(panicked.is_err());
+
+        // Not flushed by any writer thread: the hook wrote it itself.
+        let files = client_log_files(&directory).unwrap();
+        assert_eq!(files.len(), 1);
+        let text = std::fs::read_to_string(&files[0]).unwrap();
+        let line = text
+            .lines()
+            .find(|line| line.contains("the probe's own panic"))
+            .unwrap_or_else(|| panic!("no panic line in {text:?}"));
+        assert!(line.contains(" ERROR "), "{line}");
+        assert!(line.contains("panic in thread probe at "), "{line}");
+        assert!(line.contains("diagnostics.rs:"), "{line}");
+        assert!(
+            line.ends_with(": the probe's own panic, number 7"),
+            "{line}"
+        );
+        remove_test_directory(directory);
+    }
+
+    #[test]
+    fn a_panic_record_reads_like_the_lines_around_it() {
+        let at = time::Date::from_calendar_date(2026, time::Month::November, 24)
+            .unwrap()
+            .with_hms_micro(18, 5, 9, 123_456)
+            .unwrap()
+            .assume_utc();
+        let location = std::panic::Location::caller();
+        let record = panic_record(at, "tokio-runtime-worker", Some(location), "oh no");
+        assert_eq!(
+            record,
+            format!(
+                "2026-11-24T18:05:09.123456Z ERROR faforever_rust_client_lib::diagnostics: \
+                 panic in thread tokio-runtime-worker at {}:{}:{}: oh no\n",
+                location.file(),
+                location.line(),
+                location.column()
+            )
+        );
+        assert!(panic_record(at, "main", None, "x").contains(" at an unknown place: x"));
+    }
+
+    #[test]
+    fn a_panic_s_message_is_its_text_whatever_the_payload() {
+        let text: Box<dyn Any + Send> = Box::new("plain");
+        let formatted: Box<dyn Any + Send> = Box::new(String::from("formatted 7"));
+        let other: Box<dyn Any + Send> = Box::new(7_u32);
+        assert_eq!(panic_message(text.as_ref()), "plain");
+        assert_eq!(panic_message(formatted.as_ref()), "formatted 7");
+        assert_eq!(panic_message(other.as_ref()), "a panic without a message");
+    }
 
     #[test]
     fn rolling_writer_creates_a_client_log() {
