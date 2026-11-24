@@ -1,10 +1,12 @@
 //! What the client needs from Android itself, through its own Kotlin in
 //! `gen/android`: the browser for sign-in, a store for the remembered sign-in
 //! (`crate::keystore`), the share sheet and the device's make for the logs
-//! and a problem report, and the FAF game app with its updates.
+//! and a problem report, and the FAF game app with its updates. And the
+//! page's renderer dying ([`renderer`]).
 
 #[cfg(faf_uid_test_build)]
 pub(crate) mod faf_uid_check;
+mod renderer;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};

@@ -6,6 +6,17 @@ import org.gradle.api.logging.LogLevel
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.TaskAction
 
+// Code for the body of the WebView client wry generates (generated/RustWebViewClient.kt), which
+// wry's build script takes from this variable when the Rust build writes that file: the one way
+// in short of editing a generated file. It answers the page's renderer process ending, which wry
+// leaves unanswered and Android then ends the whole client for; MainActivity.onRendererGone says
+// why and what it does.
+private const val WEBVIEW_CLIENT_EXTENSION_VARIABLE = "WRY_RUSTWEBVIEWCLIENT_CLASS_EXTENSION"
+private val webViewClientExtension = """
+    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean =
+        (view.context as? MainActivity)?.onRendererGone(view, detail) ?: false
+""".trimIndent()
+
 open class BuildTask : DefaultTask() {
     @Input
     var rootDirRel: String? = null
@@ -55,6 +66,7 @@ open class BuildTask : DefaultTask() {
         project.exec {
             workingDir(File(project.projectDir, rootDirRel))
             executable(executable)
+            environment(WEBVIEW_CLIENT_EXTENSION_VARIABLE, webViewClientExtension)
             args(args)
             if (project.logger.isEnabled(LogLevel.DEBUG)) {
                 args("-vv")

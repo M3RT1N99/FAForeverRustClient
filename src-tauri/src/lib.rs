@@ -29,6 +29,7 @@ mod keystore;
 mod navigation;
 mod notification_popup;
 mod picked_paths;
+mod recovery_cap;
 mod startup;
 #[cfg(desktop)]
 mod tray;

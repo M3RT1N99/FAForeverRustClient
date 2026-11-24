@@ -4,6 +4,8 @@ import android.graphics.Color
 import android.os.Bundle
 import android.provider.Settings
 import android.system.Os
+import android.view.ViewGroup
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebView
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
@@ -61,4 +63,25 @@ class MainActivity : TauriActivity() {
     super.onResume()
     BrowserWaitService.stop(this)
   }
+
+  // The page's renderer process has ended: it crashed, or Android ended it for
+  // its memory while the client was in the back, which a game in front makes
+  // likely. Called by the WebView's client, the generated RustWebViewClient,
+  // through the code BuildTask hands wry for it. A WebView whose renderer is
+  // gone cannot be used again, and left unanswered Android ends the whole
+  // client with it. So the WebView is let go and the activity built again,
+  // which wry and tao take as a configuration change: they keep the window and
+  // its handlers and create the WebView anew, whose page loads and reads its
+  // state from the core, which never stopped, as at a start. The Rust side logs
+  // it and caps the rebuilds (src-tauri/src/android/renderer.rs); past the cap
+  // the answer is Android's own again.
+  fun onRendererGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+    if (!rendererGone(detail.didCrash(), detail.rendererPriorityAtExit())) return false
+    (view.parent as? ViewGroup)?.removeView(view)
+    view.destroy()
+    if (!isFinishing && !isDestroyed) recreate()
+    return true
+  }
+
+  private external fun rendererGone(crashed: Boolean, priorityAtExit: Int): Boolean
 }

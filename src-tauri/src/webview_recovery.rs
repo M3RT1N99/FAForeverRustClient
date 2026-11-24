@@ -17,7 +17,8 @@
 //!   frame.
 //!
 //! Capped: a page that crashes while it is drawn would otherwise come back
-//! and crash forever. After three in five minutes it is left as it is.
+//! and crash forever. After three in five minutes it is left as it is
+//! ([`RecoveryCap`], which Android's recovery shares).
 //!
 //! A window is not standing when Tauri hands back its handle: off the main
 //! thread the native window is only queued, and if its creation then fails
@@ -34,7 +35,6 @@
 //! This recovers WebView2's processes, not this one: a crash of the client
 //! itself takes the connection with it.
 
-use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -47,11 +47,8 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
 };
 use webview2_com::ProcessFailedEventHandler;
 
+use crate::recovery_cap::RecoveryCap;
 use crate::window::main_window;
-
-/// How many times the window is brought back within [`RECOVERY_SPAN`].
-const MAX_RECOVERIES: usize = 3;
-const RECOVERY_SPAN: Duration = Duration::from_secs(5 * 60);
 
 /// How long a window being built may go without its page starting to load
 /// before it counts as failed.
@@ -69,7 +66,7 @@ struct Geometry {
 #[derive(Default)]
 pub(crate) struct Recoveries {
     /// When the window was last brought back, for the cap.
-    recent: Mutex<VecDeque<Instant>>,
+    recent: RecoveryCap,
     /// Set from closing the old window until the new one's page says it is
     /// ready (`on_page_ready`): the old one closing is otherwise the last
     /// window closing, which exits. Not cleared when the build call returns:
@@ -146,24 +143,6 @@ pub(crate) fn on_activated(app: &tauri::AppHandle) {
         if let Some(window) = main_window(app) {
             let _ = window.maximize();
         }
-    }
-}
-
-impl Recoveries {
-    /// Whether one more recovery is within the cap; counts it if it is.
-    fn allow(&self, now: Instant) -> bool {
-        let mut recent = lock(&self.recent);
-        while recent
-            .front()
-            .is_some_and(|at| now.duration_since(*at) > RECOVERY_SPAN)
-        {
-            recent.pop_front();
-        }
-        if recent.len() >= MAX_RECOVERIES {
-            return false;
-        }
-        recent.push_back(now);
-        true
     }
 }
 
@@ -304,7 +283,7 @@ fn on_process_failed(
         // Gone until the reloaded page says otherwise, which a reload that
         // fails to load never does.
         crate::exit::page_gone(app);
-        if !recoveries.allow(Instant::now()) {
+        if !recoveries.recent.allow(Instant::now()) {
             tracing::error!(
                 "the window's page crashed again; leaving it rather than reloading it in a loop"
             );
@@ -319,7 +298,7 @@ fn on_process_failed(
         }
     } else if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED {
         crate::exit::page_gone(app);
-        if !recoveries.allow(Instant::now()) {
+        if !recoveries.recent.allow(Instant::now()) {
             tracing::error!(
                 "the web view's browser process exited again; leaving the window as it is"
             );
@@ -454,12 +433,9 @@ pub(crate) fn on_run_event(app: &tauri::AppHandle, event: &tauri::RunEvent) {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
-    use super::{
-        classify, on_standing, Recoveries, WindowState, BUILD_TIMEOUT, MAX_RECOVERIES,
-        RECOVERY_SPAN,
-    };
+    use super::{classify, on_standing, WindowState, BUILD_TIMEOUT};
 
     #[test]
     fn a_rebuilt_window_is_shown_once_it_stands_unless_the_client_was_hidden_meanwhile() {
@@ -472,26 +448,6 @@ mod tests {
         assert_eq!(on_standing(true, false, false), Some(true));
         // The first window at a start, built visible: nothing to do.
         assert_eq!(on_standing(false, false, false), None);
-    }
-
-    #[test]
-    fn brings_the_window_back_a_few_times_then_leaves_it() {
-        let recoveries = Recoveries::default();
-        let start = Instant::now();
-        for _ in 0..MAX_RECOVERIES {
-            assert!(recoveries.allow(start));
-        }
-        assert!(!recoveries.allow(start + Duration::from_secs(1)));
-    }
-
-    #[test]
-    fn a_crash_long_after_the_last_ones_is_recovered_again() {
-        let recoveries = Recoveries::default();
-        let start = Instant::now();
-        for _ in 0..MAX_RECOVERIES {
-            assert!(recoveries.allow(start));
-        }
-        assert!(recoveries.allow(start + RECOVERY_SPAN + Duration::from_secs(1)));
     }
 
     #[test]
