@@ -15,7 +15,8 @@ import { replayMapKey, replayMapPresentation } from "./coopReplayMap";
 import { useAppStore } from "../../store/store";
 import { useGameRating } from "./useGameRating";
 import { playerCount, ReplayCardRoster, mergeReplayTeamsWithLocal } from "./ReplayRoster";
-import { t } from "../../i18n";
+import { replayWatchBlock, type ReplayWatchBlock } from "../../shared/replayWatch";
+import { t, type MessageKey } from "../../i18n";
 import { useTranslation } from "../../i18n/useTranslation";
 
 /**
@@ -360,6 +361,12 @@ export function ReplayLibraryCard({
   );
 }
 
+/** What a card says in place of its Watch button. */
+const WATCH_BLOCK_NOTE: Record<ReplayWatchBlock, MessageKey> = {
+  notUploaded: "replays.card.notUploaded",
+  generatedMap: "replays.card.generatedMapAndroid",
+};
+
 export function ReplayCard({
   replay,
   watched,
@@ -386,9 +393,11 @@ export function ReplayCard({
   const localReplays = useAppStore((state) => state.state.replays.local);
   const localMatch = localReplays.find((local) => local.uid === replay.uid);
   const map = effectiveReplayMapName(replay.map, localMatch?.map);
-  // Absent for a replay the server has not finished processing, because it
-  // would not work. Same rule as the list view.
-  const watch: ReplayCardWatch | undefined = onWatch && replay.replayAvailable
+  // Absent for a replay that would not start: one the server has not
+  // finished processing, or one this device cannot play yet. Same rule as
+  // the list view.
+  const block = replayWatchBlock(replay);
+  const watch: ReplayCardWatch | undefined = onWatch && block === null
     ? {
       label: t("replays.detail.watch"),
       ariaLabel: t("replays.list.watchAria", { name: replay.title || map }),
@@ -412,7 +421,7 @@ export function ReplayCard({
         durationSeconds: replay.durationSeconds,
         reviewsAverage: replay.reviewsAverage,
         reviewsCount: replay.reviewsCount,
-        footerNote: replay.replayAvailable ? "" : t("replays.card.notUploaded"),
+        footerNote: block === null ? "" : t(WATCH_BLOCK_NOTE[block]),
       }}
       watched={watched}
       showResults={showResults}

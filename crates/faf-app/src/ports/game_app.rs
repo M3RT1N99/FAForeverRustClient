@@ -70,6 +70,25 @@ pub fn contract_map_name(folder: &str) -> Option<String> {
     fits.then_some(name)
 }
 
+/// Why a replay on a generated map does not start in the game app, as the
+/// player is told.
+///
+/// The desktop runs the map generator before such a replay starts
+/// (`ReplayPreparation::ensure_replay_map`). Where the game is an app of its
+/// own the client starts no program beside it, so the generator does not run,
+/// and FAF's content server has no generated map for the game app to fetch:
+/// it refused the start at once (`NO_MAP`). The page offers no Watch for such
+/// a replay and words this in the player's language (`shared/plainError.ts`).
+pub const GENERATED_MAP_REFUSAL: &str =
+    "Replays on generated maps cannot be watched on Android yet: the map generator does not run there.";
+
+/// Why the game app cannot play a game on `map`, a map folder name, when it
+/// cannot: a generated map ([`GENERATED_MAP_REFUSAL`]). Asked before the
+/// game app is, so it is never handed a start it can only refuse.
+pub fn map_refusal(map: &str) -> Option<&'static str> {
+    faf_domain::protocol::map_generator::is_generated_map(map).then_some(GENERATED_MAP_REFUSAL)
+}
+
 /// The name in a live replay's `/replay gpgnet://127.0.0.1:<port>/<id>/<name>.SCFAreplay`
 /// as the contract takes it: `A-Z a-z 0-9 _ . -`, at most 64. Nobody reads
 /// it (the local proxy relays whatever the game asks for), so what does not
@@ -107,6 +126,23 @@ mod tests {
             &"x".repeat(65),
         ] {
             assert_eq!(contract_map_name(refused), None, "{refused}");
+        }
+    }
+
+    #[test]
+    fn only_a_generated_map_is_refused() {
+        for generated in [
+            "neroxis_map_generator_1.12.1_aaaaaaaaaaaaa_aiea",
+            "Neroxis_Map_Generator_1.7.7_seed",
+        ] {
+            assert_eq!(
+                map_refusal(generated),
+                Some(GENERATED_MAP_REFUSAL),
+                "{generated}"
+            );
+        }
+        for vault_or_base in ["scmp_009", "dualgap_adaptive.v0012", "neroxis_island"] {
+            assert_eq!(map_refusal(vault_or_base), None, "{vault_or_base}");
         }
     }
 

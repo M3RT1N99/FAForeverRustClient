@@ -30,6 +30,8 @@ const CAUSES: { key: MessageKey; pattern: RegExp }[] = [
   { key: "errors.cause.lobbyDisconnected", pattern: /^The FAF lobby is disconnected\. Reconnect and try again\.$/ },
   // `vault_install::NOT_ON_ANDROID`.
   { key: "errors.cause.vaultInstallsAndroid", pattern: /^Maps and mods are not installed on Android yet\./ },
+  // `ports::game_app::GENERATED_MAP_REFUSAL`.
+  { key: "errors.cause.generatedMapAndroid", pattern: /^Replays on generated maps cannot be watched on Android yet\b/ },
   // Android's shell, before it hands a start to the FAF game app
   // (`refusal_before_start` in `src-tauri/src/game_app.rs`).
   { key: "android.gameApp.need.install", pattern: /^FAF's game app is not installed$/ },

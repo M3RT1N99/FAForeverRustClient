@@ -114,6 +114,16 @@ export function mapsCanBeGenerated(): boolean {
   return !theGameIsItsOwnApp();
 }
 
+/**
+ * Whether a replay played on a generated map can be watched here. The desktop
+ * generates the map before such a replay starts; where maps cannot be
+ * generated, the game app has no way to the map and refuses the start
+ * (`NO_MAP`), so the replay is not offered (`shared/replayWatch`).
+ */
+export function generatedMapReplaysPlay(): boolean {
+  return mapsCanBeGenerated();
+}
+
 /** What the shell said about play (`shared/playOffer`); `null` until it has. */
 let shellOffersPlay: boolean | null = null;
 

@@ -2889,6 +2889,7 @@ export const en = {
   "replays.card.realTime": "Real time (wall clock)",
   "replays.card.onMap": "on {map}",
   "replays.card.notUploaded": "not uploaded yet",
+  "replays.card.generatedMapAndroid": "generated map, not on Android yet",
   // German puts the preposition first ("vor 3d"), so the whole phrase is one
   // message rather than a suffix appended to a formatted duration.
   "replays.card.justNow": "just now",
@@ -2918,6 +2919,7 @@ export const en = {
   "replays.detail.reviewCount": { one: "{count} community review", other: "{count} community reviews" },
   "replays.detail.watch": "Watch",
   "replays.detail.notUploaded": "Not uploaded",
+  "replays.watch.notOnAndroid": "Not on Android yet",
   "replays.detail.downloading": "Downloading…",
   "replays.detail.downloaded": "Downloaded",
   "replays.detail.download": "Download",
@@ -6438,6 +6440,7 @@ export const en = {
   "errors.cause.lobbyDisconnected": "The FAF lobby is disconnected. Reconnect and try again.",
   "errors.cause.lobbySendBusy": "The FAF lobby send queue is full. Wait a moment and try again.",
   "errors.cause.vaultInstallsAndroid": "Maps and mods are not installed on Android yet. A later version hands them to the game app.",
+  "errors.cause.generatedMapAndroid": "Replays on generated maps cannot be watched on Android yet: the map generator does not run there.",
   "errors.cause.notOnAndroid": "Not available on Android.",
   "errors.cause.unknown": "Something went wrong. Try again.",
   "replays.insights.from": "From",

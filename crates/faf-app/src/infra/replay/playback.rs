@@ -30,7 +30,7 @@ use tokio::sync::Mutex;
 use crate::infra::session::TokenStore;
 use crate::infra::vault_install::MAX_DOWNLOAD_BYTES;
 use crate::infra::{cache_dir, game_updater};
-use crate::ports::game_app::{contract_map_name, GameAppPort, GameAppStart};
+use crate::ports::game_app::{contract_map_name, map_refusal, GameAppPort, GameAppStart};
 use crate::ports::{
     GameMod, GameUpdaterPort, MapGeneratorPort, ModsPort, PreparationPhase, PreparationSink,
     PreparationStep, ProcessPort, ReplayPlaybackPort,
@@ -435,13 +435,19 @@ impl ReplayPlayback {
 /// map and its simulation mods, which the game app fetches where it lacks
 /// them. It takes a mod by its file on FAF's content server, which a replay
 /// does not name, so each is looked up; a mod with no file there is played
-/// without, and the warning says so.
+/// without, and the warning says so. A replay on a map the game app cannot
+/// have, a generated one, is refused here (`map_refusal`).
 async fn start_in_game_app(
     game_app: &dyn GameAppPort,
     content: &GameAppContent,
     replay: &ScfaReplay,
     mod_name: &str,
 ) -> Result<Option<String>, String> {
+    // Before the mods are looked up and before PLAY: the game app would
+    // refuse it at once, and the player is told why in plain words instead.
+    if let Some(refusal) = replay.map_folder.as_deref().and_then(map_refusal) {
+        return Err(refusal.to_owned());
+    }
     let (mods, warning) = content.mods(replay.game_app_mods()).await;
     let start = GameAppStart {
         game_version: replay.game_version,
@@ -740,6 +746,25 @@ mod tests {
                 replay: Some(PathBuf::from("replay_00ff.scfareplay")),
                 ..GameAppStart::default()
             }]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_replay_on_a_generated_map_is_refused_before_play() {
+        let game_app = RecordingGameApp::default();
+        let content = game_app_content(&[], Ok(None));
+        let replay = ScfaReplay {
+            map_folder: Some("neroxis_map_generator_1.12.1_aaaaaaaaaaaaa_aiea".into()),
+            ..scfa_replay(Vec::new())
+        };
+        let result = start_in_game_app(&game_app, &content, &replay, "faf").await;
+        assert_eq!(
+            result,
+            Err(crate::ports::game_app::GENERATED_MAP_REFUSAL.to_owned())
+        );
+        assert!(
+            game_app.starts.lock().unwrap().is_empty(),
+            "the game app is never asked"
         );
     }
 

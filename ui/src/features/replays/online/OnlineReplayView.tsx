@@ -12,6 +12,7 @@ import { OnlineReplayList } from "../OnlineReplayList";
 import { ReplayCard } from "../ReplayCard";
 import { ReplayDetailPanel } from "../ReplayDetailPanel";
 import { ReplayViewSwitch, type ReplayViewMode } from "../ReplayViewSwitch";
+import { replayWatchBlock } from "../../../shared/replayWatch";
 import { subscribeReplaySearch, takeReplaySearch } from "../../../shared/replaySearchIntent";
 import { VaultSearch } from "./VaultSearch";
 import { ReplayPageSize } from "./AdvancedReplayFilters";
@@ -328,7 +329,7 @@ export function OnlineReplayView({ busy }: { busy: boolean }) {
               busy={busy}
               showResults={showResults}
               onOpen={() => setOpenUid(r.uid)}
-              onDoubleClick={() => r.replayAvailable && !busy && markWatchedAndPlay(r.uid)}
+              onDoubleClick={() => replayWatchBlock(r) === null && !busy && markWatchedAndPlay(r.uid)}
               onWatch={() => {
                 setSelectedUid(r.uid);
                 if (!busy) markWatchedAndPlay(r.uid);

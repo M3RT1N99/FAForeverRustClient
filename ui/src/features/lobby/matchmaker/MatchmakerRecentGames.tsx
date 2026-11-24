@@ -26,8 +26,16 @@ import { openPlayerCard } from "../../../shared/playerCardActions";
 import { requestPlayerCardTab } from "../../../shared/playerCardTabIntent";
 import { EMPTY_REPLAY_QUERY } from "../../../shared/replayQuery";
 import { requestReplaySearch } from "../../../shared/replaySearchIntent";
+import { replayWatchBlock, type ReplayWatchBlock } from "../../../shared/replayWatch";
 import { useAppStore } from "../../../store/store";
 import { outcomeLabel, teamOutcome, type OutcomeKind } from "../../../shared/gameOutcome";
+import type { MessageKey } from "../../../i18n";
+
+/** Why a recent game's Watch is off, on hover. */
+const WATCH_BLOCK_HINT: Record<ReplayWatchBlock, MessageKey> = {
+  notUploaded: "lobby.matchmaker.recent.notYetAvailable",
+  generatedMap: "errors.cause.generatedMapAndroid",
+};
 
 /** One game from the point of view of the player it was loaded for. */
 export interface RecentGameSide {
@@ -282,6 +290,7 @@ export function MatchmakerRecentGames({ playerName, vault }: { playerName: strin
               const outcome = side.outcome;
               const change = side.me?.ratingChange ?? null;
               const mapName = mapPresentation(vault, game.map).displayName;
+              const block = replayWatchBlock(game);
               // In designed order here, drawn in the stored one.
               const cells = [
                 <td key={0}>
@@ -344,9 +353,9 @@ export function MatchmakerRecentGames({ playerName, vault }: { playerName: strin
                 <td key={7} className="matchmaker-recent-replay">
                   <span className={`matchmaker-recent-actions${compactActions ? " is-compact" : ""}`}>
                     <Button
-                      disabled={!game.replayAvailable}
+                      disabled={block !== null}
                       aria-label={compactActions ? t("lobby.matchmaker.recent.watch") : undefined}
-                      title={game.replayAvailable ? t("lobby.matchmaker.recent.watchHint") : t("lobby.matchmaker.recent.notYetAvailable")}
+                      title={t(block === null ? "lobby.matchmaker.recent.watchHint" : WATCH_BLOCK_HINT[block])}
                       onClick={() => ipc.send({ kind: "Replays", command: { type: "watchVault", payload: { uid: game.uid } } })}
                     >
                       <Icon name="play" size={13} />

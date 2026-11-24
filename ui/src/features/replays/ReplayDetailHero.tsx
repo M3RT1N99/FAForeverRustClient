@@ -11,7 +11,21 @@ import { MapPreviewFrame } from "../../shared/components/MapPreviewZoom";
 import { onlineReplayLink } from "../../shared/replayLinks";
 import { useClipboardCopy } from "../../shared/hooks/useClipboardCopy";
 import { ReplayMapThumb } from "./ReplayCard";
+import { replayWatchBlock, type ReplayWatchBlock } from "../../shared/replayWatch";
 import type { ReplayMapPreparation } from "./useReplayMapPreparation";
+import type { MessageKey } from "../../i18n";
+
+/** Why the hero's Watch is off, beside the map. */
+const WATCH_BLOCK_REASON: Record<ReplayWatchBlock, MessageKey> = {
+  notUploaded: "replays.detail.processing",
+  generatedMap: "errors.cause.generatedMapAndroid",
+};
+
+/** What the hero's Watch says while it is off. */
+const WATCH_BLOCK_LABEL: Record<ReplayWatchBlock, MessageKey> = {
+  notUploaded: "replays.detail.notUploaded",
+  generatedMap: "replays.watch.notOnAndroid",
+};
 
 interface HeroProps {
   replay: VaultReplay;
@@ -38,6 +52,7 @@ export function ReplayDetailHero({
 }: HeroProps) {
   const { t } = useTranslation();
   const { effectiveMap, seed, thumbGenerateAction, isGeneratingThisMap, downloadMap } = map;
+  const block = replayWatchBlock(replay);
   const [copied, copyLink] = useClipboardCopy(onlineReplayLink(replay.uid));
   const [copiedId, copyReplayId] = useClipboardCopy(String(replay.uid));
 
@@ -158,9 +173,9 @@ export function ReplayDetailHero({
             </Button>
           )}
         </div>
-        {!replay.replayAvailable && (
+        {block !== null && (
           <div className="replay-detail-badges">
-            <span className="replay-availability pending">{t("replays.detail.processing")}</span>
+            <span className="replay-availability pending">{t(WATCH_BLOCK_REASON[block])}</span>
           </div>
         )}
       </div>
@@ -169,11 +184,11 @@ export function ReplayDetailHero({
       <Button
         className="replay-watch-button replay-detail-hero-watch"
         variant="primary"
-        disabled={busy || !replay.replayAvailable}
+        disabled={busy || block !== null}
         onClick={onWatch}
       >
         <Icon name="play" size={18} />
-        <span>{t(replay.replayAvailable ? "replays.detail.watch" : "replays.detail.notUploaded")}</span>
+        <span>{t(block === null ? "replays.detail.watch" : WATCH_BLOCK_LABEL[block])}</span>
       </Button>
     </header>
   );

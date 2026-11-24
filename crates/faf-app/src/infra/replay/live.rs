@@ -77,7 +77,7 @@ use tokio_util::sync::CancellationToken;
 use crate::infra::session::TokenStore;
 use crate::infra::{fetch_access_url, validated_ws_url};
 use crate::ports::game_app::{
-    contract_map_name, contract_replay_name, GameAppPort, GameAppRun, GameAppStart,
+    contract_map_name, contract_replay_name, map_refusal, GameAppPort, GameAppRun, GameAppStart,
 };
 use crate::ports::ProcessPort;
 
@@ -270,6 +270,13 @@ impl LiveStreamer {
         target: LiveReplayTarget,
         player: String,
     ) -> Result<Option<String>, String> {
+        // Before anything is stopped or opened: a game on a map the game app
+        // cannot have, a generated one, is refused as a replay file's is.
+        if crate::infra::game_app::game_app().is_some() {
+            if let Some(refusal) = map_refusal(&target.map) {
+                return Err(refusal.to_owned());
+            }
+        }
         // Same reason as `play_file`, plus one of its own on Windows: the live
         // transport's named pipe is created with `first_pipe_instance`, and
         // the previous live replay's relay may still hold it after its game

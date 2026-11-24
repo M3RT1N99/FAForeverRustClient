@@ -154,4 +154,33 @@ describe("Replay cards with partial lookups, mounted", () => {
     expect(within(cardOf("Healthy game")).getByRole("button", { name: "Watch Healthy game" })).toBeTruthy();
     expect(within(cardOf("Withdrawn game")).getByRole("button", { name: "Watch Withdrawn game" })).toBeTruthy();
   });
+
+  it("on Android, says why a replay on a generated map has no Watch button", () => {
+    const agent = vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+      "Mozilla/5.0 (Linux; Android 16; SM-S908B; wv) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36",
+    );
+    try {
+      render(
+        <>
+          <ReplayCard
+            replay={vaultReplay(4, "Generated game", "Neroxis Map Generator")}
+            watched={false}
+            onOpen={() => undefined}
+            onWatch={() => undefined}
+          />
+          <ReplayCard
+            replay={vaultReplay(5, "Vault game", "setons_clutch.v0002")}
+            watched={false}
+            onOpen={() => undefined}
+            onWatch={() => undefined}
+          />
+        </>,
+      );
+      expect(within(cardOf("Generated game")).getByText("generated map, not on Android yet")).toBeTruthy();
+      expect(within(cardOf("Generated game")).queryByRole("button", { name: /^Watch/ })).toBeNull();
+      expect(within(cardOf("Vault game")).getByRole("button", { name: "Watch Vault game" })).toBeTruthy();
+    } finally {
+      agent.mockRestore();
+    }
+  });
 });

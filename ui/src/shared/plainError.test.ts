@@ -36,6 +36,12 @@ describe("plainError", () => {
     expect(plainError(refused)).toBe(en["errors.cause.vaultInstallsAndroid"]);
   });
 
+  it("translates why a replay on a generated map does not start on Android", () => {
+    // `ports::game_app::GENERATED_MAP_REFUSAL`, word for word.
+    const refused = "Replays on generated maps cannot be watched on Android yet: the map generator does not run there.";
+    expect(plainError(refused)).toBe(en["errors.cause.generatedMapAndroid"]);
+  });
+
   it("says plainly that a picker is not available on Android", () => {
     // The shell's `pick_path` refusal, now and as test build 3 still worded it.
     expect(plainError("Choosing files and folders is not available on Android.")).toBe(en["errors.cause.notOnAndroid"]);

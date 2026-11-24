@@ -12,9 +12,16 @@ import {
   ReplayList,
   type ReplayListGroup,
 } from "./ReplayList";
-import { t } from "../../i18n";
+import { t, type MessageKey } from "../../i18n";
 import { useTranslation } from "../../i18n/useTranslation";
 import { NO_RESOLVED_MAPS, replayAge } from "./ReplayCard";
+import { replayWatchBlock, type ReplayWatchBlock } from "../../shared/replayWatch";
+
+/** What a row's replay column says when it offers no Watch. */
+const WATCH_BLOCK_STATUS: Record<ReplayWatchBlock, MessageKey> = {
+  notUploaded: "replays.list.processing",
+  generatedMap: "replays.watch.notOnAndroid",
+};
 
 export function OnlineReplayList({
   replays,
@@ -55,6 +62,7 @@ export function OnlineReplayList({
       const map = effectiveReplayMapName(replay.map, localReplays.find((local) => local.uid === replay.uid)?.map);
       const resolved = resolvedMaps[replay.uid];
       const presentation = replayMapPresentation(vault, missions, { ...replay, map }, resolved);
+      const block = replayWatchBlock(replay);
       return {
         key: String(replay.uid),
         mapName: replayMapKey(missions, { ...replay, map }, resolved),
@@ -87,9 +95,9 @@ export function OnlineReplayList({
             : t("replays.list.realTimeUnavailable"),
         },
         replay: {
-          primary: t(replay.replayAvailable ? "replays.list.available" : "replays.list.processing"),
+          primary: t(block === null ? "replays.list.available" : WATCH_BLOCK_STATUS[block]),
           secondary: `#${replay.uid}`,
-          tone: replay.replayAvailable ? "ok" : "warn",
+          tone: block === null ? "ok" : "warn",
         },
         selected: selectedUid === replay.uid,
         watched: watchedUids.has(replay.uid),
@@ -101,16 +109,17 @@ export function OnlineReplayList({
         // the selection too, so the row stays marked once the panel is closed.
         onSelect: () => onOpen(replay.uid),
         onActivate: () => {
-          if (onWatch && replay.replayAvailable) onWatch(replay.uid);
+          if (onWatch && block === null) onWatch(replay.uid);
           else onOpen(replay.uid);
         },
         // Watch and Download on the row itself, which is what the thread
         // asked for: both were a detail panel away, and both are the reason
         // somebody is looking at the row in the first place. Neither appears
         // for a replay the server has not finished processing, because
-        // neither would work.
+        // neither would work, and Watch not for one this device cannot play
+        // yet, whose file still downloads.
         iconActions: [
-          ...(onWatch && replay.replayAvailable
+          ...(onWatch && block === null
             ? [{
               icon: "play" as const,
               ariaLabel: t("replays.list.watchAria", { name: replay.title || map }),
