@@ -206,6 +206,7 @@ pub(super) fn path_rule(command: &AppCommand) -> PathRule<'_> {
             | ReplayCommand::SearchVault { query: _ }
             | ReplayCommand::LoadFeaturedMods
             | ReplayCommand::LoadRecentMatchmaker
+            | ReplayCommand::LoadRunningGames
             | ReplayCommand::WatchVault { uid: _ }
             | ReplayCommand::DownloadVault { uid: _ }
             | ReplayCommand::CancelDownload { uid: _ }

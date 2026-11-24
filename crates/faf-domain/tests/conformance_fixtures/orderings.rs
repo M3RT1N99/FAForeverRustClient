@@ -42,8 +42,10 @@ fn per_operation(sources: usize) -> usize {
 /// Random walks per sequence of every other operation.
 const WALKS_PER_OPERATION: usize = 4;
 
-/// Longest random walk, in events.
-const MAX_WALK: usize = 20;
+/// Longest random walk, in events. Lowered from 20 when the fixture reached
+/// its size limit: a walk starts from an arbitrary reachable state either
+/// way, and two steps fewer at its longest cost little of what it finds.
+const MAX_WALK: usize = 18;
 
 /// The written fixture must stay below this. Sequences are cheap; distinct
 /// starting states are what cost space.

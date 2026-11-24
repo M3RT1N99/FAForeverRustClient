@@ -13,12 +13,12 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use faf_domain::protocol::replay_query;
 use faf_domain::state::{
-    sort_vault_replays, LocalReplay, ReplayQuery, ReplaySortField, VaultReplay,
+    sort_vault_replays, Game, LocalReplay, ReplayQuery, ReplaySortField, VaultReplay,
 };
 use futures_util::{stream, StreamExt};
 use tokio::sync::Mutex;
 
-use crate::infra::jsonapi::{fetch_document, meta_page_i32, total_pages};
+use crate::infra::jsonapi::{fetch_all_pages, fetch_document, meta_page_i32, total_pages};
 use crate::infra::session::TokenStore;
 use crate::infra::vault_install::{
     bounded_body_with_progress, validate_origin_url, CallOff, MAX_DOWNLOAD_BYTES,
@@ -28,7 +28,7 @@ use crate::ports::ReplayVaultPort;
 
 use super::library::{local_metadata_for_path, ReplayLibrary};
 use super::scfa_header::{map_name_from_replay_head, sim_mods_from_replay_head, REPLAY_HEAD_BYTES};
-use super::vault_rows::{parse_featured_mods, parse_vault_replays};
+use super::vault_rows::{parse_featured_mods, parse_running_games, parse_vault_replays};
 use super::ReplayConfig;
 
 /// The three FAF origins the vault talks to. A replay download is allowed to
@@ -170,7 +170,71 @@ impl ReplayVaultPort for ReplayVault {
         }
         Err(format!("replay {uid} has no readable header"))
     }
+
+    async fn running_games(&self) -> Result<Vec<Game>, String> {
+        let token = self
+            .tokens
+            .get()
+            .ok_or_else(|| "not logged in".to_string())?;
+        let since = chrono::Utc::now() - chrono::Duration::hours(RUNNING_GAME_HOURS);
+        let docs = fetch_all_pages(
+            &self.http,
+            &token,
+            RUNNING_GAME_PAGES,
+            API_PAGE_SIZE as usize,
+            |page| running_games_url(&self.endpoints.api_base, since, page),
+        )
+        .await?;
+        // A game that starts while the pages are read pushes the newest-first
+        // list down by one, and the next page then repeats a row.
+        let mut seen = HashSet::new();
+        Ok(docs
+            .iter()
+            .flat_map(parse_running_games)
+            .filter(|game| seen.insert(game.id))
+            .collect())
+    }
 }
+
+/// How long ago a running game may have started. A game's row stays open
+/// when the game crashed or the server went down under it, and such a row
+/// never gets its end; four hours is longer than all but the rarest real
+/// game, and keeps those rows off the list.
+const RUNNING_GAME_HOURS: i64 = 4;
+
+/// The pages read for them at most: five hundred games, newest first, after
+/// which the oldest are left off.
+const RUNNING_GAME_PAGES: u32 = 5;
+
+/// One page of the games being played now: rows with no end that started at
+/// `since` or later, newest first, with only what a live row shows.
+fn running_games_url(
+    api_base: &str,
+    since: chrono::DateTime<chrono::Utc>,
+    page: u32,
+) -> Result<url::Url, String> {
+    let mut url = url::Url::parse(&format!("{api_base}/data/game"))
+        .map_err(|e| format!("invalid API base: {e}"))?;
+    let since = since.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    url.query_pairs_mut()
+        .append_pair(
+            "filter",
+            &format!(r#"endTime=isnull=true;startTime=ge="{since}""#),
+        )
+        .append_pair("include", RUNNING_GAMES_INCLUDE)
+        .append_pair("fields[featuredMod]", "technicalName")
+        .append_pair("fields[mapVersion]", "folderName,maxPlayers")
+        .append_pair("fields[gamePlayerStats]", "team,player")
+        .append_pair("fields[player]", "login")
+        .append_pair("sort", "-startTime")
+        .append_pair("page[size]", &API_PAGE_SIZE.to_string())
+        .append_pair("page[number]", &page.to_string());
+    Ok(url)
+}
+
+/// The relationships a running game's row needs: its mod, its host, its map
+/// and who plays it.
+const RUNNING_GAMES_INCLUDE: &str = "featuredMod,host,mapVersion,playerStats.player";
 
 /// How much of a vault replay is read for its mod list first: enough for the
 /// body's mod table of all but the most heavily modded games.
@@ -1308,6 +1372,57 @@ Content-Length: {}
             .build()
             .unwrap();
         client
+    }
+
+    /// Game rows still running, as `/data/game` lists them.
+    fn running_rows(ids: impl IntoIterator<Item = i32>) -> serde_json::Value {
+        serde_json::json!({ "data": ids.into_iter().map(|id| serde_json::json!({
+            "type": "game", "id": id.to_string(), "attributes": {
+                "name": format!("Game {id}"), "startTime": "2026-11-24T10:00:00Z",
+                "endTime": null,
+            }
+        })).collect::<Vec<_>>() })
+    }
+
+    #[tokio::test]
+    async fn running_games_are_the_open_rows_of_the_last_hours_newest_first() {
+        let (base, server) = search_server(2, |url| {
+            assert_eq!(url.path(), "/data/game");
+            let query: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+            let since = query["filter"]
+                .strip_prefix(r#"endTime=isnull=true;startTime=ge=""#)
+                .and_then(|rest| rest.strip_suffix('"'))
+                .expect("no end, and a recent start");
+            let since = chrono::DateTime::parse_from_rfc3339(since).unwrap();
+            let window = chrono::Utc::now() - since.with_timezone(&chrono::Utc);
+            assert!(
+                (window - chrono::Duration::hours(RUNNING_GAME_HOURS))
+                    .num_seconds()
+                    .abs()
+                    < 60,
+                "rows of crashed games stay open, so only recent ones: {window}"
+            );
+            assert_eq!(query["include"], RUNNING_GAMES_INCLUDE);
+            assert_eq!(query["fields[player]"], "login");
+            assert_eq!(query["sort"], "-startTime");
+            assert_eq!(query["page[size]"], "100");
+            match query["page[number]"].as_str() {
+                "1" => running_rows((201..=300).rev()),
+                // A game started meanwhile pushed the list down by one.
+                _ => running_rows([201, 200]),
+            }
+        })
+        .await;
+        let games = search_client(base).running_games().await.unwrap();
+        assert_eq!(
+            server.await.unwrap().len(),
+            2,
+            "a full page asks for the next"
+        );
+        assert_eq!(games.len(), 101, "the repeated row is listed once");
+        assert_eq!(games[0].id, 300);
+        assert_eq!(games[0].title, "Game 300");
+        assert_eq!(games[100].id, 200);
     }
 
     #[tokio::test]

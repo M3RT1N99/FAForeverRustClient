@@ -45,6 +45,8 @@ function state(): ReplayState {
     resolvedMapsOrder: [],
     recentMatchmaker: [],
     recentMatchmakerStatus: { type: "idle" },
+    runningGames: [],
+    runningGamesStatus: { type: "idle" },
   };
 }
 

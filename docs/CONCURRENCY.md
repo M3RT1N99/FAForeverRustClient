@@ -71,7 +71,7 @@ Generated from `command_policy.rs`. Regenerate with `cargo test -p faf-app --lib
 
 | Lane | Policy patterns |
 |---|---|
-| `Ordinary` | 244 |
+| `Ordinary` | 245 |
 | `Priority` | 34 |
 
 ### Priority commands
@@ -97,7 +97,7 @@ Generated from `command_policy.rs`. Regenerate with `cargo test -p faf-app --lib
 | Admission | Policy patterns |
 |---|---|
 | `Concurrent` | 189 |
-| `SingleFlight` | 23 |
+| `SingleFlight` | 24 |
 | `Serial` | 20 |
 | `Latest` | 5 |
 | `ServiceGuarded` | 41 |
@@ -136,6 +136,7 @@ Generated from `command_policy.rs`. Regenerate with `cargo test -p faf-app --lib
 | `PartyPlacements` | `Serial` | `PlayerCard::LoadPartyPlacements` |
 | `ConnectivityCheck` | `SingleFlight` | `Connectivity::RunCheck` |
 | `RelayStatus` | `SingleFlight` | `Connectivity::RefreshRelayStatus` |
+| `RunningGames` | `SingleFlight` | `Replays::LoadRunningGames` |
 
 ### Service guards
 

@@ -75,6 +75,7 @@ mod replay_analysis_cancellation;
 mod replay_download;
 mod reporting;
 mod reviews;
+mod running_games;
 mod runtime_settings;
 mod settings_patches;
 mod settings_startup;

@@ -1,15 +1,16 @@
 //! Vault rows: turning `/data/game` and `/data/featuredMod` documents into the
-//! `VaultReplay`s and mod names the vault view shows.
+//! `VaultReplay`s and mod names the vault view shows, and the games still
+//! running into the `Game`s the live view lists.
 //!
 //! Separate from the requests in `vault` because this part is pure: a
 //! document in, rows out, with every relationship walk, rating formula and
 //! fallback the API's shape calls for, all of it testable without a network.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use faf_domain::protocol::map_generator::is_generated_map;
 use faf_domain::protocol::rating::displayed_points;
-use faf_domain::state::{ReplayPlayer, ReplayTeam, VaultReplay};
+use faf_domain::state::{Game, ReplayPlayer, ReplayTeam, VaultReplay, GLOBAL_LEADERBOARD};
 use serde_json::Value;
 
 use crate::infra::jsonapi::{
@@ -550,10 +551,201 @@ pub(super) fn parse_vault_replays(doc: &JsonApiDoc) -> Vec<VaultReplay> {
         .collect()
 }
 
+/// The games a `/data/game` document of running games lists, in the shape
+/// the lobby's `game_info` gives the live view: id, title, host, map folder,
+/// featured mod, the lineup by team and when the game started, which the
+/// replay delay counts from.
+///
+/// The rest is what the API does not know about a game in progress, left at
+/// what reads as unknown there: no average rating (`0`), no simulation mods
+/// (the game record names none, issue 638; a watch reads them from the
+/// stream), and the lobby's default leaderboard and visibility.
+pub(super) fn parse_running_games(doc: &JsonApiDoc) -> Vec<Game> {
+    let index = resource_index(&doc.included);
+    let login = |relationships: &Value, name: &str| {
+        rel_target(relationships, name)
+            .and_then(|key| index.get(&key))
+            .and_then(|player| player.attributes.get("login"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    doc.data
+        .iter()
+        .filter_map(|game| {
+            let id: i32 = game.id.parse().ok()?;
+            let mut teams: BTreeMap<String, Vec<String>> = BTreeMap::new();
+            for key in rel_targets(&game.relationships, "playerStats") {
+                let Some(stat) = index.get(&key) else {
+                    continue;
+                };
+                let Some(player) = login(&stat.relationships, "player") else {
+                    continue;
+                };
+                // The game's own team numbers, which `game_info` keys its
+                // teams by too: 1 for no team, 2 on for the sides.
+                let team = stat
+                    .attributes
+                    .get("team")
+                    .and_then(team_value)
+                    .unwrap_or(0);
+                teams.entry(team.to_string()).or_default().push(player);
+            }
+            let players = i32::try_from(teams.values().map(Vec::len).sum::<usize>()).ok()?;
+            let map_version =
+                rel_target(&game.relationships, "mapVersion").and_then(|key| index.get(&key));
+            // The folder, as the lobby names a map: what the watch hands the
+            // game and what the map art is looked up by. A generated map has
+            // no map version, and so no folder the game app could fetch.
+            let map = map_version
+                .and_then(|version| version.attributes.get("folderName"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            let max_players = map_version
+                .and_then(|version| value_i32(&version.attributes, "maxPlayers"))
+                .filter(|slots| *slots > 0)
+                .unwrap_or(players);
+            Some(Game {
+                id,
+                title: game
+                    .attributes
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+                host: login(&game.relationships, "host").unwrap_or_default(),
+                players,
+                max_players,
+                map,
+                mod_name: resolve_mod_name(&game.relationships, &index),
+                average_rating: 0,
+                rating_type: GLOBAL_LEADERBOARD.to_owned(),
+                password_protected: false,
+                visibility: "public".to_owned(),
+                game_type: String::new(),
+                launched_at: game
+                    .attributes
+                    .get("startTime")
+                    .and_then(Value::as_str)
+                    .and_then(|start| chrono::DateTime::parse_from_rfc3339(start).ok())
+                    .and_then(|start| u32::try_from(start.timestamp()).ok()),
+                hosted_at: None,
+                rating_min: None,
+                rating_max: None,
+                enforce_rating_range: false,
+                teams,
+                sim_mods: BTreeMap::new(),
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_running_game_reads_as_the_lobby_lists_one() {
+        let doc: JsonApiDoc = serde_json::from_value(json!({
+            "data": [
+                {
+                    "type": "game",
+                    "id": "27500001",
+                    "attributes": {
+                        "name": "4v4 all welcome",
+                        "startTime": "2026-11-24T10:00:00Z",
+                        "endTime": null
+                    },
+                    "relationships": {
+                        "featuredMod": { "data": { "type": "featuredMod", "id": "0" } },
+                        "host": { "data": { "type": "player", "id": "1" } },
+                        "mapVersion": { "data": { "type": "mapVersion", "id": "77" } },
+                        "playerStats": { "data": [
+                            { "type": "gamePlayerStats", "id": "501" },
+                            { "type": "gamePlayerStats", "id": "502" },
+                            { "type": "gamePlayerStats", "id": "503" }
+                        ] }
+                    }
+                },
+                {
+                    "type": "game",
+                    "id": "27500002",
+                    "attributes": { "name": "gen map", "startTime": "not a time" },
+                    "relationships": {
+                        "featuredMod": { "data": { "type": "featuredMod", "id": "0" } },
+                        "mapVersion": { "data": null },
+                        "playerStats": { "data": [] }
+                    }
+                }
+            ],
+            "included": [
+                { "type": "featuredMod", "id": "0", "attributes": { "technicalName": "faf" } },
+                { "type": "player", "id": "1", "attributes": { "login": "Ada" } },
+                { "type": "player", "id": "2", "attributes": { "login": "Bert" } },
+                { "type": "player", "id": "3", "attributes": { "login": "Cleo" } },
+                {
+                    "type": "mapVersion",
+                    "id": "77",
+                    "attributes": { "folderName": "dualgap_adaptive.v0012", "maxPlayers": 8 }
+                },
+                {
+                    "type": "gamePlayerStats",
+                    "id": "501",
+                    "attributes": { "team": 2 },
+                    "relationships": { "player": { "data": { "type": "player", "id": "1" } } }
+                },
+                {
+                    "type": "gamePlayerStats",
+                    "id": "502",
+                    "attributes": { "team": 3 },
+                    "relationships": { "player": { "data": { "type": "player", "id": "2" } } }
+                },
+                {
+                    "type": "gamePlayerStats",
+                    "id": "503",
+                    "attributes": { "team": 2 },
+                    "relationships": { "player": { "data": { "type": "player", "id": "3" } } }
+                }
+            ]
+        }))
+        .unwrap();
+
+        let games = parse_running_games(&doc);
+        assert_eq!(games.len(), 2);
+        let game = &games[0];
+        assert_eq!(game.id, 27_500_001);
+        assert_eq!(game.title, "4v4 all welcome");
+        assert_eq!(game.host, "Ada");
+        assert_eq!(
+            game.map, "dualgap_adaptive.v0012",
+            "the folder, not the name"
+        );
+        assert_eq!(game.mod_name, "faf");
+        assert_eq!((game.players, game.max_players), (3, 8));
+        assert_eq!(
+            game.teams,
+            BTreeMap::from([
+                ("2".to_owned(), vec!["Ada".to_owned(), "Cleo".to_owned()]),
+                ("3".to_owned(), vec!["Bert".to_owned()]),
+            ])
+        );
+        assert_eq!(
+            game.launched_at,
+            Some(1_795_514_400),
+            "the replay delay's start"
+        );
+        assert!(game.sim_mods.is_empty(), "the API names no game's mods");
+        assert_eq!(game.average_rating, 0, "unknown, as the live view reads it");
+
+        // A generated map has no map version; a start the API garbles is no
+        // start, which the delay reads as unknown rather than as long ago.
+        let generated = &games[1];
+        assert_eq!(generated.map, "");
+        assert_eq!((generated.players, generated.max_players), (0, 0));
+        assert_eq!(generated.launched_at, None);
+        assert_eq!(generated.host, "");
+    }
 
     #[test]
     fn a_faction_is_read_by_the_api_s_enum_name() {

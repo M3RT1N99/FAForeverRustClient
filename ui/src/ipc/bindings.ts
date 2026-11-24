@@ -9400,6 +9400,13 @@ export type ReplayCommand = { type: "watchLive"; payload: LiveReplayTarget } | {
 { type: "loadFeaturedMods" } |
 /**  The signed-in player's latest matchmaker games, for the matchmaker tab. */
 { type: "loadRecentMatchmaker" } |
+/**
+ *  Fetch the games being played now from FAF's API, for the live view
+ *  while the lobby is closed: on opening, about once a minute while it is
+ *  shown, and on its Refresh. Nothing is fetched while the lobby is
+ *  connected, whose own feed is the live list then.
+ */
+{ type: "loadRunningGames" } |
 /**  Download and play a vault replay by its game id. */
 { type: "watchVault"; payload: {
 	uid: number,
@@ -9641,6 +9648,20 @@ export type ReplayEvent = { type: "connecting"; payload: {
 } } | { type: "recentMatchmakerLoading" } | { type: "recentMatchmakerLoaded"; payload: {
 	replays: VaultReplay[],
 } } | { type: "recentMatchmakerFailed"; payload: {
+	reason: string,
+} } |
+/**
+ *  The API's list of running games is being fetched; the one already
+ *  shown stays until the answer. See [`ReplayState::running_games`].
+ */
+{ type: "runningGamesLoading" } | { type: "runningGamesLoaded"; payload: {
+	games: Game[],
+} } |
+/**
+ *  The list could not be fetched. The games last listed stay, under the
+ *  failure.
+ */
+{ type: "runningGamesFailed"; payload: {
 	reason: string,
 } } |
 /**  The featured-mod list backing the vault search's mod filter. */
@@ -10229,6 +10250,15 @@ export type ReplayState = {
 	 */
 	recentMatchmaker: VaultReplay[],
 	recentMatchmakerStatus: VaultStatus,
+	/**
+	 *  The games being played now, as FAF's API lists them: the live view's
+	 *  list while the lobby is closed, which on Android is always until FAF
+	 *  publishes its faf-uid. While the lobby is connected its own feed
+	 *  ([`super::LobbyState::live_games`]) is the list instead, and this one
+	 *  is neither fetched nor shown. See [`ReplayCommand::LoadRunningGames`].
+	 */
+	runningGames: Game[],
+	runningGamesStatus: VaultStatus,
 };
 
 export type ReplayStatus = { type: "idle" } |
