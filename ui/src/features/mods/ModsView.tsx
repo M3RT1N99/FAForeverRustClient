@@ -648,7 +648,7 @@ export function ModsView() {
         />
         {/* A mod is uploaded as its folder, which Android cannot pick. */}
         {foldersCanBePicked() && (
-          <Button variant="ghost" className="mods-header-action" onClick={() => void openUploadFromDisk("mod")}>
+          <Button variant="ghost" className="mods-header-action" onClick={() => ipc.run(openUploadFromDisk("mod"))}>
             <Icon name="upload" size={15} /> {t("mods.view.uploadFromDisk")}
           </Button>
         )}

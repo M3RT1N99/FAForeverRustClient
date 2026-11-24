@@ -24,9 +24,10 @@ class MainActivity : TauriActivity() {
     Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)?.let {
       Os.setenv("FAF_UID_ANDROID_ID", it, true)
     }
-    // Light icons in both bars, always: the page and the window behind the bars
-    // are dark, and the default would follow the system into dark icons
-    // whenever it is in light mode.
+    // Light icons in both bars, always: the page is kept clear of the bars (below),
+    // so what shows behind them is the window, which the app's theme makes dark
+    // whatever the system's mode or the client's own theme. The default style
+    // would follow the system into dark icons whenever it is in light mode.
     enableEdgeToEdge(
       statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
       navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),

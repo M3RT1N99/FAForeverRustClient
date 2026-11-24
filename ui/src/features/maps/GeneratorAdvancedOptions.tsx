@@ -5,6 +5,7 @@ import { Row } from "./GenerateMapControls";
 import { Select } from "../../design-system/Select";
 import { Button } from "../../design-system/Button";
 import { Icon } from "../../design-system/Icon";
+import { ipc } from "../../ipc/client";
 import { native } from "../../ipc/native";
 import { isUsablePresetName, MAX_PRESET_NAME } from "../../shared/generatorPresets";
 import { foldersCanBePicked } from "../../shared/platform";
@@ -139,9 +140,11 @@ export function GeneratorAdvancedOptions({ model }: {
             {foldersCanBePicked() && (
               <Button
                 onClick={() => {
-                  void native.selectDirectory(form.outputPath || undefined).then((folder) => {
-                    if (folder) set("outputPath", folder);
-                  });
+                  ipc.run(
+                    native.selectDirectory(form.outputPath || undefined).then((folder) => {
+                      if (folder) set("outputPath", folder);
+                    }),
+                  );
                 }}
               >
                 {t("settings.paths.browse")}
