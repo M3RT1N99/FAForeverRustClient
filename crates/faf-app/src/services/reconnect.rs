@@ -139,7 +139,8 @@ async fn run(ctx: Arc<ServiceCtx>, sink: EventSink) {
             continue;
         };
 
-        if lobby.tick(watch.lobby, ctx.lifecycle.lobby_wanted()) == Step::Connect {
+        let lobby_link = retrying_itself(watch.lobby, ctx.lobby.connection_held());
+        if lobby.tick(lobby_link, ctx.lifecycle.lobby_wanted()) == Step::Connect {
             tracing::info!(attempt = lobby.attempts, "reconnecting to the lobby");
             let (ctx, sink) = (ctx.clone(), account.clone());
             // Not `LobbyCommand::Connect`, which arms the flag this just
@@ -149,7 +150,8 @@ async fn run(ctx: Arc<ServiceCtx>, sink: EventSink) {
             });
         }
 
-        if chat.tick(watch.chat, ctx.lifecycle.chat_wanted()) == Step::Connect {
+        let chat_link = retrying_itself(watch.chat, ctx.chat.connection_held());
+        if chat.tick(chat_link, ctx.lifecycle.chat_wanted()) == Step::Connect {
             tracing::info!(attempt = chat.attempts, "reconnecting to chat");
             let (ctx, sink, username) = (ctx.clone(), account, watch.username);
             // Not `ChatCommand::Connect`, for the same reason as the lobby's.
@@ -157,6 +159,23 @@ async fn run(ctx: Arc<ServiceCtx>, sink: EventSink) {
                 services::chat::reconnect(username, &ctx, &sink).await;
             });
         }
+    }
+}
+
+/// `link` as the watchdog reads it, given whether the socket's connection
+/// still runs.
+///
+/// Down with its connection still running is the port's own retry at work:
+/// the chat supervisor between its attempts, which says Disconnected while it
+/// waits out its backoff. A reconnect then was dropped as a duplicate
+/// connection (`AccountConnection::acquire`), and its "reconnecting" line in
+/// the log said it reconnected all the same, attempt after attempt. It is
+/// waited for like a handshake instead, until that connection gives up.
+fn retrying_itself(link: Link, connection_held: bool) -> Link {
+    if link == Link::Down && connection_held {
+        Link::Pending
+    } else {
+        link
     }
 }
 
@@ -253,6 +272,24 @@ mod tests {
         assert_eq!(retry.tick(Link::Up, true), Step::Idle);
         // The next drop is unrelated to the ones before it.
         assert_eq!(retry.tick(Link::Down, true), Step::Connect);
+    }
+
+    #[test]
+    fn a_connection_still_retrying_itself_is_not_reconnected_over() {
+        let mut retry = Retry::default();
+        // The chat supervisor waiting out its backoff: down, its connection
+        // still running. Nothing is started beside it, however long it waits.
+        assert!((0..30)
+            .map(|_| retry.tick(retrying_itself(Link::Down, true), true))
+            .all(|step| step == Step::Wait));
+        // Once it gives up, the watchdog takes over at once.
+        assert_eq!(
+            retry.tick(retrying_itself(Link::Down, false), true),
+            Step::Connect
+        );
+        // Up and connecting are what they say, whatever holds the adapter.
+        assert_eq!(retrying_itself(Link::Up, true), Link::Up);
+        assert_eq!(retrying_itself(Link::Pending, false), Link::Pending);
     }
 
     #[test]

@@ -43,6 +43,15 @@ pub struct ChatContext {
     read_marker_persist_generation: LatestRequest,
 }
 
+impl ChatContext {
+    /// Whether a chat connection of this account is still running, its
+    /// supervisor's retries included: a reconnect now would be dropped as a
+    /// duplicate.
+    pub(crate) fn connection_held(&self) -> bool {
+        self.active.held()
+    }
+}
+
 pub async fn handle(cmd: ChatCommand, ctx: &ServiceCtx, out: &EventSink) {
     match cmd {
         ChatCommand::Connect { username } => {

@@ -118,6 +118,12 @@ pub struct LobbyContext {
 }
 
 impl LobbyContext {
+    /// Whether a lobby connection of this account is still running, its own
+    /// retries included: a reconnect now would be dropped as a duplicate.
+    pub(crate) fn connection_held(&self) -> bool {
+        self.active.held()
+    }
+
     /// Whether the lobby work running here was called off or superseded. The
     /// launcher asks at every boundary where a cancelled join could still be
     /// narrated or started; see [`LobbyOperations::is_cancelled`].

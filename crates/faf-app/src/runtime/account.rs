@@ -27,6 +27,14 @@ impl AccountConnection {
         Some(operation())
     }
 
+    /// Whether a connection of the current account holds the adapter, so a
+    /// second one would be dropped as a duplicate ([`Self::acquire`]).
+    pub(crate) fn held(&self) -> bool {
+        super::lock_runtime(&self.active, "account connection")
+            .as_ref()
+            .is_some_and(|session| !session.is_cancelled())
+    }
+
     pub(crate) async fn acquire(&self, session: &CancellationToken) -> Option<ConnectionGuard<'_>> {
         loop {
             let released = self.released.notified();
@@ -64,6 +72,25 @@ impl Drop for ConnectionGuard<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn held_is_whether_a_second_connection_would_be_dropped() {
+        let connection = AccountConnection::default();
+        assert!(!connection.held());
+        let session = CancellationToken::new();
+        let guard = connection.acquire(&session).await.unwrap();
+        assert!(connection.held());
+        assert!(
+            connection.acquire(&session).await.is_none(),
+            "the duplicate"
+        );
+        // Signed out: its teardown still holds the adapter, but the next
+        // account's connection waits for it rather than being dropped.
+        session.cancel();
+        assert!(!connection.held());
+        drop(guard);
+        assert!(!connection.held());
+    }
 
     #[tokio::test]
     async fn account_isolation_hands_over_the_adapter_after_teardown() {
