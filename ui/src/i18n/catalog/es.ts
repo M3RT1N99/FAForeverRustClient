@@ -1810,7 +1810,9 @@ export const es: Partial<Record<MessageKey, Message>> = {
   "replays.gameType.coop": "Cooperativo",
 
   "replays.live.connecting": "Conectando con las partidas en curso",
-  "replays.live.connectingHint": "La lista de repeticiones aparecerá cuando el flujo de la sala esté listo.",
+  "replays.live.loadingHint": "La lista aparecerá en cuanto FAF indique qué partidas se están jugando.",
+  "replays.live.loadFailed": "No se pudieron cargar las partidas en curso",
+  "replays.live.refresh": "Actualizar",
   "replays.live.noneNow": "Ahora mismo no hay partidas en curso",
   "replays.live.noneMatch": "Ninguna partida en curso coincide",
   "replays.live.noneNowHint": "Esta vista se actualiza sola en cuanto empieza una partida.",

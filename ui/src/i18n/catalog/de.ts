@@ -1255,7 +1255,9 @@ export const de: Partial<Record<MessageKey, Message>> = {
   "replays.roster.score": "Punkte",
 
   "replays.live.connecting": "Verbinde mit laufenden Partien",
-  "replays.live.connectingHint": "Die Liste erscheint, sobald der Lobby-Stream bereit ist.",
+  "replays.live.loadingHint": "Die Liste erscheint, sobald FAF gemeldet hat, welche Partien gerade laufen.",
+  "replays.live.loadFailed": "Laufende Partien konnten nicht geladen werden",
+  "replays.live.refresh": "Aktualisieren",
   "replays.live.noneNow": "Gerade keine laufenden Partien",
   "replays.live.noneMatch": "Keine passenden laufenden Partien",
   "replays.live.noneNowHint": "Diese Ansicht aktualisiert sich automatisch, sobald eine Partie startet.",

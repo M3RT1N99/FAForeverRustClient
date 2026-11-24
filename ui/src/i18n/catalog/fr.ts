@@ -1811,7 +1811,9 @@ export const fr: Partial<Record<MessageKey, Message>> = {
   "replays.gameType.coop": "Coopération",
 
   "replays.live.connecting": "Connexion aux parties en cours",
-  "replays.live.connectingHint": "La liste des replays apparaîtra dès que le flux du salon sera prêt.",
+  "replays.live.loadingHint": "La liste apparaîtra dès que FAF aura indiqué quelles parties sont en cours.",
+  "replays.live.loadFailed": "Impossible de charger les parties en cours",
+  "replays.live.refresh": "Actualiser",
   "replays.live.noneNow": "Aucune partie en cours",
   "replays.live.noneMatch": "Aucune partie en cours correspondante",
   "replays.live.noneNowHint": "Cette vue se met à jour automatiquement dès qu'une partie démarre.",

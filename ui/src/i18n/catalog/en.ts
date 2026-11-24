@@ -1504,7 +1504,9 @@ export const en = {
 
   // Live replay list.
   "replays.live.connecting": "Connecting to live games",
-  "replays.live.connectingHint": "The replay list will appear when the lobby stream is ready.",
+  "replays.live.loadingHint": "The list will appear once FAF has said which games are being played.",
+  "replays.live.loadFailed": "Could not load live games",
+  "replays.live.refresh": "Refresh",
   "replays.live.noneNow": "No live games right now",
   "replays.live.noneMatch": "No live games match",
   "replays.live.noneNowHint": "This view updates automatically when a match starts.",

@@ -1882,7 +1882,9 @@ export const ru: Partial<Record<MessageKey, Message>> = {
   "replays.gameType.coop": "Кооператив",
 
   "replays.live.connecting": "Подключение к идущим играм",
-  "replays.live.connectingHint": "Список реплеев появится, когда поток лобби будет готов.",
+  "replays.live.loadingHint": "Список появится, как только FAF сообщит, какие игры сейчас идут.",
+  "replays.live.loadFailed": "Не удалось загрузить идущие игры",
+  "replays.live.refresh": "Обновить",
   "replays.live.noneNow": "Сейчас идущих игр нет",
   "replays.live.noneMatch": "Подходящих идущих игр нет",
   "replays.live.noneNowHint": "Этот раздел обновляется сам, как только начинается матч.",
