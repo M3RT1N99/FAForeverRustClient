@@ -20,18 +20,32 @@ import {
   clearLegacyBrowsingPreferences,
   migrateLegacyBrowsingPreferences,
 } from "./shared/browsingPreferences";
-import { androidLayoutWidth } from "./shared/androidLayout";
+import { type Size, androidLayout, webviewSizeToLayOut } from "./shared/androidLayout";
 import { runsOnAndroid } from "./shared/platform";
 
+/** The webview size the page was last laid out for on Android. */
+let laidOutFor: Size | null = null;
+
 /**
- * The webview's own width in CSS px at 100 %: the screen less what the system
- * keeps beside it (a camera cutout, the navigation bar), which `screen.width`
- * still counts. The visual viewport is the laid-out width drawn at its scale,
- * so their product is the webview's width whatever the layout width is.
+ * The webview's own size in CSS px at 100 %: the screen less what the system
+ * keeps beside it (a camera cutout, the status and navigation bars), which
+ * `screen` still counts. The visual viewport is the laid-out size drawn at its
+ * scale, so their product is the webview's size whatever the layout is. While
+ * the keyboard is up it is the size from before (`webviewSizeToLayOut`).
  */
-function webviewWidth(): number {
+function webviewSize(): Size {
   const viewport = window.visualViewport;
-  return viewport && viewport.scale > 0 ? viewport.width * viewport.scale : window.screen.width;
+  const now =
+    viewport && viewport.scale > 0
+      ? { width: viewport.width * viewport.scale, height: viewport.height * viewport.scale }
+      : { width: window.screen.width, height: window.screen.height };
+  const focused = document.activeElement;
+  const typing =
+    focused instanceof HTMLInputElement ||
+    focused instanceof HTMLTextAreaElement ||
+    (focused instanceof HTMLElement && focused.isContentEditable);
+  laidOutFor = webviewSizeToLayOut(laidOutFor, now, typing);
+  return laidOutFor;
 }
 
 /** Never let a zoom failure take the shell down with it; the UI is still usable
@@ -42,14 +56,12 @@ async function applyInterfaceScale(scale: number): Promise<void> {
   // so the scale goes into that width (`shared/androidLayout`): a larger scale
   // is a narrower layout, shown larger, in the one coordinate space the webview
   // zoom keeps on the desktop. The page is drawn across the webview at a scale
-  // held there: the webview fits a page to its width only when it loads, and a
-  // page wider than its layout scrolls rather than shrinking any further. Set
+  // held there: the webview fits a page to its width only when it loads. Set
   // only when it changes: a new width resizes the page.
   if (runsOnAndroid()) {
-    const available = webviewWidth();
-    const width = androidLayoutWidth(available, scale);
-    const drawn = (available / width).toFixed(4);
-    const content = `width=${width}, initial-scale=${drawn}, minimum-scale=${drawn}, maximum-scale=${drawn}`;
+    const layout = androidLayout(webviewSize(), scale);
+    const drawn = layout.scale.toFixed(4);
+    const content = `width=${layout.width}, initial-scale=${drawn}, minimum-scale=${drawn}, maximum-scale=${drawn}`;
     const viewport = document.querySelector('meta[name="viewport"]');
     if (viewport && viewport.getAttribute("content") !== content) viewport.setAttribute("content", content);
     return;
@@ -129,9 +141,9 @@ export function App() {
     void applyInterfaceScale(appearance.uiScale);
   }, [appearance.uiScale]);
 
-  // Android: a phone turned round, or a window made narrower, is a webview of
-  // another width, which the layout width follows. Its own change of width
-  // comes back here too, and leaves the width as it is.
+  // Android: a phone turned round, or a window made smaller, is a webview of
+  // another size, which the layout follows. Its own change of width comes back
+  // here too, and leaves the layout as it is.
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!runsOnAndroid() || !viewport) return undefined;
