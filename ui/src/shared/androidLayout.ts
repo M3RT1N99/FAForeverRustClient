@@ -15,8 +15,11 @@
 // to spare lays the page out at its own size, at 100 %, and one wider than
 // MAX_LAYOUT_WIDTH draws that layout larger. Never below MIN_DRAW_SCALE: a
 // screen too small for the smallest window at that scale has the page scroll
-// instead, as the makers' layout does in a short desktop window. The player's
-// interface scale comes on top.
+// instead, as the makers' layout does in a short desktop window. The system's
+// font size scales the page as far as it still fits, never past it: a phone
+// lying down reaches that point at the default size already, so a larger font
+// leaves the page as it is there. The player's interface scale comes on top,
+// and may go past it.
 
 /**
  * The narrowest width every page fits without scrolling sideways, measured on
@@ -52,11 +55,11 @@ export interface AndroidLayout {
 
 /**
  * The layout for a webview `webview` CSS px large at the player's interface
- * scale (100 for 100 %).
+ * scale (100 for 100 %) and the system's font scale (1 at the default size).
  */
-export function androidLayout(webview: Size, interfaceScale: number): AndroidLayout {
+export function androidLayout(webview: Size, interfaceScale: number, fontScale: number): AndroidLayout {
   const fits = Math.min(webview.width / MIN_LAYOUT_WIDTH, webview.height / MIN_LAYOUT_HEIGHT);
-  const preferred = Math.max(1, webview.width / MAX_LAYOUT_WIDTH);
+  const preferred = fontScale * Math.max(1, webview.width / MAX_LAYOUT_WIDTH);
   const scale = Math.max(MIN_DRAW_SCALE, Math.min(preferred, fits));
   const width = Math.round((webview.width * 100) / (scale * interfaceScale));
   return { width, scale: webview.width / width };

@@ -48,6 +48,16 @@ function webviewSize(): Size {
   return laidOutFor;
 }
 
+/**
+ * The system's font scale on Android, 1 at the default size. MainActivity
+ * hands it over in place of the webview's text zoom, which grew the text
+ * alone; anything else than a positive number counts as the default.
+ */
+function systemFontScale(): number {
+  const value: unknown = (window as { fafAndroidFontScale?: unknown }).fafAndroidFontScale;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 1;
+}
+
 /** Never let a zoom failure take the shell down with it; the UI is still usable
  *  at 100%, and there is nothing the user could do about it here anyway. */
 async function applyInterfaceScale(scale: number): Promise<void> {
@@ -59,7 +69,7 @@ async function applyInterfaceScale(scale: number): Promise<void> {
   // held there: the webview fits a page to its width only when it loads. Set
   // only when it changes: a new width resizes the page.
   if (runsOnAndroid()) {
-    const layout = androidLayout(webviewSize(), scale);
+    const layout = androidLayout(webviewSize(), scale, systemFontScale());
     const drawn = layout.scale.toFixed(4);
     const content = `width=${layout.width}, initial-scale=${drawn}, minimum-scale=${drawn}, maximum-scale=${drawn}`;
     const viewport = document.querySelector('meta[name="viewport"]');

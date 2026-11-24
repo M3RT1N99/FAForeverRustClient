@@ -11,6 +11,8 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,13 +49,26 @@ class MainActivity : TauriActivity() {
   }
 
   // The page is laid out at the width its viewport names and drawn at the
-  // scale it names, which App.tsx sets from the webview's own width
+  // scale it names, which App.tsx sets from the webview's own size
   // (shared/androidLayout): the makers' responsive layout at the phone's
-  // width wherever every page fits it, and drawn smaller below that.
+  // size wherever the desktop's smallest window fits it, and drawn smaller
+  // below that.
+  //
+  // The webview's own text zoom follows the system's font size and grows the
+  // text alone, so at a larger font a label outgrew the box the layout keeps
+  // for it and was cut off. The page is handed the font size instead and
+  // draws all of itself larger with it, as far as its layout still fits. The
+  // font size is read here once: a new one recreates the activity, and with
+  // it this webview.
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
     webView.settings.useWideViewPort = true
     webView.settings.loadWithOverviewMode = true
+    webView.settings.textZoom = 100
+    if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+      val fontScale = resources.configuration.fontScale
+      WebViewCompat.addDocumentStartJavaScript(webView, "window.fafAndroidFontScale = $fontScale;", setOf("*"))
+    }
   }
 
   // Back from the browser: a client in front needs no service to keep it
