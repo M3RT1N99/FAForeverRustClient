@@ -19,6 +19,11 @@ tauri-build = { version = "2", features = [] }
 # faf-app's: fakes for FAF's services in an Android release build, for
 # measurement and test builds only (`tauri android build --features fake-ports`).
 fake-ports = ["faf-app/fake-ports"]
+# faf-app's: hosting, joining and the matchmaker in an Android build, which
+# without it watches replays only. The release builds without it; a test
+# build that plays turns it on (`tauri android build --features android-play`,
+# beside `fake-ports` where it fakes). The page asks the shell (`play_offered`).
+android-play = ["faf-app/android-play"]
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }

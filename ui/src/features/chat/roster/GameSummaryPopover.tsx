@@ -11,6 +11,7 @@ import { GameMapPreviewDialog, GameSummaryCard, STATUS_LABEL } from "./GameSumma
 import { GameStatusSword } from "./GameStatusSword";
 import { useTranslation } from "../../../i18n/useTranslation";
 import { joinGame } from "../../../shared/joinGame";
+import { playIsOffered } from "../../../shared/platform";
 import {
   hoverCloseDelay,
   hoverOpenDelay,
@@ -118,6 +119,9 @@ export function GameSummaryPopover({ presence, social, vault }: Props) {
   const status = t(STATUS_LABEL[presence.status]);
 
   const watching = presence.status === "playing" || presence.status === "playingDelayed";
+  // Joining is play, which a build without it does not offer: the badge and
+  // its card then only say what the player is in.
+  const actionable = watching || playIsOffered();
   const act = () => {
     if (watching) {
       ipc.send({
@@ -139,7 +143,7 @@ export function GameSummaryPopover({ presence, social, vault }: Props) {
   const handleDoubleClick = (event: React.MouseEvent) => {
     event.stopPropagation();
     event.preventDefault();
-    act();
+    if (actionable) act();
   };
 
   return (
@@ -200,12 +204,12 @@ export function GameSummaryPopover({ presence, social, vault }: Props) {
               closeNow();
               setMapPreviewOpen(true);
             }}
-            action={(
+            action={actionable ? (
               <button type="button" className="chat-game-popover-action" onClick={act}>
                 <Icon name={watching ? "eye" : "play"} size={14} />
                 {watching ? t("chat.aside.watch") : t("chat.aside.join")}
               </button>
-            )}
+            ) : undefined}
           />
         </aside>,
         document.body,

@@ -20,9 +20,12 @@
 //!    load replay from gpgnet"), so this asks for `latest` the way a live
 //!    game launch does. It runs *before* the stream is opened: the server
 //!    starts sending on the handshake, and a patch download after that point
-//!    would be spent buffering frames nobody is reading.
+//!    would be spent buffering frames nobody is reading. FAF's game app
+//!    (Android) keeps its own files and is told that version instead.
 //! 5. Launch FA with `/replay gpgnet://127.0.0.1:<port>/...` pointed at a
 //!    local TCP proxy (mirrors the Java client's `LiveReplayProxyServer`).
+//!    The game app is also told the game's mods with their files, read from
+//!    the header the stream opens with (`read_stream_mods`).
 //! 6. Once FA connects, feed it WebSocket frames until the connection closes.
 //!
 //! **Transport: a local TCP proxy by default; a named pipe only when the user
@@ -62,7 +65,7 @@ use std::time::Duration;
 
 use faf_domain::state::LiveReplayTarget;
 use futures_util::stream::{SplitSink, SplitStream};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{SinkExt, Stream, StreamExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
@@ -73,11 +76,15 @@ use tokio_util::sync::CancellationToken;
 
 use crate::infra::session::TokenStore;
 use crate::infra::{fetch_access_url, validated_ws_url};
-use crate::ports::game_app::{contract_map_name, contract_replay_name, GameAppStart};
+use crate::ports::game_app::{
+    contract_map_name, contract_replay_name, GameAppPort, GameAppRun, GameAppStart,
+};
 use crate::ports::ProcessPort;
 
 use super::names::normalize_mod;
+use super::playback::GameAppContent;
 use super::preparation::ReplayPreparation;
+use super::scfa_header::stream_sim_mods;
 use super::ReplayConfig;
 
 type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -89,6 +96,10 @@ const READY_TIMEOUT: Duration = Duration::from_secs(20);
 /// before its game loads, trying again for about ten minutes when the
 /// network drops.
 const GAME_APP_READY_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+/// How much of a live stream is read before the game app starts, for the
+/// mods its header names. The mod table sits behind two short strings, so
+/// even a game with dozens of mods has it far inside this.
+const STREAM_HEAD_LIMIT: usize = 1024 * 1024;
 
 /// The pipe FA is pointed at when the "Live Replays Workaround" is on. Fixed
 /// rather than per-game, and the same name the Python client uses, so the two
@@ -249,11 +260,13 @@ impl LiveStreamer {
     }
 
     /// The body of `ReplayPlaybackPort::watch_live`, run while the caller
-    /// holds the playback lock.
+    /// holds the playback lock. `content` is what the game app is told where
+    /// the game is an app of its own, in place of `preparation`.
     pub(super) async fn start(
         &self,
         preparation: &ReplayPreparation,
         process: &Arc<dyn ProcessPort>,
+        content: &GameAppContent,
         target: LiveReplayTarget,
         player: String,
     ) -> Result<Option<String>, String> {
@@ -326,6 +339,14 @@ impl LiveStreamer {
                 );
             }
         }
+        // The game app's counterpart of the update above, and asked before
+        // the stream opens for the same reason. Fatal for the same reason
+        // too: the newest version the game app has is not the one a live
+        // game is on once FAF has moved on, and it refuses the stream then.
+        let game_version = match &game_app {
+            Some(_) => content.live_version(&mod_name).await?,
+            None => None,
+        };
 
         let transport = self.live_transport();
 
@@ -347,7 +368,7 @@ impl LiveStreamer {
 
         // Gate FA's launch on the first byte actually arriving, mirroring the
         // Python client: otherwise FA connects to a proxy with nothing behind it.
-        let first = wait_for_first_binary(&mut read).await?;
+        let mut first = wait_for_first_binary(&mut read).await?;
 
         let log_path = crate::infra::game_logs::next_path("live-replay", Some(target.uid))?;
         // Spelled the way the launched game can open it, which is not the same
@@ -393,19 +414,21 @@ impl LiveStreamer {
                     // The game app may fetch the map first, so it connects
                     // once its game has loaded, or it gives up.
                     Some(game_app) => {
-                        let run = served.insert(
-                            game_app
-                                .start(GameAppStart {
-                                    arguments: vec![
-                                        "/replay".to_owned(),
-                                        url(&contract_replay_name(&player)),
-                                    ],
-                                    featured_mod: Some(mod_name.clone()),
-                                    map: contract_map_name(&target.map),
-                                    ..GameAppStart::default()
-                                })
-                                .await?,
-                        );
+                        let stream_mods = read_stream_mods(&mut first, &mut read).await;
+                        let (run, mods_warning) = start_live_in_game_app(
+                            game_app.as_ref(),
+                            content,
+                            game_version,
+                            &mod_name,
+                            &target.map,
+                            vec!["/replay".to_owned(), url(&contract_replay_name(&player))],
+                            stream_mods,
+                        )
+                        .await?;
+                        if mods_warning.is_some() {
+                            warning = mods_warning;
+                        }
+                        let run = served.insert(run);
                         tokio::select! {
                             accepted = tokio::time::timeout(GAME_APP_READY_TIMEOUT, listener.accept()) => accepted,
                             ended = &mut run.ended => {
@@ -468,20 +491,91 @@ impl LiveStreamer {
 
 /// Wait for the first binary WebSocket frame, ignoring ping/pong/text frames.
 async fn wait_for_first_binary(read: &mut SplitStream<WsStream>) -> Result<Vec<u8>, String> {
-    let wait = async {
-        loop {
-            match read.next().await {
-                Some(Ok(Message::Binary(data))) => return Some(data),
-                Some(Ok(_)) => continue,
-                Some(Err(_)) | None => return None,
-            }
-        }
-    };
-    match tokio::time::timeout(READY_TIMEOUT, wait).await {
+    match tokio::time::timeout(READY_TIMEOUT, next_binary(read)).await {
         Ok(Some(data)) => Ok(data),
         Ok(None) => Err("replay server closed the connection before sending data".to_string()),
         Err(_) => Err("timed out waiting for the replay server".to_string()),
     }
+}
+
+/// The next binary frame, past pings, pongs and text. `None` once the
+/// stream fails or ends.
+async fn next_binary<S>(read: &mut S) -> Option<Vec<u8>>
+where
+    S: Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+{
+    loop {
+        match read.next().await {
+            Some(Ok(Message::Binary(data))) => return Some(data),
+            Some(Ok(_)) => continue,
+            Some(Err(_)) | None => return None,
+        }
+    }
+}
+
+/// The simulation mods a live game runs with, `(uid, name)`, from the
+/// header its stream opens with.
+///
+/// The game app fetches a game's mods by their uids, and the stream is the
+/// one place every live game names them: FAF's API lists no game's mods, so
+/// a game picked from its list arrives with none. Reads on from `head`, the
+/// frames so far, adding each frame it reads to it, so the relay still sends
+/// them first. `None` when the header has not said within
+/// [`STREAM_HEAD_LIMIT`] bytes or [`READY_TIMEOUT`], or the stream ended.
+async fn read_stream_mods<S>(head: &mut Vec<u8>, read: &mut S) -> Option<Vec<(String, String)>>
+where
+    S: Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+{
+    let deadline = tokio::time::Instant::now() + READY_TIMEOUT;
+    loop {
+        if let Some(mods) = stream_sim_mods(head) {
+            return Some(mods);
+        }
+        if head.len() >= STREAM_HEAD_LIMIT {
+            return None;
+        }
+        match tokio::time::timeout_at(deadline, next_binary(read)).await {
+            Ok(Some(frame)) => head.extend_from_slice(&frame),
+            Ok(None) | Err(_) => return None,
+        }
+    }
+}
+
+/// Start a live game of `mod_name` on `map` in the game app, pointed at the
+/// local proxy by `arguments`: on `game_version` (`GameAppContent::live_version`)
+/// and with `stream_mods`, the mods its stream names, each with its file. The
+/// warning says what the game app plays it without.
+async fn start_live_in_game_app(
+    game_app: &dyn GameAppPort,
+    content: &GameAppContent,
+    game_version: Option<i32>,
+    mod_name: &str,
+    map: &str,
+    arguments: Vec<String>,
+    stream_mods: Option<Vec<(String, String)>>,
+) -> Result<(GameAppRun, Option<String>), String> {
+    let (mods, warning) = match &stream_mods {
+        Some(sim_mods) => content.mods(sim_mods).await,
+        None => (
+            Vec::new(),
+            Some(
+                "the game's mods could not be read from its stream, so the game app plays it \
+                 without any"
+                    .to_owned(),
+            ),
+        ),
+    };
+    let run = game_app
+        .start(GameAppStart {
+            game_version,
+            featured_mod: Some(mod_name.to_owned()),
+            arguments,
+            map: contract_map_name(map),
+            mods,
+            ..GameAppStart::default()
+        })
+        .await?;
+    Ok((run, warning))
 }
 
 /// Bidirectionally pipe bytes between FA's local proxy socket and the replay
@@ -687,5 +781,142 @@ async fn replay_ended(process: Arc<dyn ProcessPort>, stop: CancellationToken) {
     tokio::select! {
         _ = closed => {}
         _ = stop.cancelled() => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infra::replay::test_support::{
+        game_app_content, lua_mod_table, stream_opening, RecordingGameApp,
+    };
+    use crate::ports::GameMod;
+
+    fn proxy_arguments() -> Vec<String> {
+        vec![
+            "/replay".to_owned(),
+            "gpgnet://127.0.0.1:50123/4711/Ada.SCFAreplay".to_owned(),
+        ]
+    }
+
+    fn sim_mod(uid: &str, name: &str) -> (String, String) {
+        (uid.to_owned(), name.to_owned())
+    }
+
+    #[tokio::test]
+    async fn a_live_game_plays_the_current_version_with_its_stream_s_mods() {
+        let game_app = RecordingGameApp::default();
+        let content = game_app_content(
+            &[("a1b2-reclaim", "reclaim_turret.v0004.zip")],
+            Ok(Some(3841)),
+        );
+        let version = content.live_version("faf").await.unwrap();
+        let (_, warning) = start_live_in_game_app(
+            &game_app,
+            &content,
+            version,
+            "faf",
+            "SCMP_009",
+            proxy_arguments(),
+            Some(vec![sim_mod("a1b2-reclaim", "Reclaim Turret")]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(warning, None);
+        assert_eq!(
+            game_app.starts.lock().unwrap().as_slice(),
+            [GameAppStart {
+                game_version: Some(3841),
+                featured_mod: Some("faf".into()),
+                arguments: proxy_arguments(),
+                map: Some("scmp_009".into()),
+                mods: vec![GameMod {
+                    uid: "a1b2-reclaim".into(),
+                    file: "reclaim_turret.v0004.zip".into(),
+                }],
+                ..GameAppStart::default()
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_live_game_s_mod_with_no_file_is_played_without_and_named() {
+        let game_app = RecordingGameApp::default();
+        let content = game_app_content(&[], Ok(Some(3841)));
+        let (_, warning) = start_live_in_game_app(
+            &game_app,
+            &content,
+            Some(3841),
+            "faf",
+            "SCMP_009",
+            proxy_arguments(),
+            Some(vec![sim_mod("a1b2-reclaim", "Reclaim Turret")]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            warning.as_deref(),
+            Some("the game app plays this replay without its mods: Reclaim Turret")
+        );
+        assert!(game_app.starts.lock().unwrap()[0].mods.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_stream_that_names_no_mods_starts_without_any_and_says_so() {
+        let game_app = RecordingGameApp::default();
+        let content = game_app_content(&[], Ok(Some(3841)));
+        let (_, warning) = start_live_in_game_app(
+            &game_app,
+            &content,
+            Some(3841),
+            "faf",
+            "SCMP_009",
+            proxy_arguments(),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(warning.is_some_and(|warning| warning.contains("could not be read")));
+        assert_eq!(game_app.starts.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_live_version_that_cannot_be_asked_fails_the_watch() {
+        let content = game_app_content(&[], Err("the API did not answer".into()));
+        assert_eq!(
+            content.live_version("faf").await,
+            Err("could not ask which version of faf is current: the API did not answer".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn the_stream_is_read_on_until_its_header_names_the_mods() {
+        let opening = stream_opening(&lua_mod_table(&[("a1b2-reclaim", "Reclaim Turret", false)]));
+        let (first, second) = opening.split_at(30);
+        let mut head = first.to_vec();
+        let mut frames = futures_util::stream::iter(vec![
+            Ok(Message::Ping(Vec::new())),
+            Ok(Message::Binary(second.to_vec())),
+            Ok(Message::Binary(b"the command stream".to_vec())),
+        ]);
+        let mods = read_stream_mods(&mut head, &mut frames).await;
+        assert_eq!(mods, Some(vec![sim_mod("a1b2-reclaim", "Reclaim Turret")]));
+        assert_eq!(head, opening, "every frame read goes to the game first");
+        assert_eq!(
+            frames.next().await.and_then(Result::ok),
+            Some(Message::Binary(b"the command stream".to_vec())),
+            "nothing past the header is taken from the relay"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stream_that_ends_before_its_header_says_names_no_mods() {
+        let opening = stream_opening(&lua_mod_table(&[("a1b2-reclaim", "Reclaim Turret", false)]));
+        let mut head = opening[..30].to_vec();
+        let mut frames = futures_util::stream::iter(Vec::<
+            Result<Message, tokio_tungstenite::tungstenite::Error>,
+        >::new());
+        assert_eq!(read_stream_mods(&mut head, &mut frames).await, None);
+        assert_eq!(head, &opening[..30]);
     }
 }

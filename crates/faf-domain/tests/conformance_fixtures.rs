@@ -7764,6 +7764,21 @@ fn cases() -> Vec<Case> {
             ],
         ),
         case(
+            "running games from the API",
+            vec![
+                ReplayEvent::RunningGamesLoading.into(),
+                ReplayEvent::RunningGamesLoaded {
+                    games: vec![lobby_game(71, "4v4", 8)],
+                }
+                .into(),
+                ReplayEvent::RunningGamesLoading.into(),
+                ReplayEvent::RunningGamesFailed {
+                    reason: "offline".into(),
+                }
+                .into(),
+            ],
+        ),
+        case(
             "an old replay reports what it is preparing, and the report ends with it",
             vec![
                 // Ignored: nothing is starting yet.

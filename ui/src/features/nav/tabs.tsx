@@ -10,6 +10,7 @@ import { lazy, type ComponentType } from "react";
 import type { AuthMode, Tab } from "../../ipc/bindings";
 import type { IconName } from "../../design-system/Icon";
 import type { MessageKey } from "../../i18n";
+import { playIsOffered } from "../../shared/platform";
 const ChangelogView = lazy(() =>
   import("../changelog/ChangelogView").then((module) => ({ default: module.ChangelogView })),
 );
@@ -89,9 +90,15 @@ export const TAB_ORDER: Tab[] = [
  */
 export const OFFLINE_TABS: Tab[] = ["replays", "settings"];
 
-/** Which tabs this session may open: everything, unless it has no account. */
+/**
+ * Which tabs this session may open: everything, unless it has no account, and
+ * Play only in a build that offers it (`playIsOffered`). A way that still
+ * leads to Play there, a start page saved before or a notice, opens the
+ * first tab instead (`openTabForMode`).
+ */
 export function tabsForMode(mode: AuthMode): Tab[] {
-  return mode === "offline" ? TAB_ORDER.filter((tab) => OFFLINE_TABS.includes(tab)) : TAB_ORDER;
+  const tabs = mode === "offline" ? TAB_ORDER.filter((tab) => OFFLINE_TABS.includes(tab)) : TAB_ORDER;
+  return playIsOffered() ? tabs : tabs.filter((tab) => tab !== "play");
 }
 
 /**

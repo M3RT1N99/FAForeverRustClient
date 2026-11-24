@@ -204,6 +204,10 @@ export const INITIAL_STATE: AppState = {
     "recentMatchmaker": [],
     "recentMatchmakerStatus": {
       "type": "idle"
+    },
+    "runningGames": [],
+    "runningGamesStatus": {
+      "type": "idle"
     }
   },
   "maps": {

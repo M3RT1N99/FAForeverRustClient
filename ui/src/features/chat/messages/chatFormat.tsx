@@ -12,6 +12,7 @@ import { openHttpsUrl, optionalHttpsUrl, validateHttpsUrl } from "../../../share
 import { openLink } from "../../../shared/deepLinks";
 import { hourCycleOptions } from "../../../shared/format/clock";
 import { formatDate } from "../../../shared/format/dates";
+import { playIsOffered } from "../../../shared/platform";
 import { findPlayer, isModerator, playersByNickname } from "../../../store/reducer";
 import { t, type MessageKey } from "../../../i18n";
 
@@ -257,7 +258,10 @@ export function renderBody(
     if (i % 2 === 1) {
       const gameLink = parseChatGameLink(part);
       if (gameLink) {
-        return onGameLink ? (
+        // A link to join is text in a build without play, as any game link
+        // is where nothing could act on it. A live replay's still opens.
+        const actionable = onGameLink && (gameLink.kind !== "openGame" || playIsOffered());
+        return actionable ? (
           <button
             key={i}
             type="button"

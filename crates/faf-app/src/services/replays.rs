@@ -9,9 +9,9 @@
 use crate::ports::PreparationStep;
 use faf_domain::state::ReplayPreparation;
 use faf_domain::state::{
-    live_replay_delay_remaining, LiveReplayTarget, LiveReplayTracking, LiveReplayTrackingAction,
-    NavEvent, NotificationAction, NotificationKind, ReplayCommand, ReplayEvent, ReplayLaunch,
-    ReplayQuery, ResolvedReplayMap, Tab, VaultReplay,
+    live_replay_delay_remaining, AppState, Game, LiveReplayTarget, LiveReplayTracking,
+    LiveReplayTrackingAction, LobbyStatus, NavEvent, NotificationAction, NotificationKind,
+    ReplayCommand, ReplayEvent, ReplayLaunch, ReplayQuery, ResolvedReplayMap, Tab, VaultReplay,
 };
 use std::collections::HashMap;
 use std::{path::PathBuf, time::Duration};
@@ -447,17 +447,40 @@ pub(crate) fn cancel_live_tracking(out: &EventSink) {
     }
 }
 
+/// The running game `uid`, from the lobby's feed or from FAF's API, which
+/// lists the running games while the lobby is closed
+/// ([`faf_domain::state::ReplayState::running_games`]). Either says when the
+/// game started, which is all the delay and the tracking read.
+fn running_game(state: &AppState, uid: i32) -> Option<&Game> {
+    state
+        .lobby
+        .live_games
+        .iter()
+        .chain(&state.replays.running_games)
+        .find(|game| game.id == uid)
+}
+
+/// The games being played now, from FAF's API, for the live view while the
+/// lobby is closed: on Android until FAF publishes its faf-uid, and anywhere
+/// while it is down. A connected lobby's own feed is the live list, and then
+/// nothing is fetched.
+async fn load_running_games(ctx: &ServiceCtx, out: &EventSink) {
+    if out.with_state(|state| state.lobby.status == LobbyStatus::Connected) {
+        return;
+    }
+    out.emit(ReplayEvent::RunningGamesLoading);
+    match ctx.ports.replay_vault.running_games().await {
+        Ok(games) => out.emit(ReplayEvent::RunningGamesLoaded { games }),
+        Err(reason) => out.emit(ReplayEvent::RunningGamesFailed { reason }),
+    }
+}
+
 async fn watch_live(target: LiveReplayTarget, ctx: &ServiceCtx, out: &EventSink) {
     // Anti-ghosting, enforced here rather than only on the button: the Watch
     // button, notification action, scheduled auto-watch and Discord spectate
     // links all converge on this function.
     let (waiting, player) = out.with_state(|state| {
-        let launched_at = state
-            .lobby
-            .live_games
-            .iter()
-            .find(|game| game.id == target.uid)
-            .and_then(|game| game.launched_at);
+        let launched_at = running_game(state, target.uid).and_then(|game| game.launched_at);
         let waiting = live_replay_delay_remaining(launched_at, crate::services::now_seconds());
         let player = state
             .auth
@@ -513,12 +536,7 @@ pub async fn handle(cmd: ReplayCommand, ctx: &ServiceCtx, out: &EventSink) {
         ReplayCommand::TrackLive { target, action } => {
             let now = crate::services::now_seconds();
             let game = out.with_state(|state| {
-                state
-                    .lobby
-                    .live_games
-                    .iter()
-                    .find(|game| game.id == target.uid)
-                    .map(|game| (game.title.clone(), game.launched_at))
+                running_game(state, target.uid).map(|game| (game.title.clone(), game.launched_at))
             });
             let Some((title, Some(launched_at))) = game else {
                 refuse(
@@ -662,6 +680,7 @@ pub async fn handle(cmd: ReplayCommand, ctx: &ServiceCtx, out: &EventSink) {
                 Err(reason) => out.emit(ReplayEvent::RecentMatchmakerFailed { reason }),
             }
         }
+        ReplayCommand::LoadRunningGames => load_running_games(ctx, out).await,
         ReplayCommand::LoadFeaturedMods => {
             // Best-effort: the filter falls back to a free-choice "any" when
             // the list can't be fetched, so a failure here isn't worth a

@@ -9,6 +9,7 @@ import { useAppStore } from "../../store/store";
 import type { ClientNotification } from "../../ipc/bindings";
 import { ipc } from "../../ipc/client";
 import { clearTournamentDraft, pendingTournamentDraft } from "../../shared/tournamentNavigation";
+import { setPlayOffered } from "../../shared/platform";
 
 vi.mock("../../ipc/client");
 const nativeMock = vi.hoisted(() => ({
@@ -249,4 +250,25 @@ it("marks the bell's unread entries in one command and keeps their new markers",
   expect(view.container.querySelector(".notification-badge")).toBeNull();
   const entries = [...view.container.querySelectorAll(".notification-item")];
   expect(entries.map((item) => item.classList.contains("is-read"))).toEqual([false, true, false]);
+});
+
+it("shows and delivers no notice that offers a way into play in a build without it", async () => {
+  // An Android release: the match found seeded above offers the matchmaker.
+  setPlayOffered(false);
+  try {
+    const at = new Date().toISOString();
+    const invite: ClientNotification = { id: "invite", kind: "partyInvite", title: "Party invitation", body: "Alice invited you", action: { type: "acceptPartyInvite", payload: { playerId: 7 } }, text: null, read: false, createdAt: at };
+    const watch: ClientNotification = { id: "friend", kind: "friendPlaying", title: "Alice is playing", body: "4v4", action: { type: "watchLiveWhenReady", payload: { target: { uid: 9, modName: "faf", map: "scmp_009" } } }, text: null, read: false, createdAt: at };
+    seedStore((state) => ({ ...state, notifications: { items: [...state.notifications.items, invite, watch] } }));
+    const view = render(<NotificationCenter />);
+    await act(async () => {});
+    // The match found alone is a popup where play is offered (see above).
+    expect(JSON.stringify(nativeMock.showNotificationPopup.mock.calls)).not.toMatch(/Match found|Party invitation/);
+    expect(view.container.querySelector(".notification-badge")?.textContent).toBe("1");
+    act(() => view.container.querySelector<HTMLButtonElement>(".notification-bell")!.click());
+    const titles = [...view.container.querySelectorAll(".notification-item .notification-title")].map((title) => title.textContent);
+    expect(titles).toEqual(["Alice is playing"]);
+  } finally {
+    setPlayOffered(null);
+  }
 });

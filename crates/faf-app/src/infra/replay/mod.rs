@@ -16,7 +16,9 @@
 //!   from the command stream as it is decompressed.
 //! - [`ReplayPlayback`] (`playback`): preparing a replay file and launching FA
 //!   on it, with `preparation` (the replay install: engine build and map) and
-//!   `live` (spectating a game in progress through the replay server).
+//!   `live` (spectating a game in progress through the replay server). Where
+//!   the game is an app of its own (Android), playback names that app the
+//!   version and the mod files instead (`playback::GameAppContent`).
 //!
 //! Below them, with no state of their own: `codec` (the `.fafreplay`
 //! container), `scfa_header` (the `.scfareplay` stream's header), and `names`
@@ -28,7 +30,7 @@ use std::sync::Arc;
 
 use crate::infra::env_or;
 use crate::infra::session::TokenStore;
-use crate::ports::{MapGeneratorPort, ProcessPort};
+use crate::ports::{GameUpdaterPort, MapGeneratorPort, ModsPort, ProcessPort};
 
 /// Gives up the replacement of a stopped replay when it is dropped, unless a
 /// new replay took it over first (which makes this a no-op).
@@ -143,11 +145,16 @@ pub struct ReplayAdapters {
 }
 
 impl ReplayAdapters {
+    /// `updater` and `mods` are what playback asks where the game is an app
+    /// of its own: the version a live game is on, and each simulation mod's
+    /// file, which that app fetches itself.
     pub fn new(
         config: &ReplayConfig,
         tokens: TokenStore,
         process: Arc<dyn ProcessPort>,
         map_generator: Arc<dyn MapGeneratorPort>,
+        updater: Arc<dyn GameUpdaterPort>,
+        mods: Arc<dyn ModsPort>,
     ) -> Self {
         let library = ReplayLibrary::shared();
         let vault = Arc::new(ReplayVault::new(config, tokens.clone(), library.clone()));
@@ -159,6 +166,7 @@ impl ReplayAdapters {
                 process,
                 map_generator,
                 vault.clone(),
+                playback::GameAppContent { updater, mods },
             )),
             library: Arc::new(library),
             vault,
@@ -169,7 +177,16 @@ impl ReplayAdapters {
         tokens: TokenStore,
         process: Arc<dyn ProcessPort>,
         map_generator: Arc<dyn MapGeneratorPort>,
+        updater: Arc<dyn GameUpdaterPort>,
+        mods: Arc<dyn ModsPort>,
     ) -> Self {
-        Self::new(&ReplayConfig::faf(), tokens, process, map_generator)
+        Self::new(
+            &ReplayConfig::faf(),
+            tokens,
+            process,
+            map_generator,
+            updater,
+            mods,
+        )
     }
 }

@@ -13,6 +13,11 @@ publish = false
 # FAF_FAKE_AUTH and its kin ask (infra::FAKE_PORTS_ALLOWED): for measurement
 # and test builds. A release never turns it on.
 fake-ports = []
+# Offers play on Android: hosting, joining and the matchmaker
+# (infra::PLAY_OFFERED). Without it an Android build watches replays only,
+# and the lobby service refuses those requests. Every other platform plays
+# whether it is on or not.
+android-play = []
 
 [dependencies]
 faf-domain = { workspace = true }

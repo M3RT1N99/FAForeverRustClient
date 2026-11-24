@@ -230,4 +230,10 @@ pub struct Ports {
     /// holds no token at all, so every privileged call fails regardless of what
     /// is listed here.
     pub test_login_roles: Vec<String>,
+    /// Whether this build offers play: hosting, joining and the matchmaker
+    /// ([`crate::infra::PLAY_OFFERED`], false in an Android release). A
+    /// bundle property like the two above, so that a test can build a client
+    /// that offers none. Without it the lobby service refuses those requests,
+    /// whoever sends them: the page, a link, the web client or Discord.
+    pub play_offered: bool,
 }

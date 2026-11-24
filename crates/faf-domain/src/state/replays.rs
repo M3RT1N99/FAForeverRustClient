@@ -1038,6 +1038,13 @@ pub struct ReplayState {
     /// matchmaker tab never replaces whatever the Replays tab was showing.
     pub recent_matchmaker: Vec<VaultReplay>,
     pub recent_matchmaker_status: VaultStatus,
+    /// The games being played now, as FAF's API lists them: the live view's
+    /// list while the lobby is closed, which on Android is always until FAF
+    /// publishes its faf-uid. While the lobby is connected its own feed
+    /// ([`super::LobbyState::live_games`]) is the list instead, and this one
+    /// is neither fetched nor shown. See [`ReplayCommand::LoadRunningGames`].
+    pub running_games: Vec<super::Game>,
+    pub running_games_status: VaultStatus,
 }
 
 // No `Eq`: `VaultLoaded` carries `VaultReplay`, which has an `f32` field.
@@ -1099,6 +1106,17 @@ pub enum ReplayEvent {
         replays: Vec<VaultReplay>,
     },
     RecentMatchmakerFailed {
+        reason: String,
+    },
+    /// The API's list of running games is being fetched; the one already
+    /// shown stays until the answer. See [`ReplayState::running_games`].
+    RunningGamesLoading,
+    RunningGamesLoaded {
+        games: Vec<super::Game>,
+    },
+    /// The list could not be fetched. The games last listed stay, under the
+    /// failure.
+    RunningGamesFailed {
         reason: String,
     },
     /// The featured-mod list backing the vault search's mod filter.
@@ -1233,6 +1251,11 @@ pub enum ReplayCommand {
     LoadFeaturedMods,
     /// The signed-in player's latest matchmaker games, for the matchmaker tab.
     LoadRecentMatchmaker,
+    /// Fetch the games being played now from FAF's API, for the live view
+    /// while the lobby is closed: on opening, about once a minute while it is
+    /// shown, and on its Refresh. Nothing is fetched while the lobby is
+    /// connected, whose own feed is the live list then.
+    LoadRunningGames,
     /// Download and play a vault replay by its game id.
     WatchVault {
         uid: i32,
@@ -1416,6 +1439,16 @@ pub fn reduce(state: &mut ReplayState, event: &ReplayEvent) {
         }
         ReplayEvent::RecentMatchmakerFailed { reason } => {
             state.recent_matchmaker_status = VaultStatus::Failed {
+                reason: reason.clone(),
+            };
+        }
+        ReplayEvent::RunningGamesLoading => state.running_games_status = VaultStatus::Loading,
+        ReplayEvent::RunningGamesLoaded { games } => {
+            state.running_games = games.clone();
+            state.running_games_status = VaultStatus::Ready;
+        }
+        ReplayEvent::RunningGamesFailed { reason } => {
+            state.running_games_status = VaultStatus::Failed {
                 reason: reason.clone(),
             };
         }

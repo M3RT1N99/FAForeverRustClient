@@ -9,8 +9,8 @@
 //!   The two dispatches pass [`admit`] first, which refuses a path the player
 //!   did not pick (see `picked_paths`).
 //! * The folder, log and sound commands are desktop plumbing with no state.
-//! * [`webview_engine`], [`exit_app`] and [`page_ready`] are facts about, and
-//!   control over, the shell process itself.
+//! * [`webview_engine`], [`play_offered`], [`exit_app`] and [`page_ready`]
+//!   are facts about, and control over, the shell process itself.
 
 use faf_domain::native::{MapAnalysis, MarkedMapPreview, UnitIconNames};
 use faf_domain::AppCommand;
@@ -524,6 +524,16 @@ pub(crate) fn webview_engine() -> WebviewEngine {
         platform: platform_name(),
         webkit_version: webkit_version(),
     }
+}
+
+/// Whether this build offers play: hosting, joining and the matchmaker. Not
+/// an Android build without the `android-play` feature, which watches
+/// replays only ([`faf_app::infra::PLAY_OFFERED`]). The page asks once,
+/// before its first render, and hides every way into play when it does not
+/// (`ui/src/shared/platform.ts`); the core refuses those requests either way.
+#[tauri::command]
+pub(crate) fn play_offered() -> bool {
+    faf_app::infra::PLAY_OFFERED
 }
 
 /// How many map generators the client would run side by side for maps of

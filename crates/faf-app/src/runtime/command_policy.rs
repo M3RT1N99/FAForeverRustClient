@@ -125,6 +125,9 @@ pub(crate) enum Key {
     /// The live relay view's `status` call. The page asks on a timer; a call
     /// the adapter is slow to answer must not stack up behind itself.
     RelayStatus,
+    /// The API's list of running games. The live view asks on a timer and on
+    /// its Refresh; one that arrives while a load runs would only repeat it.
+    RunningGames,
 }
 
 /// A guard a service holds itself, over part of a command or over something
@@ -496,6 +499,7 @@ fn lobby(command: &LobbyCommand) -> CommandPolicy {
 fn replays(command: &ReplayCommand) -> CommandPolicy {
     match command {
         ReplayCommand::SearchVault { .. } => latest(Key::ReplaySearch),
+        ReplayCommand::LoadRunningGames => single_flight(Key::RunningGames),
         ReplayCommand::WatchLive(..)
         | ReplayCommand::OpenFile { .. }
         | ReplayCommand::WatchVault { .. } => ORDINARY.starts(Pair::ReplayWatch),

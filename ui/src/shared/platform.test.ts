@@ -8,7 +8,9 @@ import {
   foldersCanBeOpened,
   foldersCanBePicked,
   gameNeedsALaunchWrapper,
+  playIsOffered,
   runsOnAndroid,
+  setPlayOffered,
   startsProgramsBesideTheGame,
   steamStatusIsSupported,
   theGameIsItsOwnApp,
@@ -26,6 +28,7 @@ function on(agent: keyof typeof AGENTS) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  setPlayOffered(null);
 });
 
 describe("platform", () => {
@@ -58,5 +61,25 @@ describe("platform", () => {
     expect(foldersCanBeOpened()).toBe(false);
     expect(startsProgramsBesideTheGame()).toBe(false);
     expect(steamStatusIsSupported()).toBe(false);
+  });
+});
+
+describe("play", () => {
+  it("is the shell's answer once it has given one", () => {
+    on("android");
+    setPlayOffered(true);
+    expect(playIsOffered()).toBe(true);
+    on("windows");
+    setPlayOffered(false);
+    expect(playIsOffered()).toBe(false);
+  });
+
+  it("is the safe answer until then: the desktop plays and Android does not", () => {
+    on("android");
+    expect(playIsOffered()).toBe(false);
+    on("linux");
+    expect(playIsOffered()).toBe(true);
+    on("windows");
+    expect(playIsOffered()).toBe(true);
   });
 });

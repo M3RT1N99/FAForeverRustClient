@@ -13,6 +13,7 @@ import { LOCALES, LOCALE_KEYS, type Locale } from "../../i18n";
 import { useTranslation } from "../../i18n/useTranslation";
 import { TABS } from "../nav/tabs";
 import { filterMemoryChanged } from "../../shared/filterMemory";
+import { playIsOffered } from "../../shared/platform";
 
 const FILTER_MEMORY: FilterMemory[] = ["never", "session", "restart"];
 
@@ -58,7 +59,8 @@ export function GeneralSettingsSection() {
           onChange={(event) => void save({ startPage: event.target.value as Tab })}
           aria-label={t("settings.general.startPage.label")}
         >
-          {START_PAGES.map((page) => (
+          {/* A build without play has no Play tab to start on. */}
+          {START_PAGES.filter((page) => page !== "play" || playIsOffered()).map((page) => (
             <option key={page} value={page}>{t(TABS[page].label)}</option>
           ))}
         </select>

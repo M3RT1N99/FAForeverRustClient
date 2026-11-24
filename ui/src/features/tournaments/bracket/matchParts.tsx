@@ -12,6 +12,7 @@ import { Button } from "../../../design-system/Button";
 import { Icon } from "../../../design-system/Icon";
 import type { PlayerSummary, Tourney, TourneyMatch } from "../../../ipc/bindings";
 import { useTranslation } from "../../../i18n/useTranslation";
+import { playIsOffered } from "../../../shared/platform";
 import { mayReport, maySubmit } from "../../../shared/rules/tourneyRules";
 import { PlayerChip } from "../PlayerChip";
 import { isMyMatch, myTeamId } from "../tourneyPresentation";
@@ -182,7 +183,8 @@ export function MatchActions({
   // what `viewer.organiser` already means (organisers, a director on an
   // official event, a site admin). It used to be offered to everyone watching,
   // so a spectator saw a Host game button on somebody else's match (issue 367).
-  const mayHost = playable && (isMyMatch(event, entry) || event.viewer.organiser);
+  // Hosting is play, which a build without it does not offer.
+  const mayHost = playable && playIsOffered() && (isMyMatch(event, entry) || event.viewer.organiser);
   const reportable = mayReport(event, entry);
   // A player's own path, for the other side to confirm. An organiser who also
   // plays keeps the organiser's, which needs nobody's confirmation.

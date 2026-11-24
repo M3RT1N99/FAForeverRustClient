@@ -55,7 +55,9 @@ export function ReplayStartDialog() {
   // in the pure lookup so the dialog redraws when the one it needs arrives.
   const vault = useAppStore((state) => state.state.replays.vault);
   const recentMatchmaker = useAppStore((state) => state.state.replays.recentMatchmaker);
-  const liveGames = useAppStore((state) => state.state.lobby.liveGames);
+  const lobbyLiveGames = useAppStore((state) => state.state.lobby.liveGames);
+  // The live view's list while the lobby is closed: FAF's API's.
+  const runningGames = useAppStore((state) => state.state.replays.runningGames);
   const local = useAppStore((state) => state.state.replays.local);
   const maps = useAppStore((state) => state.state.maps.vault);
   // A failure carries no launch of its own; the one it ended is kept, so the
@@ -88,7 +90,12 @@ export function ReplayStartDialog() {
 
   const reason = failed && status.type === "failed" ? status.payload.reason : null;
   const launch = status.type === "connecting" ? status.payload.launch : lastLaunch.current;
-  const found = launch && replayLaunchContext(launch, { vault, recentMatchmaker, liveGames, local });
+  const found = launch && replayLaunchContext(launch, {
+    vault,
+    recentMatchmaker,
+    liveGames: [...lobbyLiveGames, ...runningGames],
+    local,
+  });
   const context: LaunchContext | null = found && {
     name: found.title ?? found.fileName ?? t("replays.starting.unnamed", { uid: found.uid ?? "" }),
     mapName: found.map,

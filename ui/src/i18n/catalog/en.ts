@@ -1504,7 +1504,9 @@ export const en = {
 
   // Live replay list.
   "replays.live.connecting": "Connecting to live games",
-  "replays.live.connectingHint": "The replay list will appear when the lobby stream is ready.",
+  "replays.live.loadingHint": "The list will appear once FAF has said which games are being played.",
+  "replays.live.loadFailed": "Could not load live games",
+  "replays.live.refresh": "Refresh",
   "replays.live.noneNow": "No live games right now",
   "replays.live.noneMatch": "No live games match",
   "replays.live.noneNowHint": "This view updates automatically when a match starts.",
@@ -4038,6 +4040,8 @@ export const en = {
   "notifications.msg.cannotJoinParty.title": "Cannot join the party",
   "notifications.msg.contactChangeFailed.title": "Could not update contacts",
   "notifications.msg.contactChangeFailed.body": "Check the lobby connection and try again.",
+  "notifications.msg.playNotOffered.title": "Not in this version",
+  "notifications.msg.playNotOffered.body": "This version of the client watches replays only. Hosting, joining and the matchmaker come in a later one.",
   "notifications.msg.searchFailed.title": "Could not start the search",
   "notifications.msg.searchStopFailed.title": "Could not stop the search",
   "notifications.msg.hostFailed.title": "Could not host game",

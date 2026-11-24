@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../../../design-system/Icon";
+import { StatusNotice } from "../../../design-system/StatusNotice";
 import { ipc } from "../../../ipc/client";
 import { useAppStore } from "../../../store/store";
 import { isGeneratedMap, mapPresentation, mapSize } from "../../../shared/mapPresentation";
 import { isCustomGameRanked } from "../../../shared/gameRules";
 import { usePlayerMenu } from "../../../shared/hooks/usePlayerMenu";
 import { useRememberedFilters } from "../../../shared/filterMemory";
+import { plainError } from "../../../shared/plainError";
 import { LiveReplayControls } from "./LiveReplayControls";
 import { LiveReplayCards } from "./LiveReplayCards";
 import { LiveReplayDetail } from "./LiveReplayDetail";
@@ -28,10 +30,27 @@ import {
 import "./live-replays.css";
 import { useTranslation } from "../../../i18n/useTranslation";
 
+/**
+ * How often the API's list of running games is asked for again while the
+ * view is shown. The lobby pushes its own as games start and end; the API is
+ * a request, and a game is not watchable for five minutes after it starts
+ * anyway, so a minute late costs nothing.
+ */
+export const RUNNING_GAMES_REFRESH_MS = 60_000;
+
+const loadRunningGames = () => ipc.send({ kind: "Replays", command: { type: "loadRunningGames" } });
+
 export function LiveReplayView({ busy }: { busy: boolean }) {
   const { t } = useTranslation();
-  const liveGames = useAppStore((s) => s.state.lobby.liveGames);
   const lobbyStatus = useAppStore((s) => s.state.lobby.status);
+  const lobbyGames = useAppStore((s) => s.state.lobby.liveGames);
+  const runningGames = useAppStore((s) => s.state.replays.runningGames);
+  const runningGamesStatus = useAppStore((s) => s.state.replays.runningGamesStatus);
+  // The lobby's own feed while it is connected. While it is not, which on
+  // Android is always until FAF publishes its faf-uid, the games FAF's API
+  // lists as running: the same rows, picked and watched the same way.
+  const fromLobby = lobbyStatus === "connected";
+  const liveGames = fromLobby ? lobbyGames : runningGames;
   const mapVault = useAppStore((s) => s.state.maps.vault);
   // The mod catalogue, for the ranked filter below: a sim mod that is not
   // on the ranked list is one of the three things a client can see about
@@ -92,6 +111,16 @@ export function LiveReplayView({ busy }: { busy: boolean }) {
     // this rated" is a question about the map and about the sim mods.
     ipc.send({ kind: "Mods", command: { type: "loadVault" } });
   }, []);
+
+  // The API's list has no feed, so it is asked for while it is the one on
+  // screen: at once, then every minute, until the lobby connects or the view
+  // is left.
+  useEffect(() => {
+    if (fromLobby) return;
+    loadRunningGames();
+    const timer = window.setInterval(loadRunningGames, RUNNING_GAMES_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [fromLobby]);
 
   const gameTypes = useMemo(
     () => [...new Set(liveGames.map((game) => game.gameType).filter(Boolean))].sort(),
@@ -239,18 +268,31 @@ export function LiveReplayView({ busy }: { busy: boolean }) {
     }
   }, [sortKey]);
 
-  if (lobbyStatus !== "connected") {
+  const refreshing = !fromLobby && runningGamesStatus.type === "loading";
+  // Waiting for the API's first answer: there is nothing to filter yet.
+  if (!fromLobby && runningGames.length === 0 && (runningGamesStatus.type === "idle" || refreshing)) {
     return (
       <div className="live-replay-empty surface-panel">
         <Icon name="activity" size={22} />
         <h3>{t("replays.live.connecting")}</h3>
-        <p>{t("replays.live.connectingHint")}</p>
+        <p>{t("replays.live.loadingHint")}</p>
       </div>
     );
   }
 
   return (
     <section className="live-replays">
+      {/* Above the list, which stays as last listed: a refresh that failed
+          says so rather than passing the old games off as current. */}
+      {!fromLobby && runningGamesStatus.type === "failed" && (
+        <StatusNotice
+          tone="error"
+          action={{ label: t("common.retry"), onClick: loadRunningGames }}
+          detail={runningGamesStatus.payload.reason}
+        >
+          {t("replays.live.loadFailed")}: {plainError(runningGamesStatus.payload.reason)}
+        </StatusNotice>
+      )}
       <LiveReplayControls
         filters={filters}
         filtersOpen={filtersOpen}
@@ -260,6 +302,7 @@ export function LiveReplayView({ busy }: { busy: boolean }) {
         activePlayerOptions={activePlayerOptions}
         maxPlayerOptions={maxPlayerOptions}
         viewMode={viewMode}
+        refresh={fromLobby ? undefined : { onRefresh: loadRunningGames, refreshing }}
         onFilter={setFilter}
         onViewMode={setViewMode}
         onToggleFilters={() => setFiltersOpen((open) => !open)}

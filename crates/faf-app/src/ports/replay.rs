@@ -90,6 +90,14 @@ pub trait ReplayVaultPort: Send + Sync {
     async fn replay_map_name(&self, _uid: i32) -> Result<Option<String>, String> {
         Ok(None)
     }
+
+    /// The games being played now, from the API's game records: rows with
+    /// no end that started within the last few hours, newest first. For the
+    /// live view while the lobby, whose own feed it is otherwise, is closed.
+    /// The default knows no API, and so no game.
+    async fn running_games(&self) -> Result<Vec<faf_domain::state::Game>, String> {
+        Err("no list of running games is available here".into())
+    }
 }
 
 /// The shared FAF replay folder every client records into.

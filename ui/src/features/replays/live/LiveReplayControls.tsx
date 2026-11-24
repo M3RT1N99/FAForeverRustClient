@@ -20,6 +20,11 @@ interface Props {
   activePlayerOptions: number[];
   maxPlayerOptions: number[];
   viewMode: ReplayViewMode;
+  /**
+   * For a list that has no feed (FAF's API's, while the lobby is closed):
+   * asking for it again, in place of the lobby's "live updates" mark.
+   */
+  refresh?: { onRefresh: () => void; refreshing: boolean };
   onFilter: <K extends keyof LiveFilters>(key: K, value: LiveFilters[K]) => void;
   onToggleFilters: () => void;
   onClear: () => void;
@@ -88,9 +93,16 @@ export function LiveReplayControls(props: Props) {
             : t("replays.live.filters")}
         </Button>
         {props.activeFilterCount > 0 && <Button onClick={props.onClear}>{t("replays.live.clear")}</Button>}
-        <span className="live-replay-stream-status">
-          <i aria-hidden="true" /> {t("replays.live.updates")}
-        </span>
+        {props.refresh ? (
+          <Button onClick={props.refresh.onRefresh} disabled={props.refresh.refreshing}>
+            <Icon name="refresh" size={15} className={props.refresh.refreshing ? "spin" : undefined} />
+            {t("replays.live.refresh")}
+          </Button>
+        ) : (
+          <span className="live-replay-stream-status">
+            <i aria-hidden="true" /> {t("replays.live.updates")}
+          </span>
+        )}
         {/* Same control, same place, same stored preference as the two other
             replay tabs: the answer to "list or cards" is about the reader
             rather than about which tab they are on. */}

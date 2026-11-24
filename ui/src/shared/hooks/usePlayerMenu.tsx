@@ -20,6 +20,7 @@ import { findPlayer } from "../../store/reducer";
 import { accountFor, type AccountRef } from "../../store/reducers/social";
 import { useAppStore } from "../../store/store";
 import { assignedPlayerColor, includesName } from "../nameColorsUtil";
+import { playIsOffered } from "../platform";
 import { setPlayerMuted, setPlayerNameColor } from "../preferenceCommands";
 import { noteForPlayer } from "../rules/playerNotes";
 import { EMPTY_REPLAY_QUERY } from "../replayQuery";
@@ -189,6 +190,7 @@ function PlayerMenuLayer({ menu, menuContext, noteTarget, options, onCloseMenu, 
   const chatUsername = useAppStore((s) => s.state.chat.username);
   const games = useAppStore((s) => s.state.lobby.games);
   const liveGames = useAppStore((s) => s.state.lobby.liveGames);
+  const runningGames = useAppStore((s) => s.state.replays.runningGames);
   const party = useAppStore((s) => s.state.lobby.party);
   const chatPreferences = useAppStore((s) => s.state.settings.chat);
   const playerNotes = useAppStore((s) => s.state.settings.social.playerNotes);
@@ -212,9 +214,15 @@ function PlayerMenuLayer({ menu, menuContext, noteTarget, options, onCloseMenu, 
 
   // Which game the menu's target is in, from the lists the Play tab already
   // keeps: `player_info` doesn't carry a game, but `game_info` carries rosters.
+  // While the lobby is closed, the running games FAF's API lists say it.
   const inParty = (id: number) => party.members.some((member) => member.playerId === id);
-  const menuHostedGame = menu && games.find((game) => game.host === menu.nickname);
-  const menuLiveGame = menu ? inGame(liveGames, menu.nickname) : undefined;
+  // A build without play offers no way from here into a game or a party:
+  // no join, no invite, no kick. Watching stays.
+  const play = playIsOffered();
+  const menuHostedGame = play && menu ? games.find((game) => game.host === menu.nickname) : undefined;
+  const menuLiveGame = menu
+    ? inGame(liveGames, menu.nickname) ?? inGame(runningGames, menu.nickname)
+    : undefined;
   const menuNameColor = menu
     ? assignedPlayerColor(chatPreferences.nameColors.players, menu.nickname)
     : undefined;
@@ -232,10 +240,11 @@ function PlayerMenuLayer({ menu, menuContext, noteTarget, options, onCloseMenu, 
           isFriend={includesName(social.friends, menuAccount?.login || menu.nickname)}
           isFoe={includesName(social.foes, menuAccount?.login || menu.nickname)}
           isMuted={menuIsMuted}
-          hostedGame={menuHostedGame ?? undefined}
+          hostedGame={menuHostedGame}
           liveGame={menuLiveGame}
-          canInvite={!!menu.profile && !inParty(menu.profile.id)}
+          canInvite={play && !!menu.profile && !inParty(menu.profile.id)}
           canKickFromParty={
+            play &&
             !!menu.profile &&
             party.ownerId === (player?.id ?? -1) &&
             inParty(menu.profile.id)

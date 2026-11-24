@@ -170,6 +170,17 @@ export function reduceReplays(state: ReplayState, event: ReplayEvent): ReplaySta
         ...state,
         recentMatchmakerStatus: { type: "failed", payload: { reason: event.payload.reason } },
       };
+    // The live view's list while the lobby is closed. A failed refresh keeps
+    // the games last listed, under the failure.
+    case "runningGamesLoading":
+      return { ...state, runningGamesStatus: { type: "loading" } };
+    case "runningGamesLoaded":
+      return { ...state, runningGames: event.payload.games, runningGamesStatus: { type: "ready" } };
+    case "runningGamesFailed":
+      return {
+        ...state,
+        runningGamesStatus: { type: "failed", payload: { reason: event.payload.reason } },
+      };
     case "featuredModsLoaded":
       return { ...state, featuredMods: event.payload.mods };
     case "localLoading":

@@ -34,12 +34,13 @@ mod launch;
 mod matchmaking;
 mod updates;
 
-use faf_domain::state::{HostGameConfig, JoinState, LobbyCommand, LobbyEvent};
+use faf_domain::state::{HostGameConfig, JoinState, LobbyCommand, LobbyEvent, NotificationKind};
 
 use crate::runtime::{
     account::AccountConnection, Cancellable, EventSink, LatestRequest, LobbyOperations,
     RunningGame, ServiceCtx,
 };
+use crate::services::notifications;
 
 pub use connection::reconnect;
 
@@ -165,7 +166,40 @@ impl LobbyContext {
     }
 }
 
+/// Whether `cmd` would host, join or queue, which a build without play
+/// ([`crate::Ports::play_offered`]) refuses. A party is the matchmaker's, so
+/// its invites are play too. What only ends play (a stop, a cancel, leaving)
+/// and the host dialog's title, which hosts nothing, are not.
+fn asks_to_play(cmd: &LobbyCommand) -> bool {
+    matches!(
+        cmd,
+        LobbyCommand::Join { .. }
+            | LobbyCommand::Host { .. }
+            | LobbyCommand::StartSearch { .. }
+            | LobbyCommand::Matchmake { start: true, .. }
+            | LobbyCommand::InviteToParty { .. }
+            | LobbyCommand::AcceptPartyInvite { .. }
+    )
+}
+
 pub async fn handle(cmd: LobbyCommand, ctx: &ServiceCtx, out: &EventSink) {
+    // Behind the page, which offers none of these in such a build: a link, the
+    // web client, Discord or a notice left from before must not reach them
+    // either.
+    if !ctx.ports.play_offered && asks_to_play(&cmd) {
+        // Not the command itself: a join carries the lobby's password.
+        tracing::warn!("refused a request to play: this build offers none");
+        notifications::add_required_text(
+            out,
+            NotificationKind::Error,
+            notifications::Text::new("notifications.msg.playNotOffered"),
+            "Not in this version",
+            "This version of the client watches replays only. Hosting, joining and \
+             the matchmaker come in a later one.",
+            None,
+        );
+        return;
+    }
     match cmd {
         LobbyCommand::Connect => {
             // An explicit Connect is what asks for the lobby to be kept up,

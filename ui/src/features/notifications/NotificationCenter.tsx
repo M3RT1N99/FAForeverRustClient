@@ -1,5 +1,5 @@
 import { useOverlayLayer } from "../../design-system/useOverlayLayer";
-import { useCallback, useEffect, useRef, useState, lazy, Suspense } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { Icon } from "../../design-system/Icon";
 import type { ClientNotification } from "../../ipc/bindings";
 import { ipc } from "../../ipc/client";
@@ -10,6 +10,8 @@ import { openHttpsUrl } from "../../shared/externalLinks";
 import { useClockPreference } from "../../shared/format/clock";
 import { useAppStore } from "../../store/store";
 import { NotificationCard } from "./NotificationCard";
+import { offersPlay } from "./notificationPresentation";
+import { playIsOffered } from "../../shared/platform";
 import { admitNotifications, deliverNotifications, UNANNOUNCED_OUTCOMES, type DeliveryResult } from "./deliverNotifications";
 import { NotificationRecovery } from "./NotificationRecovery";
 import { notificationArtwork } from "./notificationArtwork";
@@ -118,7 +120,14 @@ async function runAction(item: ClientNotification, openGame: (id: number) => voi
 
 export function NotificationCenter() {
   useLocale();
-  const items = useAppStore((state) => state.state.notifications.items);
+  const allItems = useAppStore((state) => state.state.notifications.items);
+  // A build without play shows no notice that offers a way into it: not in
+  // the list, not as a toast, not to the system. A game to join or a party
+  // to accept would only lead to a refusal there.
+  const items = useMemo(
+    () => (playIsOffered() ? allItems : allItems.filter((item) => !offersPlay(item.action))),
+    [allItems],
+  );
   const preferences = useAppStore((state) => state.state.settings.notifications);
   // The centre is always mounted, so it subscribes to the clock preference
   // rather than reading it once: flipping the switch redraws the cards (#425).
@@ -265,22 +274,23 @@ export function NotificationCenter() {
 
   // A notification leaves the history by itself once it is older than the
   // player's chosen time (#644); zero keeps every one. One timer, for the
-  // next one due, re-armed whenever the list changes or that one goes.
+  // next one due, re-armed whenever the list changes or that one goes. Over
+  // every notification, the ones a build without play hides included.
   const historyLifetime = preferences.historyLifetimeSeconds ?? 0;
   const [expiryCheck, setExpiryCheck] = useState(0);
   useEffect(() => {
     if (historyLifetime <= 0) return;
-    const expired = expiredNotifications(items, historyLifetime, Date.now());
+    const expired = expiredNotifications(allItems, historyLifetime, Date.now());
     expired.forEach((item) => {
       hideToast(item.id);
       dismiss(item.id);
     });
-    const remaining = expired.length === 0 ? items : items.filter((item) => !expired.includes(item));
+    const remaining = expired.length === 0 ? allItems : allItems.filter((item) => !expired.includes(item));
     const due = nextExpiry(remaining, historyLifetime);
     if (due === null) return;
     const timer = window.setTimeout(() => setExpiryCheck((check) => check + 1), Math.max(0, due - Date.now()) + 50);
     return () => window.clearTimeout(timer);
-  }, [items, historyLifetime, expiryCheck, hideToast]);
+  }, [allItems, historyLifetime, expiryCheck, hideToast]);
 
   return (
     <div className="notification-center" ref={panelRef}>
