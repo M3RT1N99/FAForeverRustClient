@@ -129,6 +129,52 @@
   gap: var(--space-2);
 }
 
+/* Folded to one row on a phone lying down (VaultSearch, LocalReplaySearch):
+   the player field, Search beside it and More filters at the row's end. The
+   field's label is kept for screen readers; the placeholder says what goes
+   in, and the row stays one control high. */
+.search-panel.is-folded {
+  padding: var(--space-2) var(--space-3);
+}
+
+.search-panel.is-folded > .search-panel-primary {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+/* The vault's field wrapper holds the player field alone here, which then
+   sits in the row as the local search's does. */
+.search-panel.is-folded .online-search-fields {
+  display: contents;
+}
+
+.search-panel.is-folded .online-search-top > .vault-search-submit {
+  margin-top: 0;
+}
+
+/* Beside the field, not stretched over the room a narrow window's rule gives
+   it (search-panel.css). */
+.search-panel.is-folded .search-panel-submit {
+  flex: none;
+}
+
+.search-panel.is-folded .search-panel-toggle {
+  margin-left: auto;
+}
+
+.search-panel.is-folded .search-panel-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  border: 0;
+  clip-path: inset(50%);
+}
+
 .vault-search-rating {
   flex: 0 1 220px;
   width: 220px;
@@ -3102,4 +3148,102 @@ input.replay-options-filter {
 .replay-detail-team-column:only-child .replay-detail-roster.is-split,
 .replay-detail-team:only-child .replay-detail-roster.is-split {
   grid-template-columns: repeat(2, minmax(0, 420px));
+}
+
+/* A phone lying down (`shared/phoneLayout`): 340 px high, so a card shows its
+   lineup in the first screen, in the compact form FAF's web client gives its
+   replay card on a phone. The map in a 72 px square beside the title and
+   Watch, the lineup under them across the card, and the facts in three
+   columns. The card's design stays its own; only the arrangement of its
+   parts changes. Two to a row where each is 320 px wide or more, as at the
+   default font; at a larger one the title beside Watch had a word's room in
+   two, and the cards go one to a row. */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 479px) {
+  .replay-grid {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  }
+
+  .replay-card {
+    display: grid;
+    grid-template-areas:
+      "thumb top"
+      "teams teams"
+      "meta meta"
+      "stars footer";
+    grid-template-columns: 72px minmax(0, 1fr);
+    align-content: start;
+    gap: var(--space-2) var(--space-3);
+    min-height: 0;
+  }
+
+  .replay-card-left,
+  .replay-card-right {
+    display: contents;
+  }
+
+  .replay-card-thumb-wrap {
+    grid-area: thumb;
+    left: 0;
+  }
+
+  .replay-card-thumb {
+    width: 72px;
+    height: 72px;
+  }
+
+  .replay-card-top {
+    grid-area: top;
+    margin-bottom: 0;
+  }
+
+  .replay-card-teams {
+    grid-area: teams;
+  }
+
+  .replay-stars {
+    grid-area: stars;
+    align-self: center;
+  }
+
+  .replay-card-footer {
+    grid-area: footer;
+    margin-top: 0;
+  }
+
+  /* The lineup is what a card is read for, so its names are body size. */
+  .replay-player {
+    min-height: 26px;
+    font-size: 14px;
+  }
+
+  .replay-meta-grid {
+    grid-area: meta;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-border);
+    font-size: 12px;
+  }
+
+  /* A replay's detail: the hero compact, so the facts start in view. The
+     picture at 96 px and Watch beside the title, also where the dialog is
+     narrow enough for the container rule above to put Watch on a row of its
+     own. */
+  .replay-detail-hero {
+    grid-template-columns: 96px minmax(0, 1fr) auto;
+    gap: var(--space-3) var(--space-4);
+    padding: var(--space-4) 48px var(--space-4) var(--space-4);
+  }
+
+  .replay-detail-hero .replay-detail-thumb-frame {
+    width: 96px;
+  }
+
+  .replay-detail-hero .replay-detail-headtext h2 {
+    font-size: 22px;
+  }
+
+  .replay-detail-hero-watch {
+    grid-column: auto;
+    min-width: 0;
+  }
 }

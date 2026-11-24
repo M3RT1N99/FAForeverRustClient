@@ -3,6 +3,7 @@ import {
   advancedReplayFilterCount,
   ALL_TIME_AFTER,
   EMPTY_REPLAY_QUERY,
+  foldedReplayFilterCount,
   isRecentBound,
   isoDaysAgo,
   personalReplayQuery,
@@ -102,3 +103,40 @@ describe("the date floor toggle", () => {
     expect(isRecentBound(EMPTY_REPLAY_QUERY.after)).toBe(false);
   });
 });
+
+describe("foldedReplayFilterCount", () => {
+  it("counts nothing for the empty search, nor for the player, the order or all of history", () => {
+    expect(foldedReplayFilterCount(EMPTY_REPLAY_QUERY)).toBe(0);
+    expect(foldedReplayFilterCount({
+      ...EMPTY_REPLAY_QUERY,
+      player: "Mrauky",
+      sortBy: "duration",
+      sortDescending: false,
+      page: 3,
+      pageSize: 100,
+      after: ALL_TIME_AFTER,
+    })).toBe(0);
+  });
+
+  it("counts every filter the fold hides, each range once, beside the advanced panel's", () => {
+    const query = {
+      ...EMPTY_REPLAY_QUERY,
+      exactPlayer: false,
+      map: "seton",
+      replayId: "28010105",
+      leaderboards: ["ladder_1v1"],
+      featuredMods: ["faf"],
+      after: isoDaysAgo(365),
+      minRating: 1000,
+      maxRating: 2000,
+      minDurationMinutes: 5,
+      minPlayers: 4,
+      mapMaxSizeKm: 20,
+      minReviewScore: 4,
+      title: "theos",
+    };
+    expect(advancedReplayFilterCount(query)).toBe(1);
+    expect(foldedReplayFilterCount(query)).toBe(11);
+  });
+});
+

@@ -309,7 +309,7 @@ export function ReplayList({
   // padding are the row's own (`replays.css`).
   if (columns.overflow) {
     style["--replay-list-min-width"] =
-      `calc(${columns.total}px + ${COLUMNS.length - 1} * var(--space-4) + 2 * var(--space-3))`;
+      `calc(${columns.total}px + ${COLUMNS.length - 1} * var(--replay-list-gap) + 2 * var(--space-3))`;
   }
   order.forEach((column, position) => {
     style[`--replay-list-order-${column}`] = position;

@@ -56,6 +56,9 @@
    narrower in proportion when the space is short (issue 341). */
 .replay-list-wrap {
   --replay-list-columns: 48px minmax(190px, 1.35fr) 110px 90px 70px 82px 126px 190px;
+  /* Between the columns. A value of its own, because the list's sideways
+     floor (`ReplayList`) adds it up too. */
+  --replay-list-gap: var(--space-4);
   min-width: 0;
   overflow-x: hidden;
 }
@@ -152,7 +155,7 @@
 .replay-list-row {
   display: grid;
   grid-template-columns: var(--replay-list-columns);
-  column-gap: var(--space-4);
+  column-gap: var(--replay-list-gap);
   align-items: center;
 }
 
@@ -593,3 +596,21 @@
   justify-content: flex-end;
 }
 
+
+/* A finger (`pointer: coarse`): the view switch's two buttons 40 px square,
+   as every button is on a touch screen (styles.css). */
+@media (pointer: coarse) {
+  .replay-view-switch button {
+    width: 40px;
+    min-height: 40px;
+  }
+}
+
+/* A phone lying down (`shared/phoneLayout`): half the room between the
+   list's columns, so every column keeps its floor in the width a phone has
+   beside the rail, at the default font. */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 479px) {
+  .replay-list-wrap {
+    --replay-list-gap: var(--space-2);
+  }
+}

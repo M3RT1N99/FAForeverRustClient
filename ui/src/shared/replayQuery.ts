@@ -87,3 +87,26 @@ export function advancedReplayFilterCount(query: ReplayQuery): number {
     query.onlyRanked,
   ].filter(Boolean).length;
 }
+
+/**
+ * The count on More filters while the search is folded to its player field,
+ * which it is on a phone lying down: the advanced panel's, and every filter of
+ * the rows the fold hides, the ticks beside the presets included. The player
+ * field is the one on screen, and the sort and the page size order the list
+ * without narrowing it. "All of history" is no bound.
+ */
+export function foldedReplayFilterCount(query: ReplayQuery): number {
+  return advancedReplayFilterCount(query) + [
+    !query.exactPlayer,
+    query.map !== "",
+    query.replayId !== "",
+    // The game mode and the game type, two ways of naming what was played.
+    query.leaderboards.length > 0 || query.featuredMods.length > 0,
+    isRecentBound(query.after) || query.before !== "",
+    query.minRating !== null || query.maxRating !== null,
+    query.minDurationMinutes !== null || query.maxDurationMinutes !== null,
+    query.minPlayers !== null || query.maxPlayers !== null,
+    query.mapMinSizeKm !== null || query.mapMaxSizeKm !== null,
+    query.minReviewScore !== null || query.maxReviewScore !== null,
+  ].filter(Boolean).length;
+}

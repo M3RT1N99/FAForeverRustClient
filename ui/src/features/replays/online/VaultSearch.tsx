@@ -31,6 +31,7 @@ import { Icon } from "../../../design-system/Icon";
 import { RangeSlider } from "../../../design-system/RangeSlider";
 import {
   advancedReplayFilterCount,
+  foldedReplayFilterCount,
   ALL_TIME_AFTER,
   EMPTY_REPLAY_QUERY,
   isRecentBound,
@@ -57,6 +58,7 @@ import "../../../design-system/search-panel.css";
 import type { MessageKey } from "../../../i18n";
 import { useTranslation } from "../../../i18n/useTranslation";
 import { DateInput } from "../../../design-system/DateInput";
+import { usePhoneLayout } from "../../../shared/phoneLayout";
 
 const MIN_RATING = -1000;
 const MAX_RATING = 4000;
@@ -118,6 +120,12 @@ export function VaultSearch({ featuredMods, leaderboards, self, friends, initial
     setForm((current) => ({ ...current, replayIds: replayIdsTagged(replayNotes, tags), page: 1 }));
   };
   const [advanced, setAdvanced] = useState(false);
+  // Folded on a phone lying down, as FAF's web client folds its search on a
+  // phone: the player field, Search and More filters in one row, and the
+  // rest behind More filters, which opens all of it at once. Unfolded, the
+  // fields, the sliders and the presets filled the 340 px a phone has lying
+  // down several times over before the first replay.
+  const folded = usePhoneLayout() && !advanced;
   // Reflects the date bound already in the query, so the button matches what is
   // actually being searched rather than a separate opinion about it. An empty
   // `after` is *no* bound, not a recent one: "All replays" leaves it empty and
@@ -237,7 +245,7 @@ export function VaultSearch({ featuredMods, leaderboards, self, friends, initial
   };
 
   const gameModes = replayGameModes(leaderboards);
-  const hiddenFilterCount = advancedReplayFilterCount(form);
+  const hiddenFilterCount = folded ? foldedReplayFilterCount(form) : advancedReplayFilterCount(form);
   // Which scope button is lit. Read off the form, so it follows a search
   // arrived at by hand or handed over from a player card as well as one of
   // these three presses. See `activeReplayPreset`.
@@ -255,8 +263,26 @@ export function VaultSearch({ featuredMods, leaderboards, self, friends, initial
     });
   }
 
+  const toggle = (
+    <Button
+      className="search-panel-toggle"
+      aria-expanded={advanced}
+      onClick={() => setAdvanced((a) => !a)}
+    >
+      <Icon name="filter" size={15} />
+      {advanced
+        ? t("replays.search.fewerFilters")
+        : hiddenFilterCount > 0
+          ? t("replays.search.moreFiltersCount", { count: hiddenFilterCount })
+          : t("replays.search.moreFilters")}
+    </Button>
+  );
+
   return (
-    <form className="vault-search online-vault-search search-panel surface-panel" onSubmit={submit}>
+    <form
+      className={`vault-search online-vault-search search-panel surface-panel${folded ? " is-folded" : ""}`}
+      onSubmit={submit}
+    >
       {/* The fields on the left, wrapping as the window narrows, and Search
           in the top-right corner beside them whatever the width. As one more
           item in a wrapping row it fell onto a line of its own once the row
@@ -275,283 +301,277 @@ export function VaultSearch({ featuredMods, leaderboards, self, friends, initial
           />
         </label>
 
-        <label className="vault-field vault-field-grow search-panel-field search-panel-field-grow">
-          <span className="vault-field-label search-panel-label">{t("replays.search.map")}</span>
-          <input
-            className="vault-input search-panel-control"
-            type="search"
-            value={form.map}
-            placeholder={t("replays.search.anyMap")}
-            onChange={(e) => set("map", e.target.value)}
-          />
-        </label>
-
-        <label className="vault-field vault-search-replay-id search-panel-field">
-          <span className="vault-field-label search-panel-label">{t("replays.search.replayId")}</span>
-          <input
-            className="vault-input search-panel-control"
-            type="search"
-            inputMode="numeric"
-            value={form.replayId}
-            onChange={(e) => set("replayId", e.target.value)}
-          />
-        </label>
-
-        {/* The leaderboard picker, asked as the question people have: a
-            leaderboard is how the API answers "which mode", not how anybody
-            says it, and co-op, which is on no leaderboard at all, could not be
-            asked for before. Several at once (#326): "custom and matchmaker,
-            not co-op" is one question. See `replayGameModes.ts` for how co-op
-            beside a leaderboard stays answerable. */}
-        <div className="vault-field vault-search-mode search-panel-field">
-          <MultiSelect
-            label={t("replays.search.gameMode")}
-            anyLabel={t("replays.search.mode.any")}
-            options={gameModes.map((mode) => ({ value: mode.id, label: mode.label }))}
-            selected={selectedGameModes(form)}
-            onChange={(modes) => setForm(withGameModes(form, modes))}
-          />
-        </div>
-
-        {/* Up here rather than three clicks into the advanced panel: "essential
-            feature", and the feature it replaced in this row was the featured
-            mod picker, which is now beside the rest of the narrowing filters.
-            One field, two bounds, because either half alone is a usable search
-            and both halves are the same question. */}
-        <div className="vault-field vault-search-dates search-panel-field">
-          <span className="vault-field-label search-panel-label">{t("replays.search.datePlayed")}</span>
-          <div className="vault-search-date-pair">
-            <DateInput
+        {!folded && (<>
+          <label className="vault-field vault-field-grow search-panel-field search-panel-field-grow">
+            <span className="vault-field-label search-panel-label">{t("replays.search.map")}</span>
+            <input
               className="vault-input search-panel-control"
-              value={form.after}
-              aria-label={t("replays.filters.playedAfter")}
-              title={t("replays.filters.playedAfter")}
-              onChange={(value) => set("after", value)}
+              type="search"
+              value={form.map}
+              placeholder={t("replays.search.anyMap")}
+              onChange={(e) => set("map", e.target.value)}
             />
-            <DateInput
+          </label>
+
+          <label className="vault-field vault-search-replay-id search-panel-field">
+            <span className="vault-field-label search-panel-label">{t("replays.search.replayId")}</span>
+            <input
               className="vault-input search-panel-control"
-              value={form.before}
-              aria-label={t("replays.filters.playedBefore")}
-              title={t("replays.filters.playedBefore")}
-              onChange={(value) => set("before", value)}
+              type="search"
+              inputMode="numeric"
+              value={form.replayId}
+              onChange={(e) => set("replayId", e.target.value)}
+            />
+          </label>
+
+          {/* The leaderboard picker, asked as the question people have: a
+              leaderboard is how the API answers "which mode", not how anybody
+              says it, and co-op, which is on no leaderboard at all, could not be
+              asked for before. Several at once (#326): "custom and matchmaker,
+              not co-op" is one question. See `replayGameModes.ts` for how co-op
+              beside a leaderboard stays answerable. */}
+          <div className="vault-field vault-search-mode search-panel-field">
+            <MultiSelect
+              label={t("replays.search.gameMode")}
+              anyLabel={t("replays.search.mode.any")}
+              options={gameModes.map((mode) => ({ value: mode.id, label: mode.label }))}
+              selected={selectedGameModes(form)}
+              onChange={(modes) => setForm(withGameModes(form, modes))}
             />
           </div>
-        </div>
 
-        <ReplayGameTypeField form={form} featuredMods={featuredMods} set={set} />
+          {/* Up here rather than three clicks into the advanced panel: "essential
+              feature", and the feature it replaced in this row was the featured
+              mod picker, which is now beside the rest of the narrowing filters.
+              One field, two bounds, because either half alone is a usable search
+              and both halves are the same question. */}
+          <div className="vault-field vault-search-dates search-panel-field">
+            <span className="vault-field-label search-panel-label">{t("replays.search.datePlayed")}</span>
+            <div className="vault-search-date-pair">
+              <DateInput
+                className="vault-input search-panel-control"
+                value={form.after}
+                aria-label={t("replays.filters.playedAfter")}
+                title={t("replays.filters.playedAfter")}
+                onChange={(value) => set("after", value)}
+              />
+              <DateInput
+                className="vault-input search-panel-control"
+                value={form.before}
+                aria-label={t("replays.filters.playedBefore")}
+                title={t("replays.filters.playedBefore")}
+                onChange={(value) => set("before", value)}
+              />
+            </div>
+          </div>
 
-        {/* The sort with the other fields, now that the game title has gone
-            to More filters and left room for it. Where the row still runs
-            out of width, the sort wraps with the fields, above the sliders. */}
-        <div className="online-search-sort">
-          <label className="vault-field vault-search-sort search-panel-field">
-            <span className="vault-field-label search-panel-label">{t("replays.search.sortBy")}</span>
-            <select
-              className="vault-input search-panel-control"
-              value={form.sortBy}
-              onChange={(e) => set("sortBy", e.target.value as ReplaySortField)}
+          <ReplayGameTypeField form={form} featuredMods={featuredMods} set={set} />
+
+          {/* The sort with the other fields, now that the game title has gone
+              to More filters and left room for it. Where the row still runs
+              out of width, the sort wraps with the fields, above the sliders. */}
+          <div className="online-search-sort">
+            <label className="vault-field vault-search-sort search-panel-field">
+              <span className="vault-field-label search-panel-label">{t("replays.search.sortBy")}</span>
+              <select
+                className="vault-input search-panel-control"
+                value={form.sortBy}
+                onChange={(e) => set("sortBy", e.target.value as ReplaySortField)}
+              >
+                {(Object.keys(SORT_LABELS) as ReplaySortField[]).map((field) => (
+                  <option key={field} value={field}>
+                    {t(SORT_LABELS[field])}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="vault-input search-panel-control vault-sort-order"
+              aria-label={t(form.sortDescending ? "replays.search.descendingAria" : "replays.search.ascendingAria")}
+              title={t(form.sortDescending ? "replays.search.descending" : "replays.search.ascending")}
+              onClick={toggleSortDirection}
             >
-              {(Object.keys(SORT_LABELS) as ReplaySortField[]).map((field) => (
-                <option key={field} value={field}>
-                  {t(SORT_LABELS[field])}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="vault-input search-panel-control vault-sort-order"
-            aria-label={t(form.sortDescending ? "replays.search.descendingAria" : "replays.search.ascendingAria")}
-            title={t(form.sortDescending ? "replays.search.descending" : "replays.search.ascending")}
-            onClick={toggleSortDirection}
-          >
-            {form.sortDescending ? "↓" : "↑"}
-          </button>
-        </div>
+              {form.sortDescending ? "↓" : "↑"}
+            </button>
+          </div>
+        </>)}
         </div>
 
         <Button type="submit" variant="primary" className="vault-search-submit search-panel-submit">
           <Icon name="search" size={15} /> {t("replays.search.submit")}
         </Button>
+        {folded && toggle}
       </div>
 
-      {/* The second row: every range at once, so the sliders are there from
-          the start rather than behind "More filters". */}
-      <div className="online-search-sliders">
-        {/* The label says "any player's", because that is what the API can
-            answer and therefore what this does: a 500 against a 2500 comes
-            back from a search for either number. It is a different question
-            from the one the *local* replay search asks with the same slider,
-            which is the game's average and is exact there, because a folder
-            scan has every replay in hand and no window to be partial about. */}
-        {/* The average was offered here too for a while, computed from each
-            page as it arrived, but the API has no average field, so the answer
-            could only ever cover the window the client had read. A filter that
-            quietly answers a smaller question than the one asked is worse than
-            one that answers a blunter question honestly, so it was withdrawn
-            rather than explained. */}
-        <RangeSlider
-          label={t("replays.search.ratingPerPlayer")}
-          min={MIN_RATING}
-          max={MAX_RATING}
-          step={50}
-          low={form.minRating}
-          high={form.maxRating}
-          onChange={(lo, hi) => setRange("minRating", "maxRating", lo, hi)}
-        />
-        <ReplaySearchSliders form={form} setRange={setRange} />
-      </div>
+      {!folded && (<>
+        {/* The second row: every range at once, so the sliders are there from
+            the start rather than behind "More filters". */}
+        <div className="online-search-sliders">
+          {/* The label says "any player's", because that is what the API can
+              answer and therefore what this does: a 500 against a 2500 comes
+              back from a search for either number. It is a different question
+              from the one the *local* replay search asks with the same slider,
+              which is the game's average and is exact there, because a folder
+              scan has every replay in hand and no window to be partial about. */}
+          {/* The average was offered here too for a while, computed from each
+              page as it arrived, but the API has no average field, so the answer
+              could only ever cover the window the client had read. A filter that
+              quietly answers a smaller question than the one asked is worse than
+              one that answers a blunter question honestly, so it was withdrawn
+              rather than explained. */}
+          <RangeSlider
+            label={t("replays.search.ratingPerPlayer")}
+            min={MIN_RATING}
+            max={MAX_RATING}
+            step={50}
+            low={form.minRating}
+            high={form.maxRating}
+            onChange={(lo, hi) => setRange("minRating", "maxRating", lo, hi)}
+          />
+          <ReplaySearchSliders form={form} setRange={setRange} />
+        </div>
 
-      <div className="vault-search-presets search-panel-secondary">
-        {/* Drawn active the same way the toggles to the right of the divider
-            are. Three buttons that never changed gave no sign which scope the
-            list was under, which was the report. */}
-        <Button
-          type="button"
-          className={preset === "newest" ? "active" : ""}
-          aria-pressed={preset === "newest"}
-          onClick={() => applyPreset("newest")}
-        >
-          {t("replays.search.preset.newest")}
-        </Button>
-        <Button
-          type="button"
-          className={preset === "highestRated" ? "active" : ""}
-          aria-pressed={preset === "highestRated"}
-          onClick={() => applyPreset("highestRated")}
-        >
-          {t("replays.search.preset.bestReviewed")}
-        </Button>
-        <Button
-          type="button"
-          className={preset === "own" ? "active" : ""}
-          aria-pressed={preset === "own"}
-          disabled={!self}
-          onClick={() => applyPreset("own")}
-        >
-          {t("replays.search.preset.myReplays")}
-        </Button>
-        {/* Beside "My replays", because it is the same scope for somebody
-            else. Typing a full FAF login by hand every time was the whole
-            complaint. See `FriendReplayPicker`. */}
-        <FriendReplayPicker
-          friends={friends}
-          current={form.player}
-          onPick={(login) => {
-            const query: ReplayQuery = {
-              ...form,
-              player: login,
-              exactPlayer: true,
-              // The same explicit bound "My replays" sets, and for the same
-              // reason: a player filter counts as narrowing, so an empty
-              // `after` hands the backend its invisible six-month floor.
-              after: isoDaysAgo(365),
-              page: 1,
-            };
-            setForm(query);
-            setRecentOnly(isRecentBound(query.after));
-            onSearch(query);
-          }}
-        />
-        <ReplaySavedSearches
-          list={ONLINE_REPLAY_PRESET_LIST}
-          entries={savedEntries}
-          currentSignature={onlinePresetSignature(form, selectedTags)}
-          encodeCurrent={() => encodeOnlineReplayPreset(form, selectedTags)}
-          onApply={({ query, tags }) => {
-            setPickedTags(tags);
-            setForm(query);
-            setRecentOnly(isRecentBound(query.after));
-            onSearch(query);
-          }}
-        />
-        {/* The divider is load-bearing: everything left of it replaces the
-            search, everything right of it modifies the one you have. Without it
-            the toggle reads as a fourth preset, and "All replays" next to
-            "Recent only" looks like a contradiction rather than a scope and a
-            bound. */}
-        <span className="search-panel-divider" aria-hidden="true" />
-        {/* Checkboxes, not buttons: drawn as buttons, "on" was the filled
-            primary look and read as an action, and the three were hard to
-            tell from the presets left of the divider. These only adjust the
-            search, which a tick says at a glance. */}
-        <label className="search-panel-check" title={t("replays.search.recentOnlyHint")}>
-          <input
-            type="checkbox"
-            checked={recentOnly}
-            onChange={(event) => {
-              const next = event.target.checked;
-              setRecentOnly(next);
-              const query = {
+        <div className="vault-search-presets search-panel-secondary">
+          {/* Drawn active the same way the toggles to the right of the divider
+              are. Three buttons that never changed gave no sign which scope the
+              list was under, which was the report. */}
+          <Button
+            type="button"
+            className={preset === "newest" ? "active" : ""}
+            aria-pressed={preset === "newest"}
+            onClick={() => applyPreset("newest")}
+          >
+            {t("replays.search.preset.newest")}
+          </Button>
+          <Button
+            type="button"
+            className={preset === "highestRated" ? "active" : ""}
+            aria-pressed={preset === "highestRated"}
+            onClick={() => applyPreset("highestRated")}
+          >
+            {t("replays.search.preset.bestReviewed")}
+          </Button>
+          <Button
+            type="button"
+            className={preset === "own" ? "active" : ""}
+            aria-pressed={preset === "own"}
+            disabled={!self}
+            onClick={() => applyPreset("own")}
+          >
+            {t("replays.search.preset.myReplays")}
+          </Button>
+          {/* Beside "My replays", because it is the same scope for somebody
+              else. Typing a full FAF login by hand every time was the whole
+              complaint. See `FriendReplayPicker`. */}
+          <FriendReplayPicker
+            friends={friends}
+            current={form.player}
+            onPick={(login) => {
+              const query: ReplayQuery = {
                 ...form,
-                after: next ? isoDaysAgo(365) : ALL_TIME_AFTER,
+                player: login,
+                exactPlayer: true,
+                // The same explicit bound "My replays" sets, and for the same
+                // reason: a player filter counts as narrowing, so an empty
+                // `after` hands the backend its invisible six-month floor.
+                after: isoDaysAgo(365),
                 page: 1,
               };
               setForm(query);
+              setRecentOnly(isRecentBound(query.after));
               onSearch(query);
             }}
           />
-          {t("replays.search.recentOnly")}
-        </label>
-        {/* Next to "Recent only" rather than in the advanced panel: both narrow
-            the search you already have, and an option nobody can find is the
-            same as no option. On by default, so a name means that player. */}
-        <label className="search-panel-check" title={t("replays.search.exactPlayerHint")}>
-          <input
-            type="checkbox"
-            checked={form.exactPlayer}
-            onChange={(event) => {
-              const query = { ...form, exactPlayer: event.target.checked, page: 1 };
+          <ReplaySavedSearches
+            list={ONLINE_REPLAY_PRESET_LIST}
+            entries={savedEntries}
+            currentSignature={onlinePresetSignature(form, selectedTags)}
+            encodeCurrent={() => encodeOnlineReplayPreset(form, selectedTags)}
+            onApply={({ query, tags }) => {
+              setPickedTags(tags);
               setForm(query);
+              setRecentOnly(isRecentBound(query.after));
               onSearch(query);
             }}
           />
-          {t("replays.search.exactPlayer")}
-        </label>
-        {/* A duration floor has always been in the advanced panel as half of a
-            range. The ask was for the one value anybody sets it to: a search
-            for a map comes back full of lobbies that were abandoned in the
-            first minute, and nobody wants to watch those. The panel still has
-            the precise range; this is the press that answers the question.
+          {/* The divider is load-bearing: everything left of it replaces the
+              search, everything right of it modifies the one you have. Without it
+              the toggle reads as a fourth preset, and "All replays" next to
+              "Recent only" looks like a contradiction rather than a scope and a
+              bound. */}
+          <span className="search-panel-divider" aria-hidden="true" />
+          {/* Checkboxes, not buttons: drawn as buttons, "on" was the filled
+              primary look and read as an action, and the three were hard to
+              tell from the presets left of the divider. These only adjust the
+              search, which a tick says at a glance. */}
+          <label className="search-panel-check" title={t("replays.search.recentOnlyHint")}>
+            <input
+              type="checkbox"
+              checked={recentOnly}
+              onChange={(event) => {
+                const next = event.target.checked;
+                setRecentOnly(next);
+                const query = {
+                  ...form,
+                  after: next ? isoDaysAgo(365) : ALL_TIME_AFTER,
+                  page: 1,
+                };
+                setForm(query);
+                onSearch(query);
+              }}
+            />
+            {t("replays.search.recentOnly")}
+          </label>
+          {/* Next to "Recent only" rather than in the advanced panel: both narrow
+              the search you already have, and an option nobody can find is the
+              same as no option. On by default, so a name means that player. */}
+          <label className="search-panel-check" title={t("replays.search.exactPlayerHint")}>
+            <input
+              type="checkbox"
+              checked={form.exactPlayer}
+              onChange={(event) => {
+                const query = { ...form, exactPlayer: event.target.checked, page: 1 };
+                setForm(query);
+                onSearch(query);
+              }}
+            />
+            {t("replays.search.exactPlayer")}
+          </label>
+          {/* A duration floor has always been in the advanced panel as half of a
+              range. The ask was for the one value anybody sets it to: a search
+              for a map comes back full of lobbies that were abandoned in the
+              first minute, and nobody wants to watch those. The panel still has
+              the precise range; this is the press that answers the question.
 
-            Unticking clears the floor rather than restoring whatever was in
-            the range before, which is the honest reading of a toggle. */}
-        <label
-          className="search-panel-check"
-          title={t("replays.search.hideShortHint", { minutes: SHORT_GAME_MINUTES })}
-        >
-          <input
-            type="checkbox"
-            checked={form.minDurationMinutes === SHORT_GAME_MINUTES}
-            onChange={(event) => {
-              const query = {
-                ...form,
-                minDurationMinutes: event.target.checked ? SHORT_GAME_MINUTES : null,
-                page: 1,
-              };
-              setForm(query);
-              onSearch(query);
-            }}
-          />
-          {t("replays.search.hideShort")}
-        </label>
-        <span className="spacer" />
-        <Button
-          className="search-panel-toggle"
-          aria-expanded={advanced}
-          onClick={() => setAdvanced((a) => !a)}
-        >
-          <Icon name="filter" size={15} />
-          {advanced
-            ? t("replays.search.fewerFilters")
-            : hiddenFilterCount > 0
-              ? t("replays.search.moreFiltersCount", { count: hiddenFilterCount })
-              : t("replays.search.moreFilters")}
-        </Button>
-        <Button type="button" onClick={reset}>
-          {t("replays.search.clear")}
-        </Button>
-      </div>
+              Unticking clears the floor rather than restoring whatever was in
+              the range before, which is the honest reading of a toggle. */}
+          <label
+            className="search-panel-check"
+            title={t("replays.search.hideShortHint", { minutes: SHORT_GAME_MINUTES })}
+          >
+            <input
+              type="checkbox"
+              checked={form.minDurationMinutes === SHORT_GAME_MINUTES}
+              onChange={(event) => {
+                const query = {
+                  ...form,
+                  minDurationMinutes: event.target.checked ? SHORT_GAME_MINUTES : null,
+                  page: 1,
+                };
+                setForm(query);
+                onSearch(query);
+              }}
+            />
+            {t("replays.search.hideShort")}
+          </label>
+          <span className="spacer" />
+          {toggle}
+          <Button type="button" onClick={reset}>
+            {t("replays.search.clear")}
+          </Button>
+        </div>
+      </>)}
 
       {form.sortBy === "averageRating" && (
         <p className="muted vault-search-note">{t("replays.search.sort.averageRatingNote")}</p>

@@ -49,9 +49,10 @@ describe("ReplayList column floors", () => {
       expect(drawnColumns(container)).toEqual([
         "44px", "minmax(120px, 1fr)", "56px", "64px", "40px", "48px", "56px", "140px",
       ]);
-      // The floors, 568 pixels, plus the row's seven gaps and its padding.
+      // The floors, 568 pixels, plus the row's seven gaps, which a phone
+      // narrows (`--replay-list-gap`), and its padding.
       expect(section?.style.getPropertyValue("--replay-list-min-width").trim()).toBe(
-        "calc(568px + 7 * var(--space-4) + 2 * var(--space-3))",
+        "calc(568px + 7 * var(--replay-list-gap) + 2 * var(--space-3))",
       );
     } finally {
       width.mockRestore();

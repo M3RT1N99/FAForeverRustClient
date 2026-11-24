@@ -3,6 +3,8 @@ import type { LocalReplay } from "../../../ipc/bindings";
 import {
   EMPTY_LOCAL_REPLAY_QUERY,
   filterLocalReplays,
+  localReplayAdvancedFilterCount,
+  localReplayFoldedFilterCount,
   nextLocalDetailLimit,
   type LocalReplayQuery,
 } from "./localReplayQuery";
@@ -237,3 +239,25 @@ describe("local replay detail window", () => {
     })).toBe(500);
   });
 });
+
+describe("localReplayFoldedFilterCount", () => {
+  it("adds to the advanced panel's count nothing for the player and the order", () => {
+    const query = { ...EMPTY_LOCAL_REPLAY_QUERY, player: "Mrauky", sortBy: "map" as const, sortDescending: false };
+    expect(localReplayFoldedFilterCount(query)).toBe(localReplayAdvancedFilterCount(query));
+  });
+
+  it("counts every filter of the rows the fold hides, the rating range once", () => {
+    const query: LocalReplayQuery = {
+      ...EMPTY_LOCAL_REPLAY_QUERY,
+      map: "artic",
+      replayId: "28010105",
+      gameMode: "coop",
+      minRating: 200,
+      maxRating: 900,
+      status: "complete",
+      minDurationMinutes: 5,
+    };
+    expect(localReplayFoldedFilterCount(query) - localReplayAdvancedFilterCount(query)).toBe(6);
+  });
+});
+

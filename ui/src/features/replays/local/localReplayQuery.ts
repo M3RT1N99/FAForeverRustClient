@@ -174,6 +174,22 @@ export function localReplayAdvancedFilterCount(query: LocalReplayQuery): number 
   ].filter(Boolean).length;
 }
 
+/// The count on More filters while the search is folded to its player field,
+/// which it is on a phone lying down: the advanced panel's, and every filter
+/// of the rows the fold hides. The player field is the one on screen, and the
+/// sort orders the list without narrowing it. A list narrowed by a hidden map
+/// or status would otherwise look like the whole archive.
+export function localReplayFoldedFilterCount(query: LocalReplayQuery): number {
+  return localReplayAdvancedFilterCount(query) + [
+    query.map !== "",
+    query.replayId !== "",
+    query.gameMode !== "",
+    query.minRating !== null || query.maxRating !== null,
+    query.status !== "all",
+    query.minDurationMinutes !== null,
+  ].filter(Boolean).length;
+}
+
 /// How far into the folder the details have to be read for the page on screen.
 ///
 /// The backend lists every replay it finds but only reads the headers of the
