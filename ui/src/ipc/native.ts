@@ -13,7 +13,7 @@ import {
 } from "@tauri-apps/plugin-notification";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { t } from "../i18n";
-import { filesCanBePicked, foldersCanBePicked } from "../shared/platform";
+import { filesCanBePicked, foldersCanBePicked, runsOnAndroid } from "../shared/platform";
 import type {
   ClientNotification,
   GameAppEnd,
@@ -355,7 +355,15 @@ export const native = {
     return invoke<boolean>("play_offered");
   },
 
+  /**
+   * Whether the client's window is the one in front. Tauri's answer on
+   * Android is always false (tao keeps no focus for an activity), so every
+   * notification went out as if the client were in the back. There the
+   * page's own visibility says it: the activity's WebView is hidden whenever
+   * another app is in front, the game app's included.
+   */
   isWindowFocused(): Promise<boolean> {
+    if (runsOnAndroid()) return Promise.resolve(document.visibilityState === "visible");
     return getCurrentWindow().isFocused();
   },
 
