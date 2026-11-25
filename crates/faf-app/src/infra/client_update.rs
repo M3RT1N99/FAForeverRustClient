@@ -695,7 +695,6 @@ fn pick_release(
     best
 }
 
-/// Drafts are visible to authenticated maintainers and are not published.
 /// Whether a release is one of this app's at all. The desktop releases share
 /// the repository, and the Android app takes only an APK: a release without
 /// one is not an update for a phone, which was told of each desktop version
@@ -712,6 +711,7 @@ fn for_this_app(android: bool, assets: Option<&Value>) -> bool {
         })
 }
 
+/// Drafts are visible to authenticated maintainers and are not published.
 fn is_draft(release: &Value) -> bool {
     release
         .get("draft")
