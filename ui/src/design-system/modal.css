@@ -98,15 +98,13 @@
   cursor: default;
 }
 
-/* A finger (`pointer: coarse`): the dialog's close button a touch target's
+/* A finger (`shared/phoneLayout`): the dialog's close button a touch target's
    square in the panel's corner, where the glyph was, instead of 28 px. */
-@media (pointer: coarse) {
-  .modal-close {
-    top: 0;
-    right: 0;
-    display: grid;
-    place-items: center;
-    min-width: var(--touch-target);
-    min-height: var(--touch-target);
-  }
+:where(html[data-touch]) .modal-close {
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
 }

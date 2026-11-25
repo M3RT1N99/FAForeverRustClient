@@ -1327,10 +1327,8 @@
 
 }
 
-/* A finger (`pointer: coarse`): the section list's entries at least a touch
+/* A finger (`shared/phoneLayout`): the section list's entries at least a touch
    target high (tokens.css), as the shell's tabs they mirror are. */
-@media (pointer: coarse) {
-  .settings-sidebar-item {
-    min-height: var(--touch-target);
-  }
+:where(html[data-touch]) .settings-sidebar-item {
+  min-height: var(--touch-target);
 }

@@ -3,16 +3,17 @@
 // The shell on a phone lying down: the rail with a menu in the brand's
 // place, the drawer that menu opens, and the ways it closes (a tap beside
 // it, Escape, a place chosen in it, and Android's Back), with the focus
-// going into it and coming back out. A desktop window of the same size with a
-// mouse keeps the shell it had.
+// going into it and coming back out. A phone with a pen, which reports a fine
+// pointer, has them too. A desktop window of the same size, with a mouse or a
+// touch screen, keeps the shell it had.
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { en } from "../../i18n/catalog/en";
 import { failOnConsoleError } from "../../testing/consoleGuard";
 import { seedStore, sentCommands } from "../../testing/mounted";
-import { PHONE_LYING_DOWN, setScreen, SHORT_DESKTOP } from "../../testing/screens";
+import { PHONE_LYING_DOWN, PHONE_WITH_A_PEN, setScreen, SHORT_DESKTOP, SHORT_TOUCH_DESKTOP } from "../../testing/screens";
 import { AppShell } from "./AppShell";
 
 vi.mock("../../ipc/client");
@@ -27,9 +28,6 @@ vi.mock("../nav/tabs", async (importOriginal) => {
 });
 
 failOnConsoleError();
-
-const ANDROID =
-  "Mozilla/5.0 (Linux; Android 16; SM-S908B; wv) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36";
 
 function mountShell() {
   seedStore((state) => ({
@@ -48,7 +46,11 @@ const scrim = () => document.querySelector<HTMLElement>(".drawer-scrim");
 describe("the shell on a phone lying down", () => {
   beforeEach(() => setScreen(PHONE_LYING_DOWN));
 
-  it("keeps the rail and puts a menu where the brand was", () => {
+  it.each([
+    ["a finger", PHONE_LYING_DOWN],
+    ["its pen, which reports a fine pointer", PHONE_WITH_A_PEN],
+  ] as const)("keeps the rail and puts a menu where the brand was, for %s", (_, on) => {
+    setScreen(on);
     const shell = mountShell();
     expect(shell.classList).toContain("is-sidebar-rail");
     expect(shell.style.getPropertyValue("--sidebar-width")).toBe("64px");
@@ -124,21 +126,16 @@ describe("the shell on a phone lying down", () => {
   });
 });
 
-describe("Android's Back", () => {
-  beforeEach(() => {
-    setScreen(PHONE_LYING_DOWN);
-    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(ANDROID);
-  });
+/** The shell's own entry on top of the history, while the drawer holds one. */
+const entry = () => (window.history.state as Record<string, unknown> | null)?.fafSystemBack;
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+describe("Android's Back", () => {
+  beforeEach(() => setScreen(PHONE_LYING_DOWN));
 
   it("closes the open drawer instead of leaving the app", async () => {
     const shell = mountShell();
-    const before = window.history.length;
     await userEvent.setup().click(menu());
-    expect(window.history.length).toBe(before + 1);
+    expect(entry()).toBeDefined();
     window.history.back();
     await waitFor(() => expect(shell.classList).not.toContain("is-drawer-open"));
     expect(document.activeElement).toBe(menu());
@@ -146,7 +143,6 @@ describe("Android's Back", () => {
 
   it("takes its history entry back off when the drawer is closed another way", async () => {
     const shell = mountShell();
-    const entry = () => (window.history.state as Record<string, unknown> | null)?.fafSystemBack;
     await userEvent.setup().click(menu());
     expect(entry()).toBeDefined();
     fireEvent.click(scrim()!);
@@ -162,8 +158,11 @@ describe("Android's Back", () => {
 });
 
 describe("the shell on a desktop", () => {
-  it("keeps the brand, the sidebar and its resize handle for a mouse in a window as short as a phone", () => {
-    setScreen(SHORT_DESKTOP);
+  it.each([
+    ["a mouse", SHORT_DESKTOP],
+    ["a touch screen", SHORT_TOUCH_DESKTOP],
+  ] as const)("keeps the brand, the sidebar and its resize handle for %s in a window as short as a phone", (_, on) => {
+    setScreen(on);
     const shell = mountShell();
     expect(shell.classList).not.toContain("is-sidebar-rail");
     expect(shell.style.getPropertyValue("--sidebar-width")).not.toBe("64px");

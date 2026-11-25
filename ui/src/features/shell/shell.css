@@ -603,11 +603,9 @@
    rail by its class (`is-sidebar-rail`), whatever the width, and draws the
    menu in the brand's place. The page keeps less of the 340 px height for
    its margins. The tabs without padding keep none. */
-@media (pointer: coarse) and (orientation: landscape) and (max-height: 479px) {
-  .content-inner {
-    padding: 12px 16px 16px;
-    padding-right: max(0px, 16px - var(--content-gutter, 0px));
-  }
+:where(html[data-phone="lying-down"]) .content-inner {
+  padding: 12px 16px 16px;
+  padding-right: max(0px, 16px - var(--content-gutter, 0px));
 }
 
 .sidebar-menu-button {

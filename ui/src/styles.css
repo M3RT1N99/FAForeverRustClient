@@ -33,16 +33,15 @@ body {
   overscroll-behavior: none;
 }
 
-/* The 560 px floor is the desktop window's smallest width (window.rs). A
-   phone lying down is drawn at its font size and interface scale
-   (`shared/androidLayout`), and at a large one of each it is narrower than
-   that: held at 560 px, the page was cut off at the right with nothing to
-   scroll to it. There it lays out at its own width. */
-@media (pointer: coarse) and (orientation: landscape) and (max-height: 479px) {
-  html,
-  body {
-    min-width: 0;
-  }
+/* The 560 px floor is the desktop window's smallest width (window.rs). On
+   Android (`shared/phoneLayout`) the page is as wide as `shared/androidLayout`
+   lays it out, which a phone at a large font size and interface scale, or a
+   small window, takes under 560 px: held at the floor, the page was cut off
+   at the right with nothing to scroll to it. There it lays out at its own
+   width, whatever pointer the phone reports. */
+html[data-touch],
+html[data-touch] body {
+  min-width: 0;
 }
 
 /* Country assets have square canvases, including their transparent padding.
@@ -373,25 +372,23 @@ html[data-reduced-motion="true"] *::after {
   border-color: transparent;
 }
 
-/* A finger rather than a mouse (`pointer: coarse`, a touch screen on any
-   platform): a button a touch target high (tokens.css). A mouse keeps 32 px
-   at any window size and zoom. A feature that sizes its own button keeps
-   that size: weighted over it, this rule would take the 52 px of a replay's
+/* A finger (`shared/phoneLayout`: Android, whatever pointer it reports): a
+   button a touch target high (tokens.css). The desktop keeps 32 px at any
+   window size and zoom. A feature that sizes its own button keeps that
+   size: weighted over it, this rule would take the 52 px of a replay's
    Watch and the 44 of the sign-in button down. Where such a button is
-   smaller, its feature raises it on a touch screen too. */
-@media (pointer: coarse) {
-  .btn-primary,
-  .btn-ghost,
-  .btn-danger {
-    min-height: var(--touch-target);
-  }
+   smaller, its feature raises it for a finger too. */
+:where(html[data-touch]) .btn-primary,
+:where(html[data-touch]) .btn-ghost,
+:where(html[data-touch]) .btn-danger {
+  min-height: var(--touch-target);
+}
 
-  .icon-button {
-    width: var(--touch-target);
-    min-width: var(--touch-target);
-    height: var(--touch-target);
-    min-height: var(--touch-target);
-  }
+:where(html[data-touch]) .icon-button {
+  width: var(--touch-target);
+  min-width: var(--touch-target);
+  height: var(--touch-target);
+  min-height: var(--touch-target);
 }
 
 .error {

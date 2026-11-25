@@ -8,6 +8,7 @@ import { installDesktopContextMenuPolicy } from "./shared/contextMenuPolicy";
 import { installStallReporter } from "./shared/stallReporter";
 import { loadSystemDatePattern } from "./shared/format/systemDate";
 import { loadPlayOffer } from "./shared/playOffer";
+import { markTheLayout } from "./shared/phoneLayout";
 import "./styles.css";
 import "./design-system/patterns.css";
 import "./design-system/vault.css";
@@ -20,6 +21,9 @@ if (favicon) favicon.href = FAF_LOGO_URL;
 
 installDesktopContextMenuPolicy(document);
 installStallReporter();
+// The layout the stylesheets key their touch and phone rules on, for the
+// whole session.
+markTheLayout(document.documentElement);
 
 // Fixed-viewport desktop app: lock document scroll coordinates to 0,0
 // to prevent any native browser focus actions from scrolling the root window.

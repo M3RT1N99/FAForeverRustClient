@@ -161,11 +161,9 @@
 }
 
 
-/* A finger (`pointer: coarse`): the trigger and every option at least a
-   touch target high (tokens.css), as every button is on a touch screen. */
-@media (pointer: coarse) {
-  .multi-select-trigger,
-  .multi-select-option {
-    min-height: var(--touch-target);
-  }
+/* A finger (`shared/phoneLayout`): the trigger and every option at least a
+   touch target high (tokens.css), as every button is there. */
+:where(html[data-touch]) .multi-select-trigger,
+:where(html[data-touch]) .multi-select-option {
+  min-height: var(--touch-target);
 }

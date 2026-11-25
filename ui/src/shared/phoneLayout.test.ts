@@ -1,14 +1,14 @@
-// The phone's media query is written out in each stylesheet that has rules
-// for a phone lying down, and asked in code by `usePhoneLayout`. A copy that
-// drifted, a 480 here or a missing `pointer: coarse` there, would split the
-// page between two layouts at some size, or give a desktop with a mouse the
-// phone's rules.
+// The touch and phone rules are keyed on the root's marks (`markTheLayout`),
+// written out in each stylesheet that has them, and asked in code by
+// `usePhoneLayout`. A copy that drifted, a mark spelt another way here or a
+// pointer media query there, would split the page between two layouts on some
+// phone, or give a phone with a pen the desktop's layout.
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { PHONE_LYING_DOWN } from "./phoneLayout";
+import { PHONE_LYING_DOWN_LAYOUT, TOUCH_LAYOUT } from "./phoneLayout";
 
 const SRC = fileURLToPath(new URL("..", import.meta.url));
 
@@ -20,24 +20,26 @@ function stylesheets(dir: string): string[] {
   });
 }
 
-/** Every media condition in the client's stylesheets that asks about the pointer. */
-const pointerConditions = stylesheets(SRC).flatMap((path) =>
-  [...readFileSync(path, "utf8").matchAll(/@media\s+([^{]*pointer[^{]*)\{/g)].map((match) => ({
-    path: path.slice(SRC.length),
-    condition: match[1].trim(),
-  })),
+const sheets = stylesheets(SRC).map((path) => ({ path: path.slice(SRC.length), css: readFileSync(path, "utf8") }));
+
+/** Every selector on a layout mark, with the element it is on. */
+const marks = sheets.flatMap(({ path, css }) =>
+  [...css.matchAll(/[\w-]*\[data-(?:touch|phone)\b[^\]]*\]/g)].map((match) => ({ path, mark: match[0] })),
 );
 
-describe("the phone's media query", () => {
-  it("is written the same in every stylesheet with rules for a phone lying down", () => {
-    const lyingDown = pointerConditions.filter(({ condition }) => condition !== "(pointer: coarse)");
-    expect(lyingDown.length).toBeGreaterThan(0);
-    expect(lyingDown.filter(({ condition }) => condition !== PHONE_LYING_DOWN)).toEqual([]);
+describe("the stylesheets' touch and phone rules", () => {
+  it("select the root's marks as shared/phoneLayout writes them", () => {
+    expect(marks.filter(({ mark }) => mark === TOUCH_LAYOUT).length).toBeGreaterThan(0);
+    expect(marks.filter(({ mark }) => mark === PHONE_LYING_DOWN_LAYOUT).length).toBeGreaterThan(0);
+    expect(marks.filter(({ mark }) => mark !== TOUCH_LAYOUT && mark !== PHONE_LYING_DOWN_LAYOUT)).toEqual([]);
   });
 
-  it("asks for a touch screen, so a desktop with a mouse never gets a phone's rules", () => {
-    expect(PHONE_LYING_DOWN).toContain("(pointer: coarse)");
-    // Below the desktop window's smallest height at 100 % (window.rs).
-    expect(PHONE_LYING_DOWN).toContain("(max-height: 479px)");
+  it("never ask the pointer, which Android reports as fine with a pen, a mouse or a touchpad", () => {
+    const pointerQueries = sheets.flatMap(({ path, css }) =>
+      [...css.matchAll(/@media\s+([^{]*)\{/g)]
+        .filter((match) => /pointer/.test(match[1]))
+        .map((match) => ({ path, condition: match[1].trim() })),
+    );
+    expect(pointerQueries).toEqual([]);
   });
 });

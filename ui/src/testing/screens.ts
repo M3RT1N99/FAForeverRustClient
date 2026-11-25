@@ -3,26 +3,44 @@
 // client's own stylesheets applied so `getComputedStyle` answers as the page
 // would.
 //
-// happy-dom answers `(pointer: coarse)` from `navigator.maxTouchPoints` and the
-// size queries from the window's size, and it caches computed styles: set the
-// screen first, then add the stylesheets and render.
+// The page's root is marked with its layout as the client marks it
+// (`markTheLayout`), from the user agent and the window's size. happy-dom
+// answers the size queries from the window's size and `(pointer: coarse)` from
+// `navigator.maxTouchPoints`, which is set too, so a test can show that the
+// pointer changes nothing. happy-dom caches computed styles: set the screen
+// first, then add the stylesheets and render.
 
 import { readFileSync } from "node:fs";
 import { afterEach } from "vitest";
+import { markTheLayout } from "../shared/phoneLayout";
 
 export interface Screen {
   width: number;
   height: number;
-  /** A touch screen, which is what `(pointer: coarse)` asks about. */
-  touch: boolean;
+  /** Android's webview, which its user agent names. */
+  android: boolean;
+  /**
+   * What the primary pointer reports: `coarse` for a finger, `fine` for a
+   * mouse, a touchpad or a stylus, which Chromium on Android reports as soon
+   * as one of them is there.
+   */
+  pointer: "coarse" | "fine";
 }
 
 /** The S22 Ultra's webview lying down at the default font, as the A2 proposal estimates it. */
-export const PHONE_LYING_DOWN: Screen = { width: 785, height: 340, touch: true };
+export const PHONE_LYING_DOWN: Screen = { width: 785, height: 340, android: true, pointer: "coarse" };
+/** The same phone with its S Pen, whose Chromium reports a fine pointer. */
+export const PHONE_WITH_A_PEN: Screen = { ...PHONE_LYING_DOWN, pointer: "fine" };
 /** The same window with a mouse: a desktop window this short at a large interface scale. */
-export const SHORT_DESKTOP: Screen = { ...PHONE_LYING_DOWN, touch: false };
+export const SHORT_DESKTOP: Screen = { ...PHONE_LYING_DOWN, android: false, pointer: "fine" };
+/** The same desktop window on a touch screen. */
+export const SHORT_TOUCH_DESKTOP: Screen = { ...SHORT_DESKTOP, pointer: "coarse" };
 /** A desktop window as the client first opens it. */
-export const DESKTOP: Screen = { width: 1100, height: 720, touch: false };
+export const DESKTOP: Screen = { width: 1100, height: 720, android: false, pointer: "fine" };
+
+/** The test phone's webview, as Android names it in the user agent. */
+export const ANDROID_USER_AGENT =
+  "Mozilla/5.0 (Linux; Android 16; SM-S908B; wv) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36";
 
 interface HappyDomWindow {
   happyDOM: { setWindowSize: (size: { width: number; height: number }) => void };
@@ -30,9 +48,11 @@ interface HappyDomWindow {
 
 const initial = { width: window.innerWidth, height: window.innerHeight };
 
+let unmark: (() => void) | null = null;
+
 /**
- * Size the window and say whether it is a touch screen. Undone after each
- * test.
+ * Size the window, say what it runs on and what its pointer is, and mark the
+ * root as the client would. Undone after each test.
  *
  * happy-dom's media query lists tell their listeners of a change only on the
  * window's `resize`, and each listener starts out believing its query does not
@@ -43,8 +63,18 @@ const initial = { width: window.innerWidth, height: window.innerHeight };
 export function setScreen(screen: Screen): void {
   window.dispatchEvent(new Event("resize"));
   (window as unknown as HappyDomWindow).happyDOM.setWindowSize({ width: screen.width, height: screen.height });
-  Object.defineProperty(navigator, "maxTouchPoints", { configurable: true, get: () => (screen.touch ? 5 : 0) });
+  Object.defineProperty(navigator, "maxTouchPoints", {
+    configurable: true,
+    get: () => (screen.pointer === "coarse" ? 5 : 0),
+  });
+  if (screen.android) {
+    Object.defineProperty(navigator, "userAgent", { configurable: true, get: () => ANDROID_USER_AGENT });
+  } else {
+    Reflect.deleteProperty(navigator, "userAgent");
+  }
   window.dispatchEvent(new Event("resize"));
+  unmark?.();
+  unmark = markTheLayout(document.documentElement);
 }
 
 /**
@@ -62,7 +92,10 @@ export function addStylesheets(...paths: string[]): void {
 }
 
 afterEach(() => {
+  unmark?.();
+  unmark = null;
   document.head.querySelectorAll("style[data-test-stylesheet]").forEach((style) => style.remove());
   (window as unknown as HappyDomWindow).happyDOM.setWindowSize(initial);
   Reflect.deleteProperty(navigator, "maxTouchPoints");
+  Reflect.deleteProperty(navigator, "userAgent");
 });

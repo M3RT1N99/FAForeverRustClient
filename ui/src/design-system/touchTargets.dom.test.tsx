@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 //
-// What a finger can hit: on a touch screen (`pointer: coarse`) the client's
+// What a finger can hit: on Android (`shared/phoneLayout`) the client's
 // buttons, fields, dropdowns, switches, tabs and settings sections are at
-// least 40 px high, and a button its feature makes taller keeps its height.
-// A mouse keeps the sizes it had, in a window of the same size: the condition
-// is the pointer, never the width.
+// least 40 px high, whatever pointer the phone reports, and a button its
+// feature makes taller keeps its height. The desktop keeps the sizes it had,
+// in a window of the same size, with a mouse or a touch screen: the condition
+// is the platform, never the width or the pointer.
 
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -12,7 +13,15 @@ import { Button } from "./Button";
 import { Modal } from "./Modal";
 import { Select } from "./Select";
 import { Switch } from "./Switch";
-import { addStylesheets, PHONE_LYING_DOWN, setScreen, SHORT_DESKTOP, type Screen } from "../testing/screens";
+import {
+  addStylesheets,
+  PHONE_LYING_DOWN,
+  PHONE_WITH_A_PEN,
+  setScreen,
+  SHORT_DESKTOP,
+  SHORT_TOUCH_DESKTOP,
+  type Screen,
+} from "../testing/screens";
 import "../testing/mounted";
 
 const STYLESHEETS = [
@@ -63,8 +72,11 @@ function mount(on: Screen) {
 }
 
 describe("touch targets", () => {
-  it("are at least 40 px high on a touch screen", () => {
-    const sizes = mount(PHONE_LYING_DOWN);
+  it.each([
+    ["a phone", PHONE_LYING_DOWN],
+    ["a phone with its pen, which reports a fine pointer", PHONE_WITH_A_PEN],
+  ] as const)("are at least 40 px high on %s", (_, on) => {
+    const sizes = mount(on);
     expect(sizes.signIn.minHeight).toBe("40px");
     expect(sizes.search.height).toBe("40px");
     expect(sizes.select.minHeight).toBe("40px");
@@ -82,12 +94,15 @@ describe("touch targets", () => {
     expect(mount(PHONE_LYING_DOWN).logIn.minHeight).toBe("44px");
   });
 
-  it("are on a touch screen of any size, a tablet's too", () => {
-    expect(mount({ width: 1280, height: 800, touch: true }).signIn.minHeight).toBe("40px");
+  it("are on Android at any size, a tablet's too", () => {
+    expect(mount({ ...PHONE_LYING_DOWN, width: 1280, height: 800 }).signIn.minHeight).toBe("40px");
   });
 
-  it("keep the desktop's sizes for a mouse in the same short window", () => {
-    const sizes = mount(SHORT_DESKTOP);
+  it.each([
+    ["a mouse", SHORT_DESKTOP],
+    ["a touch screen", SHORT_TOUCH_DESKTOP],
+  ] as const)("keep the desktop's sizes for %s in the same short window", (_, on) => {
+    const sizes = mount(on);
     expect(sizes.signIn.minHeight).toBe("32px");
     expect(sizes.search.height).toBe("34px");
     expect(sizes.select.minHeight).not.toBe("40px");
@@ -102,8 +117,10 @@ describe("touch targets", () => {
   });
 
   it.each([
-    ["a touch screen", PHONE_LYING_DOWN, true],
-    ["a mouse", SHORT_DESKTOP, false],
+    ["a phone", PHONE_LYING_DOWN, true],
+    ["a phone with its pen", PHONE_WITH_A_PEN, true],
+    ["a desktop with a mouse", SHORT_DESKTOP, false],
+    ["a desktop's touch screen", SHORT_TOUCH_DESKTOP, false],
   ] as const)("size a dialog's close button for %s", (_, on, square) => {
     setScreen(on);
     addStylesheets(...STYLESHEETS);

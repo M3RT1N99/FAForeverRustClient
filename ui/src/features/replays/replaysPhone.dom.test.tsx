@@ -13,7 +13,7 @@ import type { VaultReplay } from "../../ipc/bindings";
 import { en } from "../../i18n/catalog/en";
 import { failOnConsoleError } from "../../testing/consoleGuard";
 import "../../testing/mounted";
-import { addStylesheets, PHONE_LYING_DOWN, setScreen, SHORT_DESKTOP, type Screen } from "../../testing/screens";
+import { addStylesheets, PHONE_LYING_DOWN, PHONE_WITH_A_PEN, setScreen, SHORT_DESKTOP, type Screen } from "../../testing/screens";
 import { EMPTY_REPLAY_QUERY } from "../../shared/replayQuery";
 import { LocalReplaySearch } from "./local/LocalReplaySearch";
 import { EMPTY_LOCAL_REPLAY_QUERY } from "./local/localReplayQuery";
@@ -160,8 +160,11 @@ function mountCards() {
 }
 
 describe("replay cards", () => {
-  it("go two to a row on a phone lying down where two fit, each in its compact form", () => {
-    on(PHONE_LYING_DOWN);
+  it.each([
+    ["a phone lying down", PHONE_LYING_DOWN],
+    ["a phone lying down with its pen, which reports a fine pointer", PHONE_WITH_A_PEN],
+  ] as const)("go two to a row on %s where two fit, each in its compact form", (_, phone) => {
+    on(phone);
     const { grid, card, thumb, facts } = mountCards();
     expect(grid.gridTemplateColumns).toBe("repeat(auto-fill, minmax(min(100%, 320px), 1fr))");
     expect(card.display).toBe("grid");
