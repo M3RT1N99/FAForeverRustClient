@@ -78,8 +78,9 @@ fn trim_working_set() {
     }
 }
 
-/// Process-level window events: memory trimming on blur, and what closing
-/// does while a game is running ([`crate::exit`]).
+/// Process-level window events: memory trimming on blur, Android sending the
+/// client to the back, and what closing does while a game is running
+/// ([`crate::exit`]).
 pub(crate) fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
     if !is_main(window.app_handle(), window.label()) {
         return;
@@ -87,6 +88,24 @@ pub(crate) fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent
     #[cfg(windows)]
     if matches!(event, tauri::WindowEvent::Focused(false)) {
         trim_working_set();
+    }
+
+    // Android's word that the client went to the back or came to the front:
+    // ProcessLifecycleOwner's pause and resume, which wry and tao hand Tauri as
+    // these two events, and which a recreated activity does not cause. In the
+    // back Android may keep the network from the client, and chat waits there
+    // to reconnect (`faf_app::ports::Foreground`).
+    #[cfg(target_os = "android")]
+    if let tauri::WindowEvent::Suspended | tauri::WindowEvent::Resumed = event {
+        let in_front = matches!(event, tauri::WindowEvent::Resumed);
+        if in_front {
+            tracing::info!("the client is in front again");
+        } else {
+            tracing::info!("the client is in the back");
+        }
+        if let Some(core) = window.app_handle().try_state::<crate::Core>() {
+            core.0.set_in_front(in_front);
+        }
     }
 
     // The player focused the main window: the moment a rebuilt window may

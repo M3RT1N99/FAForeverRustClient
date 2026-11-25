@@ -151,7 +151,13 @@ async fn run(ctx: Arc<ServiceCtx>, sink: EventSink) {
         }
 
         let chat_link = retrying_itself(watch.chat, ctx.chat.connection_held());
-        if chat.tick(chat_link, ctx.lifecycle.chat_wanted()) == Step::Connect {
+        let chat_step = chat_tick(
+            &mut chat,
+            chat_link,
+            ctx.lifecycle.chat_wanted(),
+            ctx.ports.foreground.in_front(),
+        );
+        if chat_step == Step::Connect {
             tracing::info!(attempt = chat.attempts, "reconnecting to chat");
             let (ctx, sink, username) = (ctx.clone(), account, watch.username);
             // Not `ChatCommand::Connect`, for the same reason as the lobby's.
@@ -159,6 +165,21 @@ async fn run(ctx: Arc<ServiceCtx>, sink: EventSink) {
                 services::chat::reconnect(username, &ctx, &sink).await;
             });
         }
+    }
+}
+
+/// One tick of chat's schedule, which stands as it is while the client is in
+/// the back. Android may keep the network from it there, and a retry would
+/// fail for that alone (`ports::foreground`); back in front the schedule goes
+/// on where it stood. The lobby's does not wait: a game in the game app keeps
+/// the client and its network running in the back (the Android shell's
+/// `GameWaitService`), and the lobby connection is what restores that game's
+/// session after a drop.
+fn chat_tick(retry: &mut Retry, link: Link, wanted: bool, in_front: bool) -> Step {
+    if in_front {
+        retry.tick(link, wanted)
+    } else {
+        Step::Wait
     }
 }
 
@@ -290,6 +311,22 @@ mod tests {
         // Up and connecting are what they say, whatever holds the adapter.
         assert_eq!(retrying_itself(Link::Up, true), Link::Up);
         assert_eq!(retrying_itself(Link::Pending, false), Link::Pending);
+    }
+
+    #[test]
+    fn chat_waits_in_the_back_with_its_schedule_as_it_stood() {
+        let mut retry = Retry::default();
+        // Two attempts in, the next one two ticks away.
+        drive(&mut retry, Link::Down, 3);
+        let stood = retry;
+        for _ in 0..100 {
+            assert_eq!(chat_tick(&mut retry, Link::Down, true, false), Step::Wait);
+        }
+        assert_eq!(retry, stood, "the back moved the schedule");
+        // Back in front it goes on where it stood: two ticks, then an attempt.
+        assert_eq!(chat_tick(&mut retry, Link::Down, true, true), Step::Wait);
+        assert_eq!(chat_tick(&mut retry, Link::Down, true, true), Step::Wait);
+        assert_eq!(chat_tick(&mut retry, Link::Down, true, true), Step::Connect);
     }
 
     #[test]

@@ -1,11 +1,15 @@
 package com.faforever.rustclient
 
 import android.app.Activity
+import android.app.ActivityManager
+import android.app.usage.UsageStatsManager
 import android.content.ClipData
 import android.content.Intent
+import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import androidx.core.content.FileProvider
 import androidx.core.os.BundleCompat
 import app.tauri.annotation.Command
@@ -37,6 +41,45 @@ class DiagnosticsPlugin(private val activity: Activity) : Plugin(activity) {
     device.put("manufacturer", Build.MANUFACTURER)
     device.put("model", Build.MODEL)
     invoke.resolve(device)
+  }
+
+  // What Android may hold against the client in the back, where a phone run
+  // saw its network gone (src-tauri/src/android.rs logs it once a start):
+  // Data Saver, the battery optimisation, the battery saver, the background
+  // restriction a player can set (API 28) and the app's standby bucket (API
+  // 28). Settings of the device and this app: nothing about the player.
+  @Command
+  fun backgroundLimits(invoke: Invoke) {
+    val limits = JSObject()
+    val network = activity.getSystemService(ConnectivityManager::class.java)
+    limits.put(
+      "dataSaver",
+      when (network.restrictBackgroundStatus) {
+        ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED -> "on"
+        ConnectivityManager.RESTRICT_BACKGROUND_STATUS_WHITELISTED -> "on, this app exempt"
+        else -> "off"
+      },
+    )
+    val power = activity.getSystemService(PowerManager::class.java)
+    limits.put("batteryOptimized", !power.isIgnoringBatteryOptimizations(activity.packageName))
+    limits.put("batterySaver", power.isPowerSaveMode)
+    if (Build.VERSION.SDK_INT >= 28) {
+      limits.put("backgroundRestricted", activity.getSystemService(ActivityManager::class.java).isBackgroundRestricted)
+      val bucket = activity.getSystemService(UsageStatsManager::class.java).appStandbyBucket
+      limits.put(
+        "standbyBucket",
+        when (bucket) {
+          UsageStatsManager.STANDBY_BUCKET_ACTIVE -> "active"
+          UsageStatsManager.STANDBY_BUCKET_WORKING_SET -> "working set"
+          UsageStatsManager.STANDBY_BUCKET_FREQUENT -> "frequent"
+          UsageStatsManager.STANDBY_BUCKET_RARE -> "rare"
+          // From Android 11; a constant, so naming it costs older ones nothing.
+          UsageStatsManager.STANDBY_BUCKET_RESTRICTED -> "restricted"
+          else -> bucket.toString()
+        },
+      )
+    }
+    invoke.resolve(limits)
   }
 
   // Hands a file in the app's cache to whatever the player picks: mail,

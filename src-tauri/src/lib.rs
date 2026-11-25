@@ -151,6 +151,8 @@ pub fn run() {
             // the app's own.
             #[cfg(target_os = "android")]
             android::adopt_app_folders(app)?;
+            #[cfg(target_os = "android")]
+            android::log_background_limits(app.handle());
             // Before anything resolves a path: the client used to store its
             // cache, data and settings under "forgeclient/forge-client", and
             // this moves them to the current name once. Best effort, and a

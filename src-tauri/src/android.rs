@@ -152,6 +152,48 @@ struct DeviceInfo {
     model: String,
 }
 
+/// What `DiagnosticsPlugin.backgroundLimits` answers: what Android may hold
+/// against the client in the back. The last two Android 9 and later say.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BackgroundLimits {
+    data_saver: String,
+    battery_optimized: bool,
+    battery_saver: bool,
+    background_restricted: Option<bool>,
+    standby_bucket: Option<String>,
+}
+
+/// Into the client's log once a start: what Android may hold against the
+/// client in the back, where a phone run saw chat's network gone. A battery
+/// optimisation or a background restriction then says why, which a phone run
+/// cannot otherwise tell from a dead server. From the app's setup, once the
+/// log is there: the plugin's own setup comes before it, and its answer went
+/// nowhere.
+pub(crate) fn log_background_limits(app: &tauri::AppHandle) {
+    let Some(diagnostics) = app.try_state::<Diagnostics>() else {
+        tracing::warn!("could not read what Android may hold against the client in the back: no diagnostics plugin");
+        return;
+    };
+    let diagnostics = diagnostics.0.clone();
+    tauri::async_runtime::spawn(async move {
+        match call::<_, BackgroundLimits>(&diagnostics, "backgroundLimits", ()).await {
+            Ok(limits) => tracing::info!(
+                data_saver = %limits.data_saver,
+                battery_optimized = limits.battery_optimized,
+                battery_saver = limits.battery_saver,
+                background_restricted = ?limits.background_restricted,
+                standby_bucket = ?limits.standby_bucket,
+                "what Android may hold against the client in the back"
+            ),
+            Err(error) => tracing::warn!(
+                %error,
+                "could not read what Android may hold against the client in the back"
+            ),
+        }
+    });
+}
+
 /// What `DiagnosticsPlugin.share` takes.
 #[derive(Serialize)]
 struct ShareArgs {

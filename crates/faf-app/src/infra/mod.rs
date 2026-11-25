@@ -204,8 +204,8 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::ports::{
-    ChatPort, GameUpdaterPort, IcePort, LobbyPort, MapGeneratorPort, MapsPort, ModsPort, Ports,
-    ProcessPort,
+    ChatPort, Foreground, GameUpdaterPort, IcePort, LobbyPort, MapGeneratorPort, MapsPort,
+    ModsPort, Ports, ProcessPort,
 };
 
 const MAX_ACCESS_RESPONSE_BYTES: u64 = 1024 * 1024;
@@ -738,6 +738,7 @@ pub fn fake_ports() -> Ports {
         os_language: String::new(),
         test_login_roles: Vec::new(),
         play_offered: PLAY_OFFERED,
+        foreground: Foreground::default(),
     }
 }
 
@@ -760,11 +761,13 @@ pub fn real_ports() -> Ports {
 
     // The real chat client speaks live IRC against production Ergochat. It is
     // selected by default for a real account; `FAF_FAKE_CHAT=1` is the local
-    // override for development.
+    // override for development. It waits in the back to reconnect, by the
+    // bundle's `foreground`.
+    let foreground = Foreground::default();
     let chat: Arc<dyn ChatPort> = if fake_enabled("FAF_FAKE_CHAT") {
         Arc::new(FakeChat::default())
     } else {
-        Arc::new(IrcClient::faf(tokens.clone()))
+        Arc::new(IrcClient::faf(tokens.clone(), foreground.clone()))
     };
 
     // An authenticated client is a game launcher, not merely a browser. This
@@ -956,6 +959,7 @@ pub fn real_ports() -> Ports {
         os_language: os_language(),
         test_login_roles: oauth::roles_from_env(),
         play_offered: PLAY_OFFERED,
+        foreground,
     }
 }
 

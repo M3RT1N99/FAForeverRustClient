@@ -16,6 +16,7 @@ pub mod coop;
 pub mod discord;
 pub mod error;
 pub mod events;
+pub mod foreground;
 pub mod galactic_war;
 pub mod game_app;
 pub mod game_cache;
@@ -59,6 +60,7 @@ pub use coop::CoopPort;
 pub use discord::{DiscordPort, DiscordRequest};
 pub use error::RequestError;
 pub use events::EventsPort;
+pub use foreground::Foreground;
 pub use galactic_war::{GalacticWarPort, InstallProgress};
 pub use game_cache::GameCachePort;
 pub use game_logs::GameLogsPort;
@@ -236,4 +238,9 @@ pub struct Ports {
     /// that offers none. Without it the lobby service refuses those requests,
     /// whoever sends them: the page, a link, the web client or Discord.
     pub play_offered: bool,
+    /// Whether the client is in front, which the shell sets where the system
+    /// says (Android) and which is in front everywhere else. A bundle property
+    /// too: the chat port and the reconnect watchdog read the same one, and a
+    /// test sends the client to the back through its own.
+    pub foreground: Foreground,
 }

@@ -646,6 +646,63 @@ async fn chat_comes_back_after_a_drop_with_its_channels() {
     }
 }
 
+/// Chat drops while the client is in the back, where Android may keep the
+/// network from it. The watchdog leaves it down there, however many of its
+/// ticks go by, and brings it back once the client is in front again.
+#[tokio::test]
+async fn chat_that_drops_in_the_back_comes_back_in_front() {
+    let chat = Arc::new(FakeChat::default());
+    let connects = Arc::new(AtomicUsize::new(0));
+    let app = start(Ports {
+        auth: Arc::new(signed_in_auth()),
+        chat: Arc::new(RecordingChat {
+            inner: chat.clone(),
+            connects: connects.clone(),
+            joins: Arc::default(),
+        }),
+        ..fake_ports()
+    });
+    let mut events = app.subscribe();
+    app.dispatch_and_wait(AuthCommand::Login { remember: false }.into())
+        .await
+        .unwrap();
+    until(&app, PATIENCE, "chat connected at sign-in", |state| {
+        state.chat.status == ChatStatus::Connected
+    })
+    .await;
+    let connected = connects.load(Ordering::SeqCst);
+
+    // The client goes to the back, and there the adapter gives up.
+    app.set_in_front(false);
+    chat.disconnect();
+    tokio::time::timeout(PATIENCE, async {
+        while !matches!(
+            events.recv().await.unwrap(),
+            AppEvent::Chat(ChatEvent::Disconnected)
+        ) {}
+    })
+    .await
+    .expect("the drop never ended the connection");
+
+    tokio::time::sleep(WATCHDOG_WAIT).await;
+    assert_eq!(app.snapshot().chat.status, ChatStatus::Disconnected);
+    assert_eq!(
+        connects.load(Ordering::SeqCst),
+        connected,
+        "the watchdog reconnected chat in the back"
+    );
+
+    app.set_in_front(true);
+    until(
+        &app,
+        WATCHDOG_WAIT,
+        "the watchdog bringing chat back",
+        |state| state.chat.status == ChatStatus::Connected,
+    )
+    .await;
+    assert_eq!(connects.load(Ordering::SeqCst), connected + 1);
+}
+
 /// Settings whose first write after arming fails, as a full disk or a locked
 /// file would, and which records every write that succeeded.
 struct FailingOnceSettings {

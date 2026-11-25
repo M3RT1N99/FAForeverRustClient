@@ -71,7 +71,7 @@ use crate::infra::irc_session::{
     self, Effect, HistoryLine, SessionContext, SessionEnd, SessionState,
 };
 use crate::infra::session::TokenStore;
-use crate::ports::{ChatPort, ChatUpdate};
+use crate::ports::{ChatPort, ChatUpdate, Foreground};
 
 /// The IRCv3 binary websocket subprotocol FAF's chat server requires.
 /// <https://ircv3.net/specs/extensions/websocket>
@@ -171,13 +171,17 @@ pub struct IrcClient {
     /// reconnecting. A new account starts with its own set.
     wanted_channels: Arc<Mutex<BTreeSet<String>>>,
     next_id: Arc<AtomicU64>,
+    /// Whether the client is in front: reconnects wait for it
+    /// (`Supervisor::supervise`).
+    foreground: Foreground,
 }
 
 impl IrcClient {
-    pub fn new(config: IrcConfig, tokens: TokenStore) -> Self {
+    pub fn new(config: IrcConfig, tokens: TokenStore, foreground: Foreground) -> Self {
         Self {
             config,
             tokens,
+            foreground,
             http: super::http::shared_http_client(),
             cancel: Arc::new(Mutex::new(None)),
             outgoing: Arc::new(Mutex::new(None)),
@@ -191,8 +195,8 @@ impl IrcClient {
         }
     }
 
-    pub fn faf(tokens: TokenStore) -> Self {
-        Self::new(IrcConfig::faf(), tokens)
+    pub fn faf(tokens: TokenStore, foreground: Foreground) -> Self {
+        Self::new(IrcConfig::faf(), tokens, foreground)
     }
 
     /// Push a raw IRC line onto the live connection's outgoing channel.
@@ -364,6 +368,7 @@ impl ChatPort for IrcClient {
             current_nick: self.username.clone(),
             tags_enabled: self.tags_enabled.clone(),
             echo_enabled: self.echo_enabled.clone(),
+            foreground: self.foreground.clone(),
             emitter: ChatEmitter {
                 tx,
                 next_id: self.next_id.clone(),
@@ -571,6 +576,7 @@ struct Supervisor {
     current_nick: Arc<Mutex<String>>,
     tags_enabled: Arc<AtomicBool>,
     echo_enabled: Arc<AtomicBool>,
+    foreground: Foreground,
     emitter: ChatEmitter,
 }
 
@@ -598,6 +604,18 @@ impl Supervisor {
         loop {
             self.tags_enabled.store(false, Ordering::SeqCst);
             self.echo_enabled.store(false, Ordering::SeqCst);
+            // In the back, Android may keep the network from the client, and
+            // then every attempt fails for that alone: behind the game app on
+            // a phone the IRC token's request got EAI_NODATA, again and again,
+            // out of the ten attempts meant for an outage. So attempts wait
+            // for the front, where the first one goes at once.
+            if !self.foreground.in_front() {
+                tracing::info!("chat reconnects once the client is in front again");
+                tokio::select! {
+                    _ = cancel.cancelled() => return,
+                    () = self.foreground.front() => {}
+                }
+            }
             if !self.emitter.status(ChatStatus::Connecting, "").await {
                 return; // the service dropped the stream
             }
@@ -635,7 +653,15 @@ impl Supervisor {
                 AttemptEnd::Session(SessionOutcome {
                     end: SessionEnd::Dropped,
                     registered,
-                }) => failures = failures_after_drop(failures, registered),
+                }) => {
+                    let in_front = self.foreground.in_front();
+                    failures = failures_after_drop(failures, registered, in_front);
+                    // The next attempt waits for the front, above, and goes
+                    // at once there: no backoff on top of the wait.
+                    if !in_front {
+                        continue;
+                    }
+                }
             }
 
             if failures >= MAX_CONSECUTIVE_FAILURES {
@@ -743,17 +769,23 @@ struct SessionOutcome {
     registered: bool,
 }
 
-/// The consecutive failures after a session that dropped.
+/// The consecutive failures after a session that dropped while the client was
+/// `in_front` or in the back.
 ///
 /// One that had registered was a working connection, so the count of
 /// attempts that never got that far starts again from it. It used to only
 /// ever grow: ten drops over a long evening, each after hours of chat, ended
-/// chat for the rest of the run as if the server were down.
-fn failures_after_drop(failures: u32, registered: bool) -> u32 {
+/// chat for the rest of the run as if the server were down. One that never
+/// got that far counts, but not in the back, where Android may have kept the
+/// network from the client: behind the game app on a phone, every attempt
+/// failed so, and spent the budget meant for an outage.
+fn failures_after_drop(failures: u32, registered: bool, in_front: bool) -> u32 {
     if registered {
         1
-    } else {
+    } else if in_front {
         failures.saturating_add(1)
+    } else {
+        failures
     }
 }
 
@@ -1036,17 +1068,102 @@ mod tests {
         // and each retried at once, as the first drop is.
         let mut failures = 0;
         for _ in 0..20 {
-            failures = failures_after_drop(failures, true);
+            failures = failures_after_drop(failures, true, true);
             assert_eq!(failures, 1);
         }
         // Attempts that never register still count up to it.
         let mut failures = 0;
         for _ in 0..MAX_CONSECUTIVE_FAILURES {
-            failures = failures_after_drop(failures, false);
+            failures = failures_after_drop(failures, false, true);
         }
         assert_eq!(failures, MAX_CONSECUTIVE_FAILURES);
         // And one session that worked between them starts the count again.
-        assert_eq!(failures_after_drop(MAX_CONSECUTIVE_FAILURES - 1, true), 1);
+        assert_eq!(
+            failures_after_drop(MAX_CONSECUTIVE_FAILURES - 1, true, true),
+            1
+        );
+    }
+
+    #[test]
+    fn an_attempt_that_ends_in_the_back_counts_for_nothing_but_a_session_that_worked_still_does() {
+        // Behind the game app, with no network, however many there are.
+        assert_eq!(
+            failures_after_drop(MAX_CONSECUTIVE_FAILURES - 1, false, false),
+            MAX_CONSECUTIVE_FAILURES - 1
+        );
+        // A session that registered and lasted until the client went to the
+        // back was a working one: nine failures from before it are not left
+        // for the first one in front to make ten.
+        assert_eq!(
+            failures_after_drop(MAX_CONSECUTIVE_FAILURES - 1, true, false),
+            1
+        );
+    }
+
+    /// A supervisor whose every attempt fails at once and without a network:
+    /// the IRC token's request has no URL it could be sent to. Its updates go
+    /// to `updates`.
+    fn failing_supervisor(foreground: Foreground, updates: mpsc::Sender<ChatUpdate>) -> Supervisor {
+        let tokens = TokenStore::new();
+        tokens.set("access");
+        Supervisor {
+            config: IrcConfig {
+                host: "chat.invalid".into(),
+                port: 443,
+                user_api_base: "no url".into(),
+            },
+            http: reqwest::Client::new(),
+            slots: ConnectionSlots {
+                updates: Arc::new(Mutex::new(Some(updates.clone()))),
+                outgoing: Arc::default(),
+            },
+            tokens,
+            username: "Ada".into(),
+            wanted_channels: Arc::default(),
+            current_nick: Arc::default(),
+            tags_enabled: Arc::default(),
+            echo_enabled: Arc::default(),
+            foreground,
+            emitter: ChatEmitter {
+                tx: updates,
+                next_id: Arc::default(),
+            },
+        }
+    }
+
+    fn is_status(update: Option<ChatUpdate>, status: ChatStatus) -> bool {
+        matches!(update, Some(ChatUpdate::Status(seen, _)) if seen == status)
+    }
+
+    /// Behind the game app on a phone, every attempt failed for want of a
+    /// network, each spent out of the ten. In the back it waits instead,
+    /// however long, and the attempt that ended there counts for nothing:
+    /// back in front, the whole budget of ten is still there.
+    #[tokio::test(start_paused = true)]
+    async fn chat_waits_in_the_back_and_spends_none_of_its_attempts_there() {
+        let foreground = Foreground::default();
+        // Room for one update: the supervisor waits on each until it is read,
+        // which is what lets the client go to the back during an attempt.
+        let (updates, mut seen) = mpsc::channel(1);
+        let (_outgoing, outgoing) = mpsc::channel(1);
+        let cancel = CancellationToken::new();
+        tokio::spawn(failing_supervisor(foreground.clone(), updates).run(outgoing, cancel.clone()));
+
+        // The first attempt starts in front and ends in the back.
+        assert!(is_status(seen.recv().await, ChatStatus::Connecting));
+        foreground.set(false);
+        assert!(is_status(seen.recv().await, ChatStatus::Disconnected));
+        tokio::time::sleep(Duration::from_secs(3600)).await;
+        assert!(seen.try_recv().is_err(), "an attempt was made in the back");
+
+        foreground.set(true);
+        let mut attempts = 0;
+        while let Some(update) = seen.recv().await {
+            if is_status(Some(update), ChatStatus::Connecting) {
+                attempts += 1;
+            }
+        }
+        assert_eq!(attempts, MAX_CONSECUTIVE_FAILURES);
     }
 
     #[tokio::test]

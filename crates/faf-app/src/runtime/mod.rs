@@ -349,6 +349,8 @@ pub struct App {
     settings: Arc<dyn crate::ports::SettingsPort>,
     map_generator: Arc<dyn crate::ports::MapGeneratorPort>,
     generated_map_protection: SerialMutation,
+    /// The bundle's, for [`Self::set_in_front`].
+    foreground: crate::ports::Foreground,
 }
 
 /// The command-processing loop. Spawn `run()` on any async runtime.
@@ -446,6 +448,7 @@ impl App {
         let process = ports.process.clone();
         let settings = ports.settings.clone();
         let map_generator = ports.map_generator.clone();
+        let foreground = ports.foreground.clone();
 
         let sink = EventSink {
             state: state.clone(),
@@ -501,6 +504,7 @@ impl App {
             settings,
             map_generator,
             generated_map_protection: ctx.settings.generated_map_protection.clone(),
+            foreground,
         };
         let app_loop = AppLoop {
             cmd_rx,
@@ -662,6 +666,13 @@ impl App {
 
     pub fn game_running(&self) -> bool {
         self.process.game_running()
+    }
+
+    /// The client is in front of the player, or in the back, as the system
+    /// says where it sends apps there (Android, through the shell). In the
+    /// back chat waits to reconnect; see [`crate::ports::Foreground`].
+    pub fn set_in_front(&self, in_front: bool) {
+        self.foreground.set(in_front);
     }
 
     /// A completed lesson has not finished reading or saving its result yet.
