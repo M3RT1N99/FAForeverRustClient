@@ -75,12 +75,12 @@ export function LocalReplaySearch({
   const { t } = useTranslation();
   const [form, setForm] = useState(initialQuery);
   const [advanced, setAdvanced] = useState(false);
-  // Folded on a phone lying down, as FAF's web client folds its search on a
-  // phone: the player field, Search and More filters in one row, and the
-  // rest behind More filters, which opens all of it at once. Unfolded, the
-  // filters filled the 340 px a phone has lying down before the first
-  // replay. The toggle stays beside Search, open or folded, so the button
-  // a press moved to another row never takes the focus with it.
+  // One row on a phone lying down, as FAF's web client folds its search on
+  // a phone: the player field, Search and More filters, open or folded, so
+  // the button a press would have moved to another row never takes the
+  // focus with it. More filters opens all of the rest in a tray under the
+  // row, which scrolls itself: unfolded in place, the filters filled the
+  // whole height a phone has lying down before the first replay.
   const phone = usePhoneLayout();
   const folded = phone && !advanced;
 
@@ -158,9 +158,223 @@ export function LocalReplaySearch({
     </Button>
   );
 
+  // The top row's fields past the player's: in the row on a desktop, in the
+  // tray on a phone.
+  const fields = (<>
+    <label className="vault-field vault-field-grow search-panel-field search-panel-field-grow">
+      <span className="vault-field-label search-panel-label">{t("replays.search.map")}</span>
+      <input
+        className="vault-input search-panel-control"
+        type="search"
+        value={form.map}
+        placeholder={t("replays.search.anyMap")}
+        onChange={(event) => set("map", event.target.value)}
+      />
+    </label>
+
+    <label className="vault-field vault-search-replay-id search-panel-field">
+      <span className="vault-field-label search-panel-label">{t("replays.search.replayId")}</span>
+      <input
+        className="vault-input search-panel-control"
+        type="search"
+        inputMode="numeric"
+        value={form.replayId}
+        onChange={(event) => set("replayId", event.target.value)}
+      />
+    </label>
+
+    {/* The same move the online tab made: the mode leads the row and the
+        featured mod goes down into the panel. They are different
+        questions -- `fafbeta` is a custom game on another build, not a
+        mode -- and `localGameModes` has the rest of why. */}
+    <label className="vault-field local-vault-mod search-panel-field">
+      <span className="vault-field-label search-panel-label">{t("replays.search.gameMode")}</span>
+      <select
+        className="vault-input search-panel-control"
+        value={form.gameMode}
+        onChange={(event) => set("gameMode", event.target.value as LocalGameMode)}
+      >
+        {localGameModes().map((mode) => (
+          <option value={mode.id} key={mode.id}>{mode.label}</option>
+        ))}
+      </select>
+    </label>
+
+    <div className="vault-search-rating search-panel-field">
+      <RangeSlider
+        label={t("replays.search.rating")}
+        min={MIN_RATING}
+        max={MAX_RATING}
+        step={50}
+        low={form.minRating}
+        high={form.maxRating}
+        onChange={setRange}
+      />
+    </div>
+
+    <label className="vault-field local-vault-status search-panel-field">
+      <span className="vault-field-label search-panel-label">{t("replays.search.status")}</span>
+      <select
+        className="vault-input search-panel-control"
+        value={form.status}
+        onChange={(event) => set("status", event.target.value as LocalReplayQuery["status"])}
+      >
+        {STATUS_OPTIONS.map((option) => (
+          <option value={option.value} key={option.value}>{t(option.label)}</option>
+        ))}
+      </select>
+    </label>
+
+    <label className="vault-field vault-search-sort search-panel-field">
+      <span className="vault-field-label search-panel-label">{t("replays.search.sortBy")}</span>
+      <select
+        className="vault-input search-panel-control"
+        value={form.sortBy}
+        onChange={(event) => set("sortBy", event.target.value as LocalReplaySortField)}
+      >
+        {(Object.keys(SORT_LABELS) as LocalReplaySortField[]).map((field) => (
+          <option value={field} key={field}>{t(SORT_LABELS[field])}</option>
+        ))}
+      </select>
+    </label>
+
+    <button
+      type="button"
+      className="vault-input search-panel-control vault-sort-order"
+      aria-label={t(form.sortDescending ? "replays.search.descendingAria" : "replays.search.ascendingAria")}
+      title={t(form.sortDescending ? "replays.search.descending" : "replays.search.ascending")}
+      onClick={toggleSortDirection}
+    >
+      {form.sortDescending ? "↓" : "↑"}
+    </button>
+  </>);
+
+  const presets = (
+    <div className="vault-search-presets search-panel-secondary">
+      {/* Active states, as in the online vault: the three of them replace the
+          scope of the list and nothing said which one was in force. */}
+      <Button
+        type="button"
+        className={preset === "newest" ? "active" : ""}
+        aria-pressed={preset === "newest"}
+        onClick={() => applyPreset({})}
+      >
+        {t("replays.search.preset.newest")}
+      </Button>
+      <Button
+        type="button"
+        className={preset === "lastYear" ? "active" : ""}
+        aria-pressed={preset === "lastYear"}
+        onClick={() => applyPreset({ after: isoDaysAgo(365) })}
+      >
+        {t("replays.search.preset.lastYear")}
+      </Button>
+      <Button
+        type="button"
+        className={preset === "own" ? "active" : ""}
+        aria-pressed={preset === "own"}
+        disabled={!self}
+        onClick={() => applyPreset({ player: self, exactPlayer: true })}
+      >
+        {t("replays.search.preset.myReplays")}
+      </Button>
+      <ReplaySavedSearches
+        list={LOCAL_REPLAY_PRESET_LIST}
+        entries={savedEntries}
+        currentSignature={localPresetSignature(form)}
+        encodeCurrent={() => encodeLocalReplayPreset(form)}
+        onApply={apply}
+      />
+      <span className="search-panel-divider" aria-hidden="true" />
+      {/* The online vault's button, answered from the files: each one says
+          when its game started and ended. Applied at once, like the presets
+          beside it. */}
+      <label
+        className="search-panel-check"
+        title={t("replays.search.hideShortHint", { minutes: SHORT_GAME_MINUTES })}
+      >
+        <input
+          type="checkbox"
+          checked={form.minDurationMinutes === SHORT_GAME_MINUTES}
+          onChange={(event) =>
+            apply({
+              ...form,
+              minDurationMinutes: event.target.checked ? SHORT_GAME_MINUTES : null,
+            })}
+        />
+        {t("replays.search.hideShort")}
+      </label>
+      <span className="spacer" />
+      {!phone && toggle}
+      <Button type="button" onClick={() => apply(EMPTY_LOCAL_REPLAY_QUERY)}>{t("replays.search.clear")}</Button>
+      <Button type="button" disabled={loading} onClick={onRefresh}><Icon name="refresh" size={15} /> {t("replays.search.refresh")}</Button>
+      {filesCanBePicked() && (
+        <Button type="button" variant="primary" disabled={busy} onClick={onOpenFile}>{t("replays.search.openFile")}</Button>
+      )}
+    </div>
+  );
+
+  const more = (
+    <div className="vault-search-advanced search-panel-advanced">
+      <div className="vault-search-fields local-vault-search-fields">
+        <label className="vault-field">
+          <span className="vault-field-label">{t("replays.search.gameTitle")}</span>
+          <input className="vault-input" type="search" value={form.title} onChange={(event) => set("title", event.target.value)} />
+        </label>
+        <label className="vault-field">
+          <span className="vault-field-label">{t("replays.search.noteOrTag")}</span>
+          <input className="vault-input" type="search" value={form.note} onChange={(event) => set("note", event.target.value)} />
+        </label>
+        <div className="vault-field">
+          <ReplayTagFilter options={tagOptions} selected={form.tags} onChange={(tags) => set("tags", tags)} />
+        </div>
+        <label className="vault-field">
+          <span className="vault-field-label">{t("replays.search.recorder")}</span>
+          <input className="vault-input" type="search" value={form.recorder} onChange={(event) => set("recorder", event.target.value)} />
+        </label>
+        <label className="vault-field">
+          <span className="vault-field-label">{t("replays.search.mod")}</span>
+          <input
+            className="vault-input"
+            type="search"
+            list="local-replay-mod-options"
+            value={form.mod}
+            placeholder={t("replays.search.anyMod")}
+            onChange={(event) => set("mod", event.target.value)}
+          />
+          <datalist id="local-replay-mod-options">
+            {featuredMods.map((mod) => <option value={mod} key={mod} />)}
+          </datalist>
+        </label>
+        <label className="vault-field">
+          <span className="vault-field-label">{t("replays.search.simMod")}</span>
+          <input className="vault-input" type="search" value={form.simMod} onChange={(event) => set("simMod", event.target.value)} />
+        </label>
+        <label className="vault-field">
+          <span className="vault-field-label">{t("replays.search.playedAfter")}</span>
+          <DateInput className="vault-input" value={form.after} onChange={(value) => set("after", value)} />
+        </label>
+        <label className="vault-field">
+          <span className="vault-field-label">{t("replays.search.playedBefore")}</span>
+          <DateInput className="vault-input" value={form.before} onChange={(value) => set("before", value)} />
+        </label>
+      </div>
+      <div className="vault-search-checks">
+        <label className="option-check">
+          <input type="checkbox" checked={form.exactPlayer} onChange={(event) => set("exactPlayer", event.target.checked)} />
+          {t("replays.search.exactPlayer")}
+        </label>
+        <label className="option-check">
+          <input type="checkbox" checked={form.onlyWatchable} onChange={(event) => set("onlyWatchable", event.target.checked)} />
+          {t("replays.search.watchableOnly")}
+        </label>
+      </div>
+    </div>
+  );
+
   return (
     <form
-      className={`vault-search local-vault-search search-panel surface-panel${folded ? " is-folded" : ""}`}
+      className={`vault-search local-vault-search search-panel surface-panel${phone ? " is-one-row" : ""}`}
       onSubmit={submit}
     >
       <div className="vault-search-primary search-panel-primary">
@@ -176,94 +390,7 @@ export function LocalReplaySearch({
           />
         </label>
 
-        {!folded && (<>
-          <label className="vault-field vault-field-grow search-panel-field search-panel-field-grow">
-            <span className="vault-field-label search-panel-label">{t("replays.search.map")}</span>
-            <input
-              className="vault-input search-panel-control"
-              type="search"
-              value={form.map}
-              placeholder={t("replays.search.anyMap")}
-              onChange={(event) => set("map", event.target.value)}
-            />
-          </label>
-
-          <label className="vault-field vault-search-replay-id search-panel-field">
-            <span className="vault-field-label search-panel-label">{t("replays.search.replayId")}</span>
-            <input
-              className="vault-input search-panel-control"
-              type="search"
-              inputMode="numeric"
-              value={form.replayId}
-              onChange={(event) => set("replayId", event.target.value)}
-            />
-          </label>
-
-          {/* The same move the online tab made: the mode leads the row and the
-              featured mod goes down into the panel. They are different
-              questions -- `fafbeta` is a custom game on another build, not a
-              mode -- and `localGameModes` has the rest of why. */}
-          <label className="vault-field local-vault-mod search-panel-field">
-            <span className="vault-field-label search-panel-label">{t("replays.search.gameMode")}</span>
-            <select
-              className="vault-input search-panel-control"
-              value={form.gameMode}
-              onChange={(event) => set("gameMode", event.target.value as LocalGameMode)}
-            >
-              {localGameModes().map((mode) => (
-                <option value={mode.id} key={mode.id}>{mode.label}</option>
-              ))}
-            </select>
-          </label>
-
-          <div className="vault-search-rating search-panel-field">
-            <RangeSlider
-              label={t("replays.search.rating")}
-              min={MIN_RATING}
-              max={MAX_RATING}
-              step={50}
-              low={form.minRating}
-              high={form.maxRating}
-              onChange={setRange}
-            />
-          </div>
-
-          <label className="vault-field local-vault-status search-panel-field">
-            <span className="vault-field-label search-panel-label">{t("replays.search.status")}</span>
-            <select
-              className="vault-input search-panel-control"
-              value={form.status}
-              onChange={(event) => set("status", event.target.value as LocalReplayQuery["status"])}
-            >
-              {STATUS_OPTIONS.map((option) => (
-                <option value={option.value} key={option.value}>{t(option.label)}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="vault-field vault-search-sort search-panel-field">
-            <span className="vault-field-label search-panel-label">{t("replays.search.sortBy")}</span>
-            <select
-              className="vault-input search-panel-control"
-              value={form.sortBy}
-              onChange={(event) => set("sortBy", event.target.value as LocalReplaySortField)}
-            >
-              {(Object.keys(SORT_LABELS) as LocalReplaySortField[]).map((field) => (
-                <option value={field} key={field}>{t(SORT_LABELS[field])}</option>
-              ))}
-            </select>
-          </label>
-
-          <button
-            type="button"
-            className="vault-input search-panel-control vault-sort-order"
-            aria-label={t(form.sortDescending ? "replays.search.descendingAria" : "replays.search.ascendingAria")}
-            title={t(form.sortDescending ? "replays.search.descending" : "replays.search.ascending")}
-            onClick={toggleSortDirection}
-          >
-            {form.sortDescending ? "↓" : "↑"}
-          </button>
-        </>)}
+        {!phone && fields}
 
         <Button type="submit" variant="primary" className="vault-search-submit search-panel-submit">
           <Icon name="search" size={15} /> {t("replays.search.submit")}
@@ -271,127 +398,19 @@ export function LocalReplaySearch({
         {phone && toggle}
       </div>
 
-      {!folded && (
-        <div className="vault-search-presets search-panel-secondary">
-          {/* Active states, as in the online vault: the three of them replace the
-              scope of the list and nothing said which one was in force. */}
-          <Button
-            type="button"
-            className={preset === "newest" ? "active" : ""}
-            aria-pressed={preset === "newest"}
-            onClick={() => applyPreset({})}
-          >
-            {t("replays.search.preset.newest")}
-          </Button>
-          <Button
-            type="button"
-            className={preset === "lastYear" ? "active" : ""}
-            aria-pressed={preset === "lastYear"}
-            onClick={() => applyPreset({ after: isoDaysAgo(365) })}
-          >
-            {t("replays.search.preset.lastYear")}
-          </Button>
-          <Button
-            type="button"
-            className={preset === "own" ? "active" : ""}
-            aria-pressed={preset === "own"}
-            disabled={!self}
-            onClick={() => applyPreset({ player: self, exactPlayer: true })}
-          >
-            {t("replays.search.preset.myReplays")}
-          </Button>
-          <ReplaySavedSearches
-            list={LOCAL_REPLAY_PRESET_LIST}
-            entries={savedEntries}
-            currentSignature={localPresetSignature(form)}
-            encodeCurrent={() => encodeLocalReplayPreset(form)}
-            onApply={apply}
-          />
-          <span className="search-panel-divider" aria-hidden="true" />
-          {/* The online vault's button, answered from the files: each one says
-              when its game started and ended. Applied at once, like the presets
-              beside it. */}
-          <label
-            className="search-panel-check"
-            title={t("replays.search.hideShortHint", { minutes: SHORT_GAME_MINUTES })}
-          >
-            <input
-              type="checkbox"
-              checked={form.minDurationMinutes === SHORT_GAME_MINUTES}
-              onChange={(event) =>
-                apply({
-                  ...form,
-                  minDurationMinutes: event.target.checked ? SHORT_GAME_MINUTES : null,
-                })}
-            />
-            {t("replays.search.hideShort")}
-          </label>
-          <span className="spacer" />
-          {!phone && toggle}
-          <Button type="button" onClick={() => apply(EMPTY_LOCAL_REPLAY_QUERY)}>{t("replays.search.clear")}</Button>
-          <Button type="button" disabled={loading} onClick={onRefresh}><Icon name="refresh" size={15} /> {t("replays.search.refresh")}</Button>
-          {filesCanBePicked() && (
-            <Button type="button" variant="primary" disabled={busy} onClick={onOpenFile}>{t("replays.search.openFile")}</Button>
-          )}
-        </div>
-      )}
-
-      {advanced && (
-        <div className="vault-search-advanced search-panel-advanced">
-          <div className="vault-search-fields local-vault-search-fields">
-            <label className="vault-field">
-              <span className="vault-field-label">{t("replays.search.gameTitle")}</span>
-              <input className="vault-input" type="search" value={form.title} onChange={(event) => set("title", event.target.value)} />
-            </label>
-            <label className="vault-field">
-              <span className="vault-field-label">{t("replays.search.noteOrTag")}</span>
-              <input className="vault-input" type="search" value={form.note} onChange={(event) => set("note", event.target.value)} />
-            </label>
-            <div className="vault-field">
-              <ReplayTagFilter options={tagOptions} selected={form.tags} onChange={(tags) => set("tags", tags)} />
-            </div>
-            <label className="vault-field">
-              <span className="vault-field-label">{t("replays.search.recorder")}</span>
-              <input className="vault-input" type="search" value={form.recorder} onChange={(event) => set("recorder", event.target.value)} />
-            </label>
-            <label className="vault-field">
-              <span className="vault-field-label">{t("replays.search.mod")}</span>
-              <input
-                className="vault-input"
-                type="search"
-                list="local-replay-mod-options"
-                value={form.mod}
-                placeholder={t("replays.search.anyMod")}
-                onChange={(event) => set("mod", event.target.value)}
-              />
-              <datalist id="local-replay-mod-options">
-                {featuredMods.map((mod) => <option value={mod} key={mod} />)}
-              </datalist>
-            </label>
-            <label className="vault-field">
-              <span className="vault-field-label">{t("replays.search.simMod")}</span>
-              <input className="vault-input" type="search" value={form.simMod} onChange={(event) => set("simMod", event.target.value)} />
-            </label>
-            <label className="vault-field">
-              <span className="vault-field-label">{t("replays.search.playedAfter")}</span>
-              <DateInput className="vault-input" value={form.after} onChange={(value) => set("after", value)} />
-            </label>
-            <label className="vault-field">
-              <span className="vault-field-label">{t("replays.search.playedBefore")}</span>
-              <DateInput className="vault-input" value={form.before} onChange={(value) => set("before", value)} />
-            </label>
+      {phone ? (
+        advanced && (
+          <div className="vault-search-tray">
+            <div className="vault-search-tray-fields">{fields}</div>
+            {presets}
+            {more}
           </div>
-          <div className="vault-search-checks">
-            <label className="option-check">
-              <input type="checkbox" checked={form.exactPlayer} onChange={(event) => set("exactPlayer", event.target.checked)} />
-              {t("replays.search.exactPlayer")}
-            </label>
-            <label className="option-check">
-              <input type="checkbox" checked={form.onlyWatchable} onChange={(event) => set("onlyWatchable", event.target.checked)} />
-              {t("replays.search.watchableOnly")}
-            </label>
-          </div>
-        </div>
+        )
+      ) : (
+        <>
+          {presets}
+          {advanced && more}
+        </>
       )}
     </form>
   );

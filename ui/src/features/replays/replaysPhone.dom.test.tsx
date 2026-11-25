@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 //
-// Replays on a phone lying down. Both searches fold to the player field,
-// Search and More filters, which opens all of the rest and counts what it
-// hides; the cards go two to a row where two fit, in their compact form; the
-// list closes its columns up; and a replay's detail keeps Watch beside the
-// title. A desktop window as short, with a mouse, keeps each as it was.
+// Replays on a phone lying down. Both searches are one row, the player
+// field, Search and More filters, which counts what it hides and opens all of
+// the rest in a tray under the row that scrolls itself; the cards go as many
+// to a row as fit at 280 px, in their compact form with Watch as its icon;
+// the list closes its columns up; and a replay's detail keeps Watch beside
+// the title. A desktop window as short, with a mouse, keeps each as it was.
 
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -56,14 +57,14 @@ function mountLocalSearch() {
   return document.querySelector<HTMLFormElement>("form.local-vault-search")!;
 }
 
-function mountVaultSearch() {
+function mountVaultSearch(query: Partial<typeof EMPTY_REPLAY_QUERY> = {}) {
   render(
     <VaultSearch
       featuredMods={["faf"]}
       leaderboards={[]}
       self="Mrauky"
       friends={[]}
-      initialQuery={{ ...EMPTY_REPLAY_QUERY, map: "seton", title: "theos" }}
+      initialQuery={{ ...EMPTY_REPLAY_QUERY, map: "seton", title: "theos", ...query }}
       onSearch={vi.fn()}
     />,
   );
@@ -82,7 +83,7 @@ describe.each([
   it("is one row: the player field, Search, and More filters with the count of what it hides", () => {
     on(PHONE_LYING_DOWN);
     const form = mount();
-    expect(form.classList).toContain("is-folded");
+    expect(form.classList).toContain("is-one-row");
     const row = form.querySelector<HTMLElement>(".vault-search-primary")!;
     expect(within(row).getByRole("searchbox", { name: en["replays.search.player"] })).toBe(player());
     expect(within(row).getByRole("button", { name: /Search/ })).toBeTruthy();
@@ -96,19 +97,29 @@ describe.each([
     expect(getComputedStyle(row).flexWrap).toBe("nowrap");
   });
 
-  it("opens all of the rest with More filters, and folds it again", async () => {
+  it("opens all of the rest with More filters in a tray under the row, which scrolls itself, and folds it again", async () => {
     on(PHONE_LYING_DOWN);
     const user = userEvent.setup();
     const form = mount();
     await user.click(toggle());
-    expect(form.classList).not.toContain("is-folded");
     expect(toggle().getAttribute("aria-expanded")).toBe("true");
-    expect(map()).not.toBeNull();
-    expect(newest()).not.toBeNull();
-    // The advanced panel opens with it.
-    expect(form.querySelector(".search-panel-advanced, .vault-search-advanced")).not.toBeNull();
+    // The row stays the one it was.
+    const row = form.querySelector<HTMLElement>(".vault-search-primary")!;
+    expect(getComputedStyle(row).flexWrap).toBe("nowrap");
+    expect(row.contains(map())).toBe(false);
+    const tray = form.querySelector<HTMLElement>(".vault-search-tray")!;
+    expect(tray.contains(map())).toBe(true);
+    expect(tray.contains(newest())).toBe(true);
+    // The advanced filters open with it, in the tray too.
+    expect(tray.querySelector(".search-panel-advanced, .vault-search-advanced")).not.toBeNull();
+    // Its labels are there to read, unlike the row's.
+    expect(getComputedStyle(tray.querySelector(".search-panel-label")!).position).not.toBe("absolute");
+    // Under half the page high, so the replays stay in view under it.
+    const trayStyle = getComputedStyle(tray);
+    expect(trayStyle.overflowY).toBe("auto");
+    expect(trayStyle.maxHeight).toContain("0.45");
     await user.click(toggle());
-    expect(form.classList).toContain("is-folded");
+    expect(form.querySelector(".vault-search-tray")).toBeNull();
     expect(map()).toBeNull();
   });
 
@@ -132,21 +143,21 @@ describe.each([
   it("keeps every row for a mouse in a desktop window as short", () => {
     on(SHORT_DESKTOP);
     const form = mount();
-    expect(form.classList).not.toContain("is-folded");
-    expect(map()).not.toBeNull();
+    expect(form.classList).not.toContain("is-one-row");
+    expect(form.querySelector(".vault-search-primary")!.contains(map())).toBe(true);
+    expect(form.querySelector(".vault-search-tray")).toBeNull();
     expect(newest()).not.toBeNull();
     expect(toggle().closest(".vault-search-presets")).not.toBeNull();
   });
 });
 
-it("gives the vault's toggle a column of its own beside Search, unfolded on a phone", async () => {
-  on(PHONE_LYING_DOWN);
-  const form = mountVaultSearch();
+it("keeps the vault's note on its sort above the advanced filters on a desktop", async () => {
+  on(SHORT_DESKTOP);
+  const form = mountVaultSearch({ sortBy: "averageRating" });
   await userEvent.setup().click(toggle());
-  const row = form.querySelector<HTMLElement>(".online-search-top")!;
-  expect(getComputedStyle(row).gridTemplateColumns).toBe("minmax(0, 1fr) auto auto");
-  // Down by a label's height, in line with Search and the fields.
-  expect(getComputedStyle(toggle()).marginTop).toBe("20px");
+  const note = form.querySelector(".vault-search-note")!;
+  const advanced = form.querySelector(".search-panel-advanced, .vault-search-advanced")!;
+  expect(note.compareDocumentPosition(advanced) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 const replay = (uid: number, title: string): VaultReplay => ({
@@ -183,6 +194,7 @@ function mountCards() {
     card: getComputedStyle(card),
     thumb: getComputedStyle(card.querySelector<HTMLElement>(".replay-card-thumb")!),
     facts: getComputedStyle(card.querySelector<HTMLElement>(".replay-meta-grid")!),
+    watch: card.querySelector<HTMLElement>(".replay-card-watch")!,
   };
 }
 
@@ -190,23 +202,31 @@ describe("replay cards", () => {
   it.each([
     ["a phone lying down", PHONE_LYING_DOWN],
     ["a phone lying down with its pen, which reports a fine pointer", PHONE_WITH_A_PEN],
-  ] as const)("go two to a row on %s where two fit, each in its compact form", (_, phone) => {
+  ] as const)("go as many to a row as fit at 280 px on %s, each in its compact form", (_, phone) => {
     on(phone);
-    const { grid, card, thumb, facts } = mountCards();
-    expect(grid.gridTemplateColumns).toBe("repeat(auto-fill, minmax(min(100%, 320px), 1fr))");
+    const { grid, card, thumb, facts, watch } = mountCards();
+    expect(grid.gridTemplateColumns).toBe("repeat(auto-fill, minmax(min(100%, 280px), 1fr))");
     expect(card.display).toBe("grid");
-    expect(card.gridTemplateColumns).toBe("72px minmax(0, 1fr)");
-    expect(thumb.width).toBe("72px");
+    expect(card.gridTemplateColumns).toBe("56px minmax(0, 1fr)");
+    expect(card.paddingTop).toBe("8px");
+    expect(thumb.width).toBe("56px");
     expect(facts.gridTemplateColumns).toBe("repeat(3, minmax(0, 1fr))");
-    expect(facts.fontSize).toBe("12px");
+    // The desktop card's own sizes for the facts and the lineup.
+    expect(facts.fontSize).toBe("11px");
+    // Watch is its icon, a touch target square, and keeps its name.
+    expect(getComputedStyle(watch.querySelector("span")!).display).toBe("none");
+    expect(getComputedStyle(watch).width).toBe("40px");
+    expect(getComputedStyle(watch).minHeight).toBe("40px");
+    expect(watch.getAttribute("aria-label")).toContain("theos best buddies");
   });
 
   it("keep the desktop's card for a mouse in a window as short", () => {
     on(SHORT_DESKTOP);
-    const { card, thumb, facts } = mountCards();
+    const { card, thumb, facts, watch } = mountCards();
     expect(card.display).toBe("flex");
     expect(thumb.width).toBe("128px");
     expect(facts.fontSize).toBe("11px");
+    expect(getComputedStyle(watch.querySelector("span")!).display).not.toBe("none");
   });
 });
 

@@ -106,6 +106,15 @@ describe("the shell on a phone lying down", () => {
     expect(getComputedStyle(menu()).alignSelf).toBe("flex-start");
   });
 
+  it("keeps less of the phone for the page's margins than a desktop window does", () => {
+    addStylesheets("ui/src/design-system/tokens.css", "ui/src/features/shell/shell.css");
+    mountShell();
+    const page = getComputedStyle(document.querySelector<HTMLElement>(".content-inner")!);
+    expect(page.paddingTop).toBe("8px");
+    expect(page.paddingLeft).toBe("12px");
+    expect(page.paddingBottom).toBe("12px");
+  });
+
   it("is the page's sidebar for a screen reader, out or in, and leaves the focus on the menu", async () => {
     mountShell();
     await userEvent.setup().click(menu());
@@ -218,5 +227,13 @@ describe("the shell on a desktop", () => {
     expect(screen.getByText("FAForever")).toBeTruthy();
     expect(screen.getByRole("separator")).toBeTruthy();
     expect(screen.queryByRole("button", { name: en["shell.sidebar.menu"] })).toBeNull();
+  });
+
+  it("keeps its margins in a window as short as a phone", () => {
+    setScreen(SHORT_DESKTOP);
+    addStylesheets("ui/src/design-system/tokens.css", "ui/src/features/shell/shell.css");
+    mountShell();
+    // The narrow window's 22 px, as before.
+    expect(getComputedStyle(document.querySelector<HTMLElement>(".content-inner")!).paddingTop).toBe("22px");
   });
 });

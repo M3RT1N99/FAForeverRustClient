@@ -129,15 +129,17 @@
   gap: var(--space-2);
 }
 
-/* Folded to one row on a phone lying down (VaultSearch, LocalReplaySearch):
-   the player field, Search beside it and More filters at the row's end. The
+/* One row on a phone lying down, open or folded (VaultSearch,
+   LocalReplaySearch): the player field, Search beside it and More filters at
+   the row's end, where the press that opens the tray under it was. The
    field's label is kept for screen readers; the placeholder says what goes
    in, and the row stays one control high. */
-.search-panel.is-folded {
+.search-panel.is-one-row {
+  gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
 }
 
-.search-panel.is-folded > .search-panel-primary {
+.search-panel.is-one-row > .search-panel-primary {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
@@ -145,42 +147,22 @@
 
 /* The vault's field wrapper holds the player field alone here, which then
    sits in the row as the local search's does. */
-.search-panel.is-folded .online-search-fields {
+.search-panel.is-one-row > .search-panel-primary > .online-search-fields {
   display: contents;
 }
 
-.search-panel.is-folded .online-search-top > .vault-search-submit {
+/* Beside the field, not stretched over the room a narrow window's rule gives
+   it (search-panel.css), nor down by a label's height. */
+.search-panel.is-one-row > .search-panel-primary > .search-panel-submit {
+  flex: none;
   margin-top: 0;
 }
 
-/* Unfolded on a phone, the toggle stays in the top row beside Search, at its
-   right end where the press that opened it was (VaultSearch,
-   LocalReplaySearch). The local search's row wraps, and the toggle ends
-   whichever line it lands on. The vault's row is a grid: a third column, and
-   down by a label's height as Search is. */
-:where(html[data-phone="lying-down"]) .search-panel-primary > .search-panel-toggle {
+.search-panel.is-one-row > .search-panel-primary > .search-panel-toggle {
   margin-left: auto;
 }
 
-:where(html[data-phone="lying-down"]) .search-panel-primary.online-search-top {
-  grid-template-columns: minmax(0, 1fr) auto auto;
-}
-
-:where(html[data-phone="lying-down"]) .search-panel:not(.is-folded) .online-search-top > .search-panel-toggle {
-  margin-top: 20px;
-}
-
-/* Beside the field, not stretched over the room a narrow window's rule gives
-   it (search-panel.css). */
-.search-panel.is-folded .search-panel-submit {
-  flex: none;
-}
-
-.search-panel.is-folded .search-panel-toggle {
-  margin-left: auto;
-}
-
-.search-panel.is-folded .search-panel-label {
+.search-panel.is-one-row > .search-panel-primary .search-panel-label {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -190,6 +172,39 @@
   white-space: nowrap;
   border: 0;
   clip-path: inset(50%);
+}
+
+/* What More filters opens under the row on a phone: every other field, the
+   sliders, the presets and the advanced filters, closer together than on a
+   desktop. Under half the page high, so the count and the first replays
+   stay in view under the search, and it scrolls itself for the rest; the
+   page's own height is the shell's (`--content-height`, AppShell). */
+.vault-search-tray {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: calc(var(--content-height, 100vh) * 0.45);
+  padding-top: var(--space-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  border-top: 1px solid var(--color-border);
+}
+
+.vault-search-tray-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.vault-search-tray .online-search-sliders {
+  gap: var(--space-2) var(--space-3);
+}
+
+.vault-search-tray .search-panel-advanced {
+  padding-top: var(--space-2);
 }
 
 .vault-search-rating {
@@ -3165,14 +3180,16 @@ input.replay-options-filter {
 
 /* A phone lying down (`shared/phoneLayout`): 340 px high, so a card shows its
    lineup in the first screen, in the compact form FAF's web client gives its
-   replay card on a phone. The map in a 72 px square beside the title and
-   Watch, the lineup under them across the card, and the facts in three
-   columns. The card's design stays its own; only the arrangement of its
-   parts changes. Two to a row where each is 320 px wide or more, as at the
-   default font; at a larger one the title beside Watch had a word's room in
-   two, and the cards go one to a row. */
+   replay card on a phone, closer still. The map in a 56 px square beside the
+   title, Watch as its icon in the corner (its name stays the button's), the
+   lineup under them across the card at the desktop card's own sizes, and the
+   facts in three columns. The card's design stays its own; only the
+   arrangement of its parts and the room between them change. As many to a
+   row as are 280 px wide or more: two on the phone at 100 %, one beside the
+   sidebar its menu slid out. */
 :where(html[data-phone="lying-down"]) .replay-grid {
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: var(--space-2);
 }
 
 :where(html[data-phone="lying-down"]) .replay-card {
@@ -3182,10 +3199,11 @@ input.replay-options-filter {
     "teams teams"
     "meta meta"
     "stars footer";
-  grid-template-columns: 72px minmax(0, 1fr);
+  grid-template-columns: 56px minmax(0, 1fr);
   align-content: start;
-  gap: var(--space-2) var(--space-3);
+  gap: var(--space-2);
   min-height: 0;
+  padding: var(--space-2) var(--space-3);
 }
 
 :where(html[data-phone="lying-down"]) .replay-card-left,
@@ -3199,17 +3217,28 @@ input.replay-options-filter {
 }
 
 :where(html[data-phone="lying-down"]) .replay-card-thumb {
-  width: 72px;
-  height: 72px;
+  width: 56px;
+  height: 56px;
 }
 
 :where(html[data-phone="lying-down"]) .replay-card-top {
   grid-area: top;
+  gap: var(--space-2);
   margin-bottom: 0;
+}
+
+:where(html[data-phone="lying-down"]) .replay-card-watch {
+  width: var(--touch-target);
+  padding: 0;
+}
+
+:where(html[data-phone="lying-down"]) .replay-card-watch > span {
+  display: none;
 }
 
 :where(html[data-phone="lying-down"]) .replay-card-teams {
   grid-area: teams;
+  gap: var(--space-1) var(--space-3);
 }
 
 :where(html[data-phone="lying-down"]) .replay-stars {
@@ -3220,20 +3249,15 @@ input.replay-options-filter {
 :where(html[data-phone="lying-down"]) .replay-card-footer {
   grid-area: footer;
   margin-top: 0;
-}
-
-/* The lineup is what a card is read for, so its names are body size. */
-:where(html[data-phone="lying-down"]) .replay-player {
-  min-height: 26px;
-  font-size: 14px;
+  padding-top: 0;
 }
 
 :where(html[data-phone="lying-down"]) .replay-meta-grid {
   grid-area: meta;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-1) var(--space-2);
   padding-top: var(--space-2);
   border-top: 1px solid var(--color-border);
-  font-size: 12px;
 }
 
 /* A replay's detail: the hero compact, so the facts start in view. The
