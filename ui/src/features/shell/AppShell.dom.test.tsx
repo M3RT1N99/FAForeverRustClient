@@ -75,6 +75,20 @@ describe("the shell on a phone lying down", () => {
     expect(document.activeElement).toBe(tab(en["nav.tab.replays.label"]));
   });
 
+  it("is a modal dialog for a screen reader while it is open, and the page's sidebar again once closed", async () => {
+    mountShell();
+    const sidebar = document.querySelector<HTMLElement>(".sidebar")!;
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await userEvent.setup().click(menu());
+    const drawer = screen.getByRole("dialog", { name: en["shell.sidebar.menu"] });
+    expect(drawer).toBe(sidebar);
+    expect(drawer.getAttribute("aria-modal")).toBe("true");
+    fireEvent.click(scrim()!);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(sidebar.hasAttribute("aria-modal")).toBe(false);
+    expect(screen.getByRole("complementary")).toBe(sidebar);
+  });
+
   it("closes on a tap beside it and gives the focus back to the menu", async () => {
     const shell = mountShell();
     await userEvent.setup().click(menu());

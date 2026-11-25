@@ -280,7 +280,18 @@ export function AppShell() {
       ].filter(Boolean).join(" ")}
       style={shellStyle}
     >
-      <aside ref={sidebarRef} className="sidebar" onKeyDown={drawer ? trapDrawerTab : undefined}>
+      {/* Open as a drawer, a modal dialog, as the client's other modal layers
+          are: the scrim keeps a finger off the page and the drawer holds
+          Tab, and this keeps a screen reader in it too, where TalkBack would
+          swipe on into the page under the scrim and press what it covers. */}
+      <aside
+        ref={sidebarRef}
+        className="sidebar"
+        role={drawer ? "dialog" : undefined}
+        aria-modal={drawer ? "true" : undefined}
+        aria-label={drawer ? t("shell.sidebar.menu") : undefined}
+        onKeyDown={drawer ? trapDrawerTab : undefined}
+      >
         {phone ? (
           <button
             ref={menuRef}
