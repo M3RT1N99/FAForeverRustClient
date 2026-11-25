@@ -561,7 +561,11 @@ impl ClientUpdatePort for GitHubUpdates {
         let releases = self.fetch_releases().await?;
         self.remember_notes(&releases);
         self.remember_digests(&releases);
-        Ok(pick_release(&releases, channel))
+        Ok(pick_release(
+            &releases,
+            channel,
+            cfg!(target_os = "android"),
+        ))
     }
 
     async fn release_notes(&self) -> Result<Vec<ClientReleaseNotes>, String> {
@@ -621,7 +625,12 @@ impl ClientUpdatePort for GitHubUpdates {
 ///
 /// Pure so the interesting decisions: draft handling, channel filtering,
 /// version ordering, asset selection: are testable without a network.
-fn pick_release(releases: &[Value], channel: ReleaseChannel) -> Option<ClientRelease> {
+/// `android` is the platform, passed in so the tests can take both sides.
+fn pick_release(
+    releases: &[Value],
+    channel: ReleaseChannel,
+    android: bool,
+) -> Option<ClientRelease> {
     let mut best: Option<ClientRelease> = None;
     for release in releases {
         // Offering a draft would hand out an unfinished build.
@@ -643,6 +652,9 @@ fn pick_release(releases: &[Value], channel: ReleaseChannel) -> Option<ClientRel
             continue;
         }
         let version = strip_version_prefix(tag).to_string();
+        if !for_this_app(android, release.get("assets")) {
+            continue;
+        }
 
         let asset = pick_asset(release.get("assets"));
         let candidate = ClientRelease {
@@ -684,6 +696,22 @@ fn pick_release(releases: &[Value], channel: ReleaseChannel) -> Option<ClientRel
 }
 
 /// Drafts are visible to authenticated maintainers and are not published.
+/// Whether a release is one of this app's at all. The desktop releases share
+/// the repository, and the Android app takes only an APK: a release without
+/// one is not an update for a phone, which was told of each desktop version
+/// although it could never install it.
+fn for_this_app(android: bool, assets: Option<&Value>) -> bool {
+    !android
+        || assets.and_then(Value::as_array).is_some_and(|assets| {
+            assets.iter().any(|asset| {
+                asset
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| name.ends_with(".apk"))
+            })
+        })
+}
+
 fn is_draft(release: &Value) -> bool {
     release
         .get("draft")
@@ -923,6 +951,44 @@ impl ClientUpdatePort for FakeClientUpdates {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_phone_is_offered_only_a_release_that_carries_an_apk() {
+        let release = |tag: &str, assets: serde_json::Value| {
+            serde_json::json!({
+                "tag_name": tag, "prerelease": false, "draft": false,
+                "html_url": format!("https://example.invalid/{tag}"),
+                "assets": assets,
+            })
+        };
+        let desktop = serde_json::json!([{
+            "name": "faf-client_1.0.2_x64-setup.exe",
+            "browser_download_url": "https://example.invalid/setup.exe",
+            "size": 1,
+        }]);
+        let with_apk = serde_json::json!([{
+            "name": "FAForever.Client_1.0.1_android_arm64.apk",
+            "browser_download_url": "https://example.invalid/client.apk",
+            "size": 1,
+        }]);
+        let releases = vec![release("v1.0.2", desktop), release("v1.0.1", with_apk)];
+
+        let phone = pick_release(&releases, ReleaseChannel::Stable, true).expect("the APK's");
+        assert_eq!(
+            phone.version, "1.0.1",
+            "the newer desktop-only release is not the phone's"
+        );
+        assert_eq!(
+            pick_release(&releases[..1], ReleaseChannel::Stable, true),
+            None,
+            "a desktop release alone is no update for a phone"
+        );
+        assert_eq!(
+            pick_release(&releases, ReleaseChannel::Stable, false).map(|r| r.version),
+            Some("1.0.2".to_string()),
+            "the desktop still takes the newest"
+        );
+    }
+
     /// A release whose asset name ends in whatever this platform accepts, so
     /// the tests below exercise the same path on every runner.
     fn asset_name(stem: &str) -> String {
@@ -976,7 +1042,7 @@ mod tests {
             release_json("v1.10.0", false, true),
             release_json("v1.2.0", false, true),
         ];
-        let picked = pick_release(&releases, ReleaseChannel::Stable).expect("a release");
+        let picked = pick_release(&releases, ReleaseChannel::Stable, false).expect("a release");
         assert_eq!(picked.version, "1.10.0");
     }
 
@@ -987,12 +1053,12 @@ mod tests {
             release_json("v2.0.0-rc1", true, true),
         ];
         assert_eq!(
-            pick_release(&releases, ReleaseChannel::Stable)
+            pick_release(&releases, ReleaseChannel::Stable, false)
                 .expect("a release")
                 .version,
             "1.0.0"
         );
-        let beta = pick_release(&releases, ReleaseChannel::PreRelease).expect("a release");
+        let beta = pick_release(&releases, ReleaseChannel::PreRelease, false).expect("a release");
         assert_eq!(beta.version, "2.0.0-rc1");
         assert!(beta.pre_release);
     }
@@ -1004,7 +1070,7 @@ mod tests {
         draft["draft"] = Value::Bool(true);
         let releases = vec![release_json("v1.0.0", false, true), draft];
         assert_eq!(
-            pick_release(&releases, ReleaseChannel::PreRelease)
+            pick_release(&releases, ReleaseChannel::PreRelease, false)
                 .expect("a release")
                 .version,
             "1.0.0"
@@ -1019,7 +1085,7 @@ mod tests {
             release_json("v0.3.0", false, true),
         ];
         assert_eq!(
-            pick_release(&releases, ReleaseChannel::Stable)
+            pick_release(&releases, ReleaseChannel::Stable, false)
                 .expect("a release")
                 .version,
             "0.3.0"
@@ -1031,7 +1097,7 @@ mod tests {
         // Java hides the install button and keeps the release-notes link; the
         // user is told a new version exists either way.
         let releases = vec![release_json("v0.4.0", false, false)];
-        let picked = pick_release(&releases, ReleaseChannel::Stable).expect("a release");
+        let picked = pick_release(&releases, ReleaseChannel::Stable, false).expect("a release");
         assert_eq!(picked.version, "0.4.0");
         assert!(!picked.is_installable());
         assert!(picked.notes_url.contains("0.4.0"));
@@ -1039,7 +1105,7 @@ mod tests {
 
     #[test]
     fn an_empty_release_list_is_no_update_rather_than_an_error() {
-        assert_eq!(pick_release(&[], ReleaseChannel::Stable), None);
+        assert_eq!(pick_release(&[], ReleaseChannel::Stable, false), None);
     }
 
     #[test]
