@@ -19,8 +19,6 @@ import { UpdateGate } from "../updates/UpdateGate";
 import { WhatsNewDialog } from "../updates/WhatsNewDialog";
 import { BrandMark } from "../../design-system/BrandMark";
 import { Icon } from "../../design-system/Icon";
-import { overlayStack } from "../../design-system/overlayStack";
-import { useOverlayLayer } from "../../design-system/useOverlayLayer";
 import { PlayerCardModal } from "../player-card/PlayerCardModal";
 import { ContactsDialog } from "../contacts/ContactsDialog";
 import { openContacts } from "../../shared/contactsActions";
@@ -51,9 +49,9 @@ const SIDEBAR_MAX_WIDTH = 400;
 /// Narrower than this and the labels come off, leaving the icon rail the shell
 /// already draws for a narrow window.
 const SIDEBAR_RAIL_BELOW = 150;
-
-/** What can take the focus inside the sidebar, for the drawer's Tab. */
-const FOCUSABLE = "button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex='-1'])";
+/// The sidebar a phone's menu slides out: the client's normal width, the one
+/// Settings > Appearance calls Normal.
+const PHONE_SIDEBAR_WIDTH = 224;
 
 const clampSidebarWidth = (width: number) =>
   Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
@@ -119,56 +117,25 @@ export function AppShell() {
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const contentRef = useRef<HTMLElement>(null);
 
-  // A phone lying down (`shared/phoneLayout`): the rail, always, and in the
-  // brand's place a menu that opens the sidebar with its labels as a drawer
-  // over the page. The rail alone names nothing, and a row of icons is a lot
-  // to learn on a first visit.
+  // A phone lying down (`shared/phoneLayout`): the rail, and in the brand's
+  // place a menu that slides the sidebar out with its labels, beside the page
+  // and pushing it over, and back in: the desktop's two sidebars, the rail
+  // and the labelled one, a press apart. The rail alone names nothing, and a
+  // row of icons is a lot to learn on a first visit. It stays out until the
+  // menu, or Back, takes it in again: it is the page's sidebar, not a layer
+  // over the page.
   const phone = usePhoneLayout();
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const drawer = phone && drawerOpen;
-  const sidebarRef = useRef<HTMLElement>(null);
-  const menuRef = useRef<HTMLButtonElement>(null);
-  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
-  // Closed without a place chosen (Escape, Back, a tap beside it, the menu
-  // again): the focus goes back to the menu that opened it, not to the page
-  // under the drawer or nowhere.
-  const dismissDrawer = useCallback(() => {
-    setDrawerOpen(false);
-    menuRef.current?.focus({ preventScroll: true });
-  }, []);
-  // A layer like any dialog, so Escape closes it and nothing under it; and
-  // on Android, Back does what Escape does before Back leaves the app: it
-  // closes a dialog opened from the drawer first, then the drawer.
-  const drawerLayer = useOverlayLayer(drawer, dismissDrawer, { trapsFocus: true, elementRef: sidebarRef });
-  useSystemBack(drawer, drawerLayer);
-  // A phone turned upright, or the window made taller, has no drawer, and it
-  // does not come back open when the phone is turned again.
+  const [sidebarOut, setSidebarOut] = useState(false);
+  const expanded = phone && sidebarOut;
+  const collapseSidebar = useCallback(() => setSidebarOut(false), []);
+  // On Android, Back closes a dialog open over the page first, as Escape
+  // does, and then takes the sidebar in, before Back leaves the app.
+  useSystemBack(expanded, collapseSidebar);
+  // A phone turned upright, or the window made taller, has the desktop's
+  // sidebar, and the menu's comes back in when the phone is turned again.
   useEffect(() => {
-    if (!phone) setDrawerOpen(false);
+    if (!phone) setSidebarOut(false);
   }, [phone]);
-  // Opened, the focus goes to the place on screen, where a reader of the
-  // drawer starts.
-  useEffect(() => {
-    if (!drawer) return;
-    const sidebar = sidebarRef.current;
-    (sidebar?.querySelector<HTMLElement>(".tab-active") ?? sidebar?.querySelector<HTMLElement>(".tab"))
-      ?.focus({ preventScroll: true });
-  }, [drawer]);
-  // The drawer holds Tab, as a dialog does: the page beside it is under the
-  // scrim and cannot be used until it closes.
-  const trapDrawerTab = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Tab" || overlayStack.topFocusTrap() !== drawerLayer) return;
-    const controls = Array.from(sidebarRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
-    const first = controls[0];
-    const last = controls[controls.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last?.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first?.focus();
-    }
-  };
 
   const openTab = openTabForMode(auth.mode, activeTab);
 
@@ -262,8 +229,9 @@ export function AppShell() {
   const friendColor = useAppStore((state) => state.state.settings.chat.nameColors.friends);
   const foeColor = useAppStore((state) => state.state.settings.chat.nameColors.foes);
   const shellStyle = {
-    // The rail's own width on a phone, whatever the sidebar was dragged to.
-    "--sidebar-width": `${phone ? SIDEBAR_MIN_WIDTH : sidebarWidth}px`,
+    // On a phone the rail, or the sidebar its menu slid out, whatever the
+    // sidebar was dragged to on a desktop.
+    "--sidebar-width": `${phone ? (expanded ? PHONE_SIDEBAR_WIDTH : SIDEBAR_MIN_WIDTH) : sidebarWidth}px`,
     ...(friendColor ? { "--color-friend": friendColor } : {}),
     ...(foeColor ? { "--color-foe": foeColor } : {}),
   } as CSSProperties;
@@ -273,36 +241,24 @@ export function AppShell() {
       className={[
         "app-shell",
         isResizingSidebar && "is-resizing-sidebar",
-        // The drawer is the sidebar with its labels, so the rail's rules
-        // step aside while it is open.
-        (phone ? !drawer : sidebarWidth < SIDEBAR_RAIL_BELOW) && "is-sidebar-rail",
-        drawer && "is-drawer-open",
+        // Slid out, the sidebar has its labels, so the rail's rules step
+        // aside, those of a narrow window too.
+        (phone ? !expanded : sidebarWidth < SIDEBAR_RAIL_BELOW) && "is-sidebar-rail",
+        expanded && "is-sidebar-out",
       ].filter(Boolean).join(" ")}
       style={shellStyle}
     >
-      {/* Open as a drawer, a modal dialog, as the client's other modal layers
-          are: the scrim keeps a finger off the page and the drawer holds
-          Tab, and this keeps a screen reader in it too, where TalkBack would
-          swipe on into the page under the scrim and press what it covers. */}
-      <aside
-        ref={sidebarRef}
-        className="sidebar"
-        role={drawer ? "dialog" : undefined}
-        aria-modal={drawer ? "true" : undefined}
-        aria-label={drawer ? t("shell.sidebar.menu") : undefined}
-        onKeyDown={drawer ? trapDrawerTab : undefined}
-      >
+      <aside className="sidebar">
         {phone ? (
           <button
-            ref={menuRef}
             type="button"
             className="sidebar-menu-button"
             aria-label={t("shell.sidebar.menu")}
             title={t("shell.sidebar.menu")}
-            aria-expanded={drawer}
-            onClick={() => (drawer ? dismissDrawer() : setDrawerOpen(true))}
+            aria-expanded={expanded}
+            onClick={() => setSidebarOut((out) => !out)}
           >
-            <Icon name={drawer ? "close" : "menu"} size={20} />
+            <Icon name="menu" size={20} />
           </button>
         ) : (
           <div className="brand">
@@ -314,10 +270,7 @@ export function AppShell() {
           </div>
         )}
 
-        <TabBar
-          onPointerSelect={() => contentRef.current?.focus({ preventScroll: true })}
-          onSelect={closeDrawer}
-        />
+        <TabBar onPointerSelect={() => contentRef.current?.focus({ preventScroll: true })} />
 
         <div className="sidebar-footer">
           <UpdateNotice deferredVersion={deferredUpdate} />
@@ -385,10 +338,6 @@ export function AppShell() {
           />
         )}
       </aside>
-      {/* Over the page while the drawer is open: a tap on it closes the
-          drawer, as a tap beside a dialog closes it. */}
-      {drawer && <div className="drawer-scrim" aria-hidden="true" onClick={dismissDrawer} />}
-
       <main className="workspace">
         {/* One row, however many banners are up: both used to claim grid row 1
             and would have overlapped the moment an update landed on a client

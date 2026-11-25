@@ -1,20 +1,26 @@
 // @vitest-environment happy-dom
 //
 // The shell on a phone lying down: the rail with a menu in the brand's
-// place, the drawer that menu opens, and the ways it closes (a tap beside
-// it, Escape, a place chosen in it, and Android's Back, which closes a
-// dialog opened from it first), with the focus going into it and coming back
-// out. A phone with a pen, which reports a fine pointer, has them too. A
-// desktop window of the same size, with a mouse or a touch screen, keeps the
-// shell it had.
+// place, which slides the sidebar out with its labels beside the page,
+// pushing the page over, and back in; and Android's Back, which closes a
+// dialog over the page first and then takes the sidebar in. A phone with a
+// pen, which reports a fine pointer, has them too. A desktop window of the
+// same size, with a mouse or a touch screen, keeps the shell it had.
 
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { en } from "../../i18n/catalog/en";
 import { failOnConsoleError } from "../../testing/consoleGuard";
 import { applyEvent, seedStore, sentCommands } from "../../testing/mounted";
-import { PHONE_LYING_DOWN, PHONE_WITH_A_PEN, setScreen, SHORT_DESKTOP, SHORT_TOUCH_DESKTOP } from "../../testing/screens";
+import {
+  addStylesheets,
+  PHONE_LYING_DOWN,
+  PHONE_WITH_A_PEN,
+  setScreen,
+  SHORT_DESKTOP,
+  SHORT_TOUCH_DESKTOP,
+} from "../../testing/screens";
 import { AppShell } from "./AppShell";
 
 vi.mock("../../ipc/client");
@@ -60,7 +66,9 @@ function mountShell(player: { id: number; name: string } | null = null) {
 const pressBack = () => act(() => back.listeners.forEach((listener) => listener()));
 const menu = () => screen.getByRole("button", { name: en["shell.sidebar.menu"] });
 const tab = (name: string) => screen.getByRole("button", { name });
-const scrim = () => document.querySelector<HTMLElement>(".drawer-scrim");
+const sidebar = () => document.querySelector<HTMLElement>(".sidebar")!;
+/** A place's label in the sidebar, which the rail hides. */
+const label = (name: string) => tab(name).querySelector("span")!;
 
 describe("the shell on a phone lying down", () => {
   beforeEach(() => setScreen(PHONE_LYING_DOWN));
@@ -79,101 +87,82 @@ describe("the shell on a phone lying down", () => {
     expect(screen.queryByRole("separator")).toBeNull();
   });
 
-  it("opens the sidebar as a drawer over the page and moves the focus into it", async () => {
+  it("slides the sidebar out with its labels beside the page, which moves over for it", async () => {
+    addStylesheets("ui/src/design-system/tokens.css", "ui/src/features/shell/shell.css", "ui/src/features/nav/nav.css");
     const shell = mountShell();
+    expect(getComputedStyle(shell).gridTemplateColumns).toBe("64px minmax(0, 1fr)");
+    expect(getComputedStyle(label(en["nav.tab.replays.label"])).display).toBe("none");
     await userEvent.setup().click(menu());
     expect(menu().getAttribute("aria-expanded")).toBe("true");
-    expect(shell.classList).toContain("is-drawer-open");
+    expect(shell.classList).toContain("is-sidebar-out");
     expect(shell.classList).not.toContain("is-sidebar-rail");
-    expect(scrim()).not.toBeNull();
-    expect(document.activeElement).toBe(tab(en["nav.tab.replays.label"]));
+    expect(shell.style.getPropertyValue("--sidebar-width")).toBe("224px");
+    // A column of the page's grid, not a layer over the page.
+    expect(getComputedStyle(shell).gridTemplateColumns).toBe("224px minmax(0, 1fr)");
+    expect(getComputedStyle(sidebar()).position).not.toBe("fixed");
+    expect(getComputedStyle(label(en["nav.tab.replays.label"])).display).toBe("inline");
+    // The menu stays where it was pressed, for the press that takes it in.
+    expect(getComputedStyle(menu()).width).toBe("48px");
+    expect(getComputedStyle(menu()).alignSelf).toBe("flex-start");
   });
 
-  it("is a modal dialog for a screen reader while it is open, and the page's sidebar again once closed", async () => {
+  it("is the page's sidebar for a screen reader, out or in, and leaves the focus on the menu", async () => {
     mountShell();
-    const sidebar = document.querySelector<HTMLElement>(".sidebar")!;
-    expect(screen.queryByRole("dialog")).toBeNull();
     await userEvent.setup().click(menu());
-    const drawer = screen.getByRole("dialog", { name: en["shell.sidebar.menu"] });
-    expect(drawer).toBe(sidebar);
-    expect(drawer.getAttribute("aria-modal")).toBe("true");
-    fireEvent.click(scrim()!);
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(sidebar.hasAttribute("aria-modal")).toBe(false);
-    expect(screen.getByRole("complementary")).toBe(sidebar);
-  });
-
-  it("closes on a tap beside it and gives the focus back to the menu", async () => {
-    const shell = mountShell();
-    await userEvent.setup().click(menu());
-    fireEvent.click(scrim()!);
-    expect(shell.classList).not.toContain("is-drawer-open");
-    expect(shell.classList).toContain("is-sidebar-rail");
-    expect(scrim()).toBeNull();
+    expect(screen.getByRole("complementary")).toBe(sidebar());
+    expect(sidebar().hasAttribute("aria-modal")).toBe(false);
     expect(document.activeElement).toBe(menu());
   });
 
-  it("closes on Escape", async () => {
+  it("takes the sidebar in again with the menu", async () => {
     const user = userEvent.setup();
     const shell = mountShell();
     await user.click(menu());
-    await user.keyboard("{Escape}");
-    expect(shell.classList).not.toContain("is-drawer-open");
+    await user.click(menu());
+    expect(menu().getAttribute("aria-expanded")).toBe("false");
+    expect(shell.classList).toContain("is-sidebar-rail");
+    expect(shell.classList).not.toContain("is-sidebar-out");
+    expect(shell.style.getPropertyValue("--sidebar-width")).toBe("64px");
     expect(document.activeElement).toBe(menu());
   });
 
-  it("closes when a place is chosen in it, the one already open too", async () => {
+  it("stays out when a place is chosen in it, until the menu takes it in", async () => {
     const user = userEvent.setup();
     const shell = mountShell();
     await user.click(menu());
     await user.click(tab(en["nav.tab.settings.label"]));
-    expect(shell.classList).not.toContain("is-drawer-open");
     expect(sentCommands()).toContainEqual({ kind: "Nav", command: { type: "select", payload: { tab: "settings" } } });
-    await user.click(menu());
-    await user.click(tab(en["nav.tab.replays.label"]));
-    expect(shell.classList).not.toContain("is-drawer-open");
+    expect(shell.classList).toContain("is-sidebar-out");
   });
 
-  it("keeps Tab inside the open drawer", async () => {
-    const user = userEvent.setup();
-    mountShell();
-    await user.click(menu());
-    const sidebar = document.querySelector<HTMLElement>(".sidebar")!;
-    const controls = Array.from(sidebar.querySelectorAll<HTMLElement>("button:not([disabled])"));
-    controls[controls.length - 1].focus();
-    await user.tab();
-    expect(document.activeElement).toBe(controls[0]);
-    await user.tab({ shift: true });
-    expect(document.activeElement).toBe(controls[controls.length - 1]);
-  });
-
-  it("has no drawer once the phone is turned upright, and it does not come back open", async () => {
+  it("has the rail once the phone is turned upright and back, the sidebar in", async () => {
     const shell = mountShell();
     await userEvent.setup().click(menu());
     setScreen({ ...PHONE_LYING_DOWN, width: 340, height: 785 });
     await waitFor(() => expect(screen.queryByRole("button", { name: en["shell.sidebar.menu"] })).toBeNull());
-    expect(shell.classList).not.toContain("is-drawer-open");
+    expect(shell.classList).not.toContain("is-sidebar-out");
     setScreen(PHONE_LYING_DOWN);
     await waitFor(() => expect(menu().getAttribute("aria-expanded")).toBe("false"));
-    expect(shell.classList).not.toContain("is-drawer-open");
+    expect(shell.classList).toContain("is-sidebar-rail");
   });
 });
 
 describe("Android's Back", () => {
   beforeEach(() => setScreen(PHONE_LYING_DOWN));
 
-  it("closes the open drawer instead of leaving the app", async () => {
+  it("takes the slid-out sidebar in instead of leaving the app", async () => {
     const shell = mountShell();
     await userEvent.setup().click(menu());
     await waitFor(() => expect(back.listeners.size).toBe(1));
     pressBack();
-    expect(shell.classList).not.toContain("is-drawer-open");
-    expect(document.activeElement).toBe(menu());
-    // Closed, it lets the next Back leave the app.
+    expect(shell.classList).not.toContain("is-sidebar-out");
+    expect(shell.classList).toContain("is-sidebar-rail");
+    // In, it lets the next Back leave the app.
     await waitFor(() => expect(back.listeners.size).toBe(0));
   });
 
-  it("closes a dialog opened from the drawer first, and the drawer on the Back after", async () => {
+  it("closes a dialog over the page first, and takes the sidebar in on the Back after", async () => {
     const user = userEvent.setup();
     const shell = mountShell({ id: 7, name: "Mrauky" });
     await user.click(menu());
@@ -182,37 +171,35 @@ describe("Android's Back", () => {
       kind: "PlayerCard",
       command: { type: "open", payload: { playerId: 7, login: "Mrauky" } },
     });
-    // The core answers by opening the card, over the drawer.
+    // The core answers by opening the card, over the page.
     applyEvent({ kind: "PlayerCard", event: { type: "loading", payload: { login: "Mrauky" } } });
     const card = screen.getByRole("dialog", { name: "Player card: Mrauky" });
     await waitFor(() => expect(back.listeners.size).toBe(1));
 
     pressBack();
     expect(sentCommands()).toContainEqual({ kind: "PlayerCard", command: { type: "close" } });
-    expect(shell.classList).toContain("is-drawer-open");
-    expect(document.activeElement).not.toBe(menu());
+    expect(shell.classList).toContain("is-sidebar-out");
     applyEvent({ kind: "PlayerCard", event: { type: "closed" } });
     expect(card.isConnected).toBe(false);
-    expect(shell.classList).toContain("is-drawer-open");
-    // Still listening, for the Back that closes the drawer.
+    expect(shell.classList).toContain("is-sidebar-out");
+    // Still listening, for the Back that takes the sidebar in.
     expect(back.listeners.size).toBe(1);
 
     pressBack();
-    expect(shell.classList).not.toContain("is-drawer-open");
-    expect(document.activeElement).toBe(menu());
+    expect(shell.classList).not.toContain("is-sidebar-out");
     await waitFor(() => expect(back.listeners.size).toBe(0));
   });
 
-  it("stops listening when the drawer is closed another way", async () => {
-    const shell = mountShell();
-    await userEvent.setup().click(menu());
+  it("stops listening when the menu takes the sidebar in", async () => {
+    const user = userEvent.setup();
+    mountShell();
+    await user.click(menu());
     await waitFor(() => expect(back.listeners.size).toBe(1));
-    fireEvent.click(scrim()!);
-    expect(shell.classList).not.toContain("is-drawer-open");
+    await user.click(menu());
     await waitFor(() => expect(back.listeners.size).toBe(0));
   });
 
-  it("does not listen while the drawer is closed, so Back leaves the app", () => {
+  it("does not listen while the sidebar is in, so Back leaves the app", () => {
     mountShell();
     expect(back.listeners.size).toBe(0);
   });
@@ -226,10 +213,10 @@ describe("the shell on a desktop", () => {
     setScreen(on);
     const shell = mountShell();
     expect(shell.classList).not.toContain("is-sidebar-rail");
+    expect(shell.classList).not.toContain("is-sidebar-out");
     expect(shell.style.getPropertyValue("--sidebar-width")).not.toBe("64px");
     expect(screen.getByText("FAForever")).toBeTruthy();
     expect(screen.getByRole("separator")).toBeTruthy();
     expect(screen.queryByRole("button", { name: en["shell.sidebar.menu"] })).toBeNull();
-    expect(scrim()).toBeNull();
   });
 });

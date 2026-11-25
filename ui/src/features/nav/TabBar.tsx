@@ -66,14 +66,9 @@ export interface TabBarProps {
    * keyboard focus ring on the sidebar entry the reader had long left.
    */
   onPointerSelect?: () => void;
-  /**
-   * A place was chosen, by any means, the one already open included: the
-   * shell's drawer on a phone closes on it.
-   */
-  onSelect?: () => void;
 }
 
-export function TabBar({ onPointerSelect, onSelect }: TabBarProps) {
+export function TabBar({ onPointerSelect }: TabBarProps) {
   const mode = useAppStore((s) => s.state.auth.mode);
   // The tab on screen, which is not the selected one when the selected one is
   // not open to this session. Same projection the shell renders from.
@@ -113,7 +108,6 @@ export function TabBar({ onPointerSelect, onSelect }: TabBarProps) {
         className={id === active ? "tab tab-active" : "tab"}
         onClick={(event) => {
           select(id);
-          onSelect?.();
           // `detail` counts a pointer's clicks. A tab chosen from the
           // keyboard reports none and keeps its focus, so the sidebar can
           // still be walked entry by entry.

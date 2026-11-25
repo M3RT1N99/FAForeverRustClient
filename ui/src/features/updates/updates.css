@@ -430,19 +430,19 @@
   min-height: var(--touch-target);
 }
 
-/* The shell's drawer on a phone (`AppShell`): the notice with its label
-   again, as wide as the drawer, and as tall as the tabs above it. */
-.app-shell.is-drawer-open .update-notice {
+/* The sidebar a phone's menu slid out (`AppShell`): the notice with its
+   label again, as wide as the sidebar, and as tall as the tabs above it. */
+.app-shell.is-sidebar-out .update-notice {
   display: block;
 }
 
-.app-shell.is-drawer-open .update-notice-button {
+.app-shell.is-sidebar-out .update-notice-button {
   justify-content: flex-start;
   width: 100%;
   min-height: var(--touch-target);
   padding: 7px 9px;
 }
 
-.app-shell.is-drawer-open .update-notice-label {
+.app-shell.is-sidebar-out .update-notice-label {
   display: inline;
 }

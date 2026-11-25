@@ -624,61 +624,60 @@
 }
 
 /* Only where a pointer can hover: a touch screen keeps the hover after a tap,
-   and the open drawer's close button then sat in a grey bar. */
+   and the menu then sat in a grey bar until the next one. */
 @media (hover: hover) {
   .sidebar-menu-button:hover {
     background: var(--color-surface);
   }
 }
 
-/* The drawer: the sidebar with its labels, over the rail and the page, as
-   the web client opens its own. Every rule of the rail, by class or by the
-   narrow window's media query, is undone here. */
-.app-shell.is-drawer-open .sidebar {
-  position: fixed;
-  inset: 0 auto 0 0;
-  z-index: 30;
-  width: min(280px, 85vw);
-  padding-inline: 10px;
-  box-shadow: var(--shadow-popover);
+/* The menu slides the sidebar out with its labels, beside the page, which
+   moves over for it, and back in: the column grows and shrinks. The labels
+   are there from the first frame, so the sidebar clips what does not fit
+   yet rather than drawing it over the page. */
+:where(html[data-phone="lying-down"]) .app-shell {
+  transition: grid-template-columns var(--transition-fast);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .app-shell.is-drawer-open .sidebar {
-    animation: drawer-in 140ms ease-out;
+:where(html[data-phone="lying-down"]) .sidebar {
+  overflow-x: clip;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(html[data-phone="lying-down"]) .app-shell {
+    transition: none;
   }
 }
 
-@keyframes drawer-in {
-  from {
-    opacity: 0;
-    transform: translateX(-24px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
+/* Slid out, it is the sidebar with its labels: every rule of the rail, by
+   class or by the narrow window's media query, is undone here, the narrow
+   window's fixed column first. */
+.app-shell.is-sidebar-out {
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
 }
 
-/* The modal backdrop's black, lighter: the drawer is a step aside within
-   the page rather than a question over it. */
-.drawer-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  background: rgba(0, 0, 0, 0.5);
+/* The rail's padding, and the menu where it was in the rail, as wide as the
+   rail inside it, so the press that takes the sidebar in again finds it
+   where the one that slid it out was. */
+.app-shell.is-sidebar-out .sidebar {
+  padding-inline: 8px;
 }
 
-.app-shell.is-drawer-open .sidebar-footer {
+.app-shell.is-sidebar-out .sidebar-menu-button {
+  align-self: flex-start;
+  width: 48px;
+}
+
+.app-shell.is-sidebar-out .sidebar-footer {
   display: grid;
   gap: 9px;
 }
 
-.app-shell.is-drawer-open .profile-copy {
+.app-shell.is-sidebar-out .profile-copy {
   display: flex;
 }
 
-.app-shell.is-drawer-open .sidebar-footer .profile-avatar {
+.app-shell.is-sidebar-out .sidebar-footer .profile-avatar {
   display: grid;
 }
 

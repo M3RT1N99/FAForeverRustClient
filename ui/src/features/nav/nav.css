@@ -150,19 +150,18 @@
   min-height: var(--touch-target);
 }
 
-/* The shell's drawer on a phone (`AppShell`): the sidebar with its labels
-   over the rail, so the rail's rules above, by width or by class, are
-   undone while it is open. */
-.app-shell.is-drawer-open .tab {
+/* The sidebar a phone's menu slid out (`AppShell`): the labels again, so the
+   rail's rules above, by width or by class, are undone while it is out. */
+.app-shell.is-sidebar-out .tab {
   justify-content: flex-start;
   padding-inline: 9px;
 }
 
-.app-shell.is-drawer-open .tab span {
+.app-shell.is-sidebar-out .tab span {
   display: inline;
 }
 
-.app-shell.is-drawer-open .tab span.tab-badge {
+.app-shell.is-sidebar-out .tab span.tab-badge {
   position: static;
   display: inline-flex;
 }

@@ -283,7 +283,7 @@ describe("UpdateNotice in the rail", () => {
     expect(getComputedStyle(screen.getByRole("button", { name: "Update available" })).width).toBe("32px");
   });
 
-  it("is a 40 px square in a phone's rail, and has its label again in the drawer", () => {
+  it("is a 40 px square in a phone's rail, and has its label again in the sidebar its menu slid out", () => {
     setScreen(PHONE_LYING_DOWN);
     addStylesheets("ui/src/design-system/tokens.css", "ui/src/features/updates/updates.css");
     available();
@@ -293,7 +293,7 @@ describe("UpdateNotice in the rail", () => {
     expect(button().minHeight).toBe("40px");
     expect(getComputedStyle(label()).display).toBe("none");
     view.unmount();
-    render(<div className="app-shell is-drawer-open"><UpdateNotice /></div>);
+    render(<div className="app-shell is-sidebar-out"><UpdateNotice /></div>);
     expect(button().width).toBe("100%");
     expect(getComputedStyle(label()).display).toBe("inline");
   });

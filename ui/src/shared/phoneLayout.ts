@@ -1,11 +1,11 @@
 // The layout for a finger and for a phone lying down, where a stylesheet
 // cannot tell them alone.
 //
-// A phone lying down is a short window: about 785 x 340 CSS px on the S22
-// Ultra and 866 x 364 on the test emulator, drawn at 100 %
+// A phone lying down is a short window: about 749 x 354 CSS px on the S22
+// Ultra in HD+ and 866 x 364 on the test emulator, drawn at 100 %
 // (`shared/androidLayout`). Its controls are a finger's size, and the page has
-// rules of its own for a window that short, such as a menu that opens the
-// sidebar as a drawer and a search folded to one row.
+// rules of its own for a window that short, such as a menu that slides the
+// sidebar out and a search folded to one row.
 //
 // Neither is asked of the pointer. Chromium on Android reports `pointer: fine`
 // as soon as a stylus, a mouse or a touchpad is there, and the S22 Ultra's S
