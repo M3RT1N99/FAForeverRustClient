@@ -1,8 +1,11 @@
 // @vitest-environment happy-dom
 //
-// The page's viewport on Android, and the line the client log gets for it:
-// each new layout once, with the screen, the webview, the font size and the
-// text zoom MainActivity handed over, and the layout chosen.
+// The page's viewport on Android, at the system's font sizes 1.0, 1.15 and
+// 1.3: laid out at the webview's own size and drawn at 100 % whatever the font
+// size, which grows the text alone through the webview's text zoom
+// (MainActivity), as Chrome grows a page's text. The interface scale zooms
+// the whole page. The client log hears of each new layout once, with the
+// font size and the text zoom it was drawn with.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyAndroidLayout, resetAndroidLayoutForTests } from "./androidViewport";
@@ -16,6 +19,9 @@ const WEBVIEW = { width: 749, height: 354 };
 
 const handedOver = window as unknown as Record<string, unknown>;
 let viewport: HTMLMetaElement;
+
+const drawnAt = (width: number, scale: string) =>
+  `width=${width}, initial-scale=${scale}, minimum-scale=${scale}, maximum-scale=${scale}`;
 
 beforeEach(() => {
   viewport = document.createElement("meta");
@@ -38,30 +44,41 @@ afterEach(() => {
   delete handedOver.fafAndroidTextZoom;
 });
 
-describe("the line the client log gets for the page's layout on Android", () => {
-  it("names the webview, the font size, the text zoom, the interface scale and the layout chosen", () => {
-    handedOver.fafAndroidFontScale = 1.15;
-    handedOver.fafAndroidTextZoom = 100;
+describe("the page's viewport on Android", () => {
+  it.each([
+    [1, 100],
+    [1.15, 115],
+    [1.3, 130],
+  ])("is the webview's own size at 100 % at the system's font size %s, which grows the text alone", (font, zoom) => {
+    handedOver.fafAndroidFontScale = font;
+    handedOver.fafAndroidTextZoom = zoom;
     applyAndroidLayout(100);
-    const width = Math.round(WEBVIEW.width / 1.15);
-    expect(viewport.content).toContain(`width=${width},`);
+    expect(viewport.content).toBe(drawnAt(WEBVIEW.width, "1.0000"));
     expect(report).toHaveBeenCalledOnce();
     expect(report).toHaveBeenCalledWith(
       expect.objectContaining({
         webviewWidth: WEBVIEW.width,
         webviewHeight: WEBVIEW.height,
         devicePixelRatio: window.devicePixelRatio,
-        fontScale: 1.15,
-        textZoom: 100,
+        fontScale: font,
+        textZoom: zoom,
         interfaceScale: 100,
-        layoutWidth: width,
-        layoutScale: WEBVIEW.width / width,
+        layoutWidth: WEBVIEW.width,
+        layoutScale: 1,
         phone: true,
       }),
     );
   });
 
-  it("is written once for a layout, not again for the same one", () => {
+  it("zooms the whole page with the interface scale, and not with the font size", () => {
+    handedOver.fafAndroidFontScale = 1.3;
+    handedOver.fafAndroidTextZoom = 130;
+    applyAndroidLayout(125);
+    expect(viewport.content).toBe(drawnAt(599, (WEBVIEW.width / 599).toFixed(4)));
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({ interfaceScale: 125, layoutWidth: 599 }));
+  });
+
+  it("tells the log of a layout once, not again for the same one", () => {
     applyAndroidLayout(100);
     applyAndroidLayout(100);
     expect(report).toHaveBeenCalledOnce();

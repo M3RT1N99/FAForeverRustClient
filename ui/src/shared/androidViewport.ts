@@ -37,10 +37,9 @@ function webviewSize(): Size {
 
 /**
  * What MainActivity handed over before the page loaded: the system's font
- * scale (1 at the default size), which the page is drawn larger with, and
- * the webview's text zoom, in percent. Either is null where it was not handed
- * over, as on a webview too old for a document-start script; the layout then
- * takes the default size.
+ * scale (1 at the default size) and the webview's text zoom it set from it,
+ * in percent. Either is null where it was not handed over, as on a webview
+ * too old for a document-start script.
  */
 function handedOver(name: "fafAndroidFontScale" | "fafAndroidTextZoom"): number | null {
   const value: unknown = (window as unknown as Record<string, unknown>)[name];
@@ -49,14 +48,14 @@ function handedOver(name: "fafAndroidFontScale" | "fafAndroidTextZoom"): number 
 
 /**
  * Lay the page out for the webview as it is now, at the player's interface
- * scale (100 for 100 %), and log the layout when it is a new one. Set only
- * when it changes: a new width resizes the page, and that resize comes back
- * here and leaves it as it is.
+ * scale (100 for 100 %), and log the layout when it is a new one. The scale
+ * is held (its minimum and maximum), as the webview fits a page to its width
+ * only when it loads. Set only when it changes: a new width resizes the page,
+ * and that resize comes back here and leaves it as it is.
  */
 export function applyAndroidLayout(interfaceScale: number): void {
   const webview = webviewSize();
-  const fontScale = handedOver("fafAndroidFontScale");
-  const layout = androidLayout(webview, interfaceScale, fontScale ?? 1);
+  const layout = androidLayout(webview, interfaceScale);
   const drawn = layout.scale.toFixed(4);
   const content = `width=${layout.width}, initial-scale=${drawn}, minimum-scale=${drawn}, maximum-scale=${drawn}`;
   const viewport = document.querySelector('meta[name="viewport"]');
@@ -70,7 +69,7 @@ export function applyAndroidLayout(interfaceScale: number): void {
     webviewHeight: webview.height,
     innerWidth: window.innerWidth,
     innerHeight: window.innerHeight,
-    fontScale,
+    fontScale: handedOver("fafAndroidFontScale"),
     textZoom: handedOver("fafAndroidTextZoom"),
     interfaceScale,
     layoutWidth: layout.width,

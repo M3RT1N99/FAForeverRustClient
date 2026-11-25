@@ -5,10 +5,13 @@
 // and draws it at the scale the viewport names, so those two set how large
 // everything is drawn.
 //
-// A phone lying down is drawn at 100 %, as the phone's own apps and FAF's web
-// client are, times the system's font size and the player's interface scale:
-// at the default font one CSS px is one dp, and the body's 14 px is 14 dp.
-// That is a short window, and the stylesheets have rules of their own for it
+// A phone lying down is drawn at 100 %, as Chrome draws FAF's web client and
+// the phone draws its own apps: one CSS px is one dp, and the body's 14 px is
+// 14 dp. The system's font size does not change that. It grows the text
+// alone, as it does in Chrome, through the webview's own text zoom
+// (MainActivity, up to a cap), and the layout keeps its size around it. The
+// player's interface scale is a zoom of the whole page, on top. That is a
+// short window, and the stylesheets have rules of their own for it
 // (`shared/phoneLayout`), as they have for a narrow desktop window.
 //
 // Any other window, which those rules do not cover yet (a phone upright, a
@@ -20,8 +23,7 @@
 // page out at its own size, at 100 %, and one wider than MAX_LAYOUT_WIDTH
 // draws that layout larger. Never below MIN_DRAW_SCALE: a screen too small for
 // the smallest window at that scale lays the page out narrower instead. The
-// system's font size scales the page as far as it still fits, never past it,
-// and the player's interface scale comes on top, and may go past it.
+// player's interface scale comes on top, and may go past the fit.
 
 import { liesDownAsAPhone } from "./phoneLayout";
 
@@ -62,15 +64,15 @@ export interface AndroidLayout {
 
 /**
  * The layout for a webview `webview` CSS px large at the player's interface
- * scale (100 for 100 %) and the system's font scale (1 at the default size).
- * The width is whole pixels, and the scale the one that fills the webview with
- * it exactly.
+ * scale (100 for 100 %). The width is whole pixels, and the scale the one that
+ * fills the webview with it exactly. The system's font size is not asked: it
+ * grows the text, not the layout.
  */
-export function androidLayout(webview: Size, interfaceScale: number, fontScale: number): AndroidLayout {
-  const full = layoutAt(webview, fontScale, interfaceScale);
+export function androidLayout(webview: Size, interfaceScale: number): AndroidLayout {
+  const full = layoutAt(webview, 1, interfaceScale);
   if (liesDownAsAPhone({ width: full.width, height: webview.height / full.scale })) return { ...full, phone: true };
   const fits = Math.min(webview.width / MIN_LAYOUT_WIDTH, webview.height / MIN_LAYOUT_HEIGHT);
-  const preferred = fontScale * Math.max(1, webview.width / MAX_LAYOUT_WIDTH);
+  const preferred = Math.max(1, webview.width / MAX_LAYOUT_WIDTH);
   const fitted = layoutAt(webview, Math.max(MIN_DRAW_SCALE, Math.min(preferred, fits)), interfaceScale);
   return { ...fitted, phone: false };
 }

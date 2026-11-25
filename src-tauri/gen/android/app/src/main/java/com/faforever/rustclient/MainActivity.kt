@@ -13,6 +13,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import kotlin.math.roundToInt
 
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,26 +47,29 @@ class MainActivity : TauriActivity() {
   }
 
   // The page is laid out at the width its viewport names and drawn at the
-  // scale it names, which App.tsx sets from the webview's own size
-  // (shared/androidLayout): drawn at 100 % times the font size and the
-  // interface scale, and laid out at the width that leaves.
+  // scale it names, which the page sets from the webview's own size
+  // (ui/src/shared/androidLayout): at 100 % times the interface scale,
+  // whatever the font size.
   //
-  // The webview's own text zoom follows the system's font size and grows the
-  // text alone, so at a larger font a label outgrew the box the layout keeps
-  // for it and was cut off. The page is handed the font size instead and
-  // draws all of itself larger with it; the text zoom goes along for the
-  // line the client log gets for the page's layout. The font size is read
-  // here once: a new one recreates the activity, and with it this webview.
+  // The system's font size grows the text alone, as Chrome grows a page's
+  // text with it: through the webview's own text zoom, while the layout keeps
+  // its size. Up to MAX_TEXT_SCALE, past which labels outgrow the boxes the
+  // layout keeps for them; a smaller font is followed all the way down. The
+  // font size and the zoom made of it are handed to the page before it loads,
+  // for the line the client log gets for its layout (a document-start
+  // script). The font size is read here once: a new one recreates the
+  // activity, and with it this webview.
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
     webView.settings.useWideViewPort = true
     webView.settings.loadWithOverviewMode = true
-    webView.settings.textZoom = 100
+    val fontScale = resources.configuration.fontScale
+    val textZoom = textZoomFor(fontScale)
+    webView.settings.textZoom = textZoom
     if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-      val fontScale = resources.configuration.fontScale
       WebViewCompat.addDocumentStartJavaScript(
         webView,
-        "window.fafAndroidFontScale = $fontScale; window.fafAndroidTextZoom = ${webView.settings.textZoom};",
+        "window.fafAndroidFontScale = $fontScale; window.fafAndroidTextZoom = $textZoom;",
         setOf("*"),
       )
     }
@@ -99,4 +103,16 @@ class MainActivity : TauriActivity() {
   }
 
   private external fun rendererGone(crashed: Boolean, priorityAtExit: Int): Boolean
+
+  companion object {
+    /**
+     * The most the system's font size grows the page's text. At 1.3 the shell's
+     * and Replays' labels still fit their boxes on a phone lying down (checked
+     * on the emulator at 1.0, 1.15 and 1.3); a larger font size is held there.
+     */
+    private const val MAX_TEXT_SCALE = 1.3f
+
+    /** The webview's text zoom, in percent, for the system's font scale. */
+    private fun textZoomFor(fontScale: Float): Int = (minOf(fontScale, MAX_TEXT_SCALE) * 100).roundToInt()
+  }
 }

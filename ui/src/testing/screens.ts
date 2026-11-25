@@ -27,8 +27,12 @@ export interface Screen {
   pointer: "coarse" | "fine";
 }
 
-/** The S22 Ultra's webview lying down at the default font, as the A2 proposal estimates it. */
-export const PHONE_LYING_DOWN: Screen = { width: 785, height: 340, android: true, pointer: "coarse" };
+/**
+ * The S22 Ultra's webview lying down in HD+ (1544 x 720 at 300 dpi), less the
+ * camera's cutout, the status bar and the navigation bar, as measured on the
+ * tester's screenshots.
+ */
+export const PHONE_LYING_DOWN: Screen = { width: 749, height: 354, android: true, pointer: "coarse" };
 /** The same phone with its S Pen, whose Chromium reports a fine pointer. */
 export const PHONE_WITH_A_PEN: Screen = { ...PHONE_LYING_DOWN, pointer: "fine" };
 /** The same window with a mouse: a desktop window this short at a large interface scale. */
