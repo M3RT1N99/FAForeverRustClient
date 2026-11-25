@@ -248,7 +248,7 @@ impl GitHubUpdates {
     /// next [`ClientUpdatePort::release_notes`].
     fn remember_notes(&self, releases: &[Value]) -> Vec<ClientReleaseNotes> {
         let issue_base = format!("https://github.com/{}/issues", self.config.repo);
-        let notes = release_notes_from(releases, &issue_base);
+        let notes = release_notes_from(releases, &issue_base, cfg!(target_os = "android"));
         *self.notes.lock().unwrap_or_else(PoisonError::into_inner) = Some(notes.clone());
         notes
     }
@@ -697,7 +697,8 @@ fn pick_release(
 
 /// Whether a release is one of this app's at all. The desktop releases share
 /// the repository, and the Android app takes only an APK: a release without
-/// one is not an update for a phone, which was told of each desktop version
+/// one is not a phone's update, nor a version in its release notes or in the
+/// count of how far behind it is. The phone was told of each desktop version
 /// although it could never install it.
 fn for_this_app(android: bool, assets: Option<&Value>) -> bool {
     !android
@@ -723,14 +724,22 @@ fn is_draft(release: &Value) -> bool {
 /// first.
 ///
 /// The releases [`pick_release`] would consider, without the channel: a draft
-/// is unpublished, and a tag that is not a version names nothing the client
-/// could have run. Ordered by version as the update check orders them, not as
+/// is unpublished, a tag that is not a version names nothing the client could
+/// have run, and on Android a release without an APK is a desktop one
+/// ([`for_this_app`]). These notes are also what counts how far behind the
+/// running build is, so a phone is never counted behind a release it could
+/// not take. Ordered by version as the update check orders them, not as
 /// GitHub lists them, which is by creation. `issue_base` is where a `(#123)` in
-/// a body links to; see [`parse_release_notes`].
-fn release_notes_from(releases: &[Value], issue_base: &str) -> Vec<ClientReleaseNotes> {
+/// a body links to; see [`parse_release_notes`]. `android` is the platform, as
+/// for [`pick_release`].
+fn release_notes_from(
+    releases: &[Value],
+    issue_base: &str,
+    android: bool,
+) -> Vec<ClientReleaseNotes> {
     let mut notes: Vec<ClientReleaseNotes> = releases
         .iter()
-        .filter(|release| !is_draft(release))
+        .filter(|release| !is_draft(release) && for_this_app(android, release.get("assets")))
         .filter_map(|release| {
             let tag = release.get("tag_name").and_then(Value::as_str)?;
             if !is_release_version(tag) {
@@ -951,12 +960,15 @@ impl ClientUpdatePort for FakeClientUpdates {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_phone_is_offered_only_a_release_that_carries_an_apk() {
-        let release = |tag: &str, assets: serde_json::Value| {
+    /// A desktop-only 1.0.2, published as required, after a 1.0.1 that carries
+    /// the APK.
+    fn a_desktop_release_after_a_phone_one() -> Vec<Value> {
+        use faf_domain::protocol::changelog::REQUIRED_UPDATE_LINE;
+        let release = |tag: &str, body: &str, assets: Value| {
             serde_json::json!({
                 "tag_name": tag, "prerelease": false, "draft": false,
                 "html_url": format!("https://example.invalid/{tag}"),
+                "body": body,
                 "assets": assets,
             })
         };
@@ -970,7 +982,15 @@ mod tests {
             "browser_download_url": "https://example.invalid/client.apk",
             "size": 1,
         }]);
-        let releases = vec![release("v1.0.2", desktop), release("v1.0.1", with_apk)];
+        vec![
+            release("v1.0.2", REQUIRED_UPDATE_LINE, desktop),
+            release("v1.0.1", "", with_apk),
+        ]
+    }
+
+    #[test]
+    fn a_phone_is_offered_only_a_release_that_carries_an_apk() {
+        let releases = a_desktop_release_after_a_phone_one();
 
         let phone = pick_release(&releases, ReleaseChannel::Stable, true).expect("the APK's");
         assert_eq!(
@@ -987,6 +1007,39 @@ mod tests {
             Some("1.0.2".to_string()),
             "the desktop still takes the newest"
         );
+    }
+
+    #[test]
+    fn a_phone_s_release_notes_and_counts_leave_out_a_desktop_release() {
+        use faf_domain::state::client_update::{behind_a_required_release, releases_behind};
+        let releases = a_desktop_release_after_a_phone_one();
+        let versions = |notes: &[ClientReleaseNotes]| {
+            notes.iter().map(|n| n.version.clone()).collect::<Vec<_>>()
+        };
+
+        let phone = release_notes_from(&releases, "https://example.invalid/issues", true);
+        assert_eq!(
+            versions(&phone),
+            ["1.0.1"],
+            "the Changelog lists, and opens on, the phone's own newest"
+        );
+        assert_eq!(releases_behind("1.0.1", &phone, ReleaseChannel::Stable), 0);
+        assert!(
+            !behind_a_required_release("1.0.1", &phone, ReleaseChannel::Stable),
+            "a required desktop release does not hold a phone"
+        );
+
+        let desktop = release_notes_from(&releases, "https://example.invalid/issues", false);
+        assert_eq!(versions(&desktop), ["1.0.2", "1.0.1"]);
+        assert_eq!(
+            releases_behind("1.0.1", &desktop, ReleaseChannel::Stable),
+            1
+        );
+        assert!(behind_a_required_release(
+            "1.0.1",
+            &desktop,
+            ReleaseChannel::Stable
+        ));
     }
 
     /// A release whose asset name ends in whatever this platform accepts, so
@@ -1126,7 +1179,7 @@ mod tests {
         bare["body"] = Value::Null;
         let releases = vec![bare, release_json("nightly", false, true), draft, newest];
 
-        let notes = release_notes_from(&releases, "https://github.com/Org/Repo/issues");
+        let notes = release_notes_from(&releases, "https://github.com/Org/Repo/issues", false);
 
         let versions: Vec<&str> = notes.iter().map(|n| n.version.as_str()).collect();
         assert_eq!(versions, ["0.10.0", "0.9.0"], "by version, not list order");
@@ -1167,6 +1220,7 @@ mod tests {
         let notes = release_notes_from(
             &[required, release_json("v0.9.0", false, true)],
             "https://github.com/Org/Repo/issues",
+            false,
         );
         assert!(notes[0].required);
         assert!(!notes[1].required);
