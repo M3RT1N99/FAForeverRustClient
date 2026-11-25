@@ -2,6 +2,7 @@
 // Feature code stays unaware of Tauri packages, which keeps it browser-testable
 // and gives architecture checks one explicit native boundary to enforce.
 
+import { onBackButtonPress } from "@tauri-apps/api/app";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -404,6 +405,16 @@ export const native = {
    */
   onRequestExitConfirm(handler: () => void): Promise<() => void> {
     return listen("app://request-exit-confirm", () => handler());
+  },
+
+  /**
+   * Android's Back, for the page. While a handler is registered, Tauri's app
+   * plugin hands Back to it instead of going back in the webview's history or
+   * leaving the app. Resolves to what unregisters it.
+   */
+  async onBackButton(handler: () => void): Promise<() => void> {
+    const listener = await onBackButtonPress(() => handler());
+    return () => void listener.unregister();
   },
 
   /**

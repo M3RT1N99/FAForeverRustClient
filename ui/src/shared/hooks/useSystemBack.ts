@@ -1,25 +1,24 @@
 // Android's Back for a layer open on the page, such as the shell's drawer.
 //
-// wry answers Back by going back in the webview's history while it can, and
-// by handing it to Android, which leaves the app, once it cannot. So while a
-// layer is open it holds one history entry of its own: Back takes that entry
-// off, and the page does what Escape does instead of leaving (`overlayStack`).
-// It closes the layer on top, which is this one, or one opened over it, such
-// as a dialog opened from the drawer. Then this layer stays open and holds an
-// entry again, for the Back that closes it in turn. Closed any other way (a
-// tap beside it, Escape, a choice made in it), it takes its entry off itself,
-// so the next Back leaves the app as before.
+// Tauri's app plugin answers Back by going back in the webview's history
+// while it can, and by leaving the app once it cannot, unless the page listens
+// for Back itself (`native.onBackButton`). So while a layer is open the page
+// listens, and Back does what Escape does (`overlayStack`): it closes the
+// layer on top, which is this one, or one opened over it, such as a dialog
+// opened from the drawer. The page keeps listening until this layer has
+// closed, however that happens, and the next Back leaves the app as before.
 //
-// Android only. A desktop webview has no Back of this kind; its mouse's back
-// button would go through the same history.
+// Not through the history, as this was first written: an entry the page adds
+// for Back is one Chromium's Back skips when the page added it without a
+// user's tap, which an entry added again after a Back is. On the emulator the
+// second Back then left the app with the drawer open.
+//
+// Android only. A desktop webview has no Back of this kind.
 
 import { useEffect } from "react";
 import { overlayStack, type OverlayLayer } from "../../design-system/overlayStack";
+import { native } from "../../ipc/native";
 import { runsOnAndroid } from "../platform";
-
-/** Marks the history entries this hook adds, apart from any other state. */
-const STATE_KEY = "fafSystemBack";
-let entries = 0;
 
 /**
  * While `open`, Android's Back closes the topmost layer of the overlay stack,
@@ -29,25 +28,20 @@ let entries = 0;
 export function useSystemBack(open: boolean, layer: OverlayLayer): void {
   useEffect(() => {
     if (!open || !runsOnAndroid()) return undefined;
-    entries += 1;
-    const entry = entries;
-    const hold = () => window.history.pushState({ [STATE_KEY]: entry }, "");
-    hold();
-    const ours = () => (window.history.state as Record<string, unknown> | null)?.[STATE_KEY] === entry;
-    let taken = false;
-    // Our entry is gone from the top: Back took it. A popstate that leaves it
-    // on top belongs to an entry pushed after ours.
-    const popped = () => {
-      if (ours()) return;
-      const top = overlayStack.top() ?? layer;
-      if (top === layer) taken = true;
-      else hold();
-      top.onEscape();
-    };
-    window.addEventListener("popstate", popped);
+    // A Back already on its way when the layer closed finds nothing to do.
+    let listening = true;
+    const stop = native
+      .onBackButton(() => {
+        if (listening) (overlayStack.top() ?? layer).onEscape();
+      })
+      .catch((error: unknown) => {
+        // Back then leaves the app, as it did before the page listened.
+        console.warn("Back cannot close the layer on top: no listener", error);
+        return () => {};
+      });
     return () => {
-      window.removeEventListener("popstate", popped);
-      if (!taken && ours()) window.history.back();
+      listening = false;
+      void stop.then((unlisten) => unlisten());
     };
   }, [open, layer]);
 }

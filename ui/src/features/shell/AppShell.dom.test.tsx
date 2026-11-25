@@ -2,12 +2,13 @@
 //
 // The shell on a phone lying down: the rail with a menu in the brand's
 // place, the drawer that menu opens, and the ways it closes (a tap beside
-// it, Escape, a place chosen in it, and Android's Back), with the focus
-// going into it and coming back out. A phone with a pen, which reports a fine
-// pointer, has them too. A desktop window of the same size, with a mouse or a
-// touch screen, keeps the shell it had.
+// it, Escape, a place chosen in it, and Android's Back, which closes a
+// dialog opened from it first), with the focus going into it and coming back
+// out. A phone with a pen, which reports a fine pointer, has them too. A
+// desktop window of the same size, with a mouse or a touch screen, keeps the
+// shell it had.
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { en } from "../../i18n/catalog/en";
@@ -17,6 +18,17 @@ import { PHONE_LYING_DOWN, PHONE_WITH_A_PEN, setScreen, SHORT_DESKTOP, SHORT_TOU
 import { AppShell } from "./AppShell";
 
 vi.mock("../../ipc/client");
+// Android's Back as Tauri's app plugin hands it to the page: to the listeners
+// registered at the time, and to nobody once they are gone.
+const back = vi.hoisted(() => ({ listeners: new Set<() => void>() }));
+vi.mock("../../ipc/native", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../ipc/native")>();
+  const onBackButton = (handler: () => void) => {
+    back.listeners.add(handler);
+    return Promise.resolve(() => void back.listeners.delete(handler));
+  };
+  return { ...actual, native: { ...actual.native, onBackButton } };
+});
 // The tabs' own views are not what is tested here, and each one loads on
 // demand: the shell is drawn with an empty page in their place.
 vi.mock("../nav/tabs", async (importOriginal) => {
@@ -44,6 +56,8 @@ function mountShell(player: { id: number; name: string } | null = null) {
   return document.querySelector<HTMLElement>(".app-shell")!;
 }
 
+/** Android's Back, pressed once. */
+const pressBack = () => act(() => back.listeners.forEach((listener) => listener()));
 const menu = () => screen.getByRole("button", { name: en["shell.sidebar.menu"] });
 const tab = (name: string) => screen.getByRole("button", { name });
 const scrim = () => document.querySelector<HTMLElement>(".drawer-scrim");
@@ -145,19 +159,18 @@ describe("the shell on a phone lying down", () => {
   });
 });
 
-/** The shell's own entry on top of the history, while the drawer holds one. */
-const entry = () => (window.history.state as Record<string, unknown> | null)?.fafSystemBack;
-
 describe("Android's Back", () => {
   beforeEach(() => setScreen(PHONE_LYING_DOWN));
 
   it("closes the open drawer instead of leaving the app", async () => {
     const shell = mountShell();
     await userEvent.setup().click(menu());
-    expect(entry()).toBeDefined();
-    window.history.back();
-    await waitFor(() => expect(shell.classList).not.toContain("is-drawer-open"));
+    await waitFor(() => expect(back.listeners.size).toBe(1));
+    pressBack();
+    expect(shell.classList).not.toContain("is-drawer-open");
     expect(document.activeElement).toBe(menu());
+    // Closed, it lets the next Back leave the app.
+    await waitFor(() => expect(back.listeners.size).toBe(0));
   });
 
   it("closes a dialog opened from the drawer first, and the drawer on the Back after", async () => {
@@ -172,35 +185,36 @@ describe("Android's Back", () => {
     // The core answers by opening the card, over the drawer.
     applyEvent({ kind: "PlayerCard", event: { type: "loading", payload: { login: "Mrauky" } } });
     const card = screen.getByRole("dialog", { name: "Player card: Mrauky" });
+    await waitFor(() => expect(back.listeners.size).toBe(1));
 
-    window.history.back();
+    pressBack();
     expect(sentCommands()).toContainEqual({ kind: "PlayerCard", command: { type: "close" } });
     expect(shell.classList).toContain("is-drawer-open");
     expect(document.activeElement).not.toBe(menu());
-    // The drawer holds its Back again.
-    expect(entry()).toBeDefined();
     applyEvent({ kind: "PlayerCard", event: { type: "closed" } });
     expect(card.isConnected).toBe(false);
     expect(shell.classList).toContain("is-drawer-open");
+    // Still listening, for the Back that closes the drawer.
+    expect(back.listeners.size).toBe(1);
 
-    window.history.back();
-    await waitFor(() => expect(shell.classList).not.toContain("is-drawer-open"));
+    pressBack();
+    expect(shell.classList).not.toContain("is-drawer-open");
     expect(document.activeElement).toBe(menu());
+    await waitFor(() => expect(back.listeners.size).toBe(0));
   });
 
-  it("takes its history entry back off when the drawer is closed another way", async () => {
+  it("stops listening when the drawer is closed another way", async () => {
     const shell = mountShell();
     await userEvent.setup().click(menu());
-    expect(entry()).toBeDefined();
+    await waitFor(() => expect(back.listeners.size).toBe(1));
     fireEvent.click(scrim()!);
     expect(shell.classList).not.toContain("is-drawer-open");
-    await waitFor(() => expect(entry()).toBeUndefined());
+    await waitFor(() => expect(back.listeners.size).toBe(0));
   });
 
-  it("adds no history entry while the drawer is closed", () => {
-    const before = window.history.length;
+  it("does not listen while the drawer is closed, so Back leaves the app", () => {
     mountShell();
-    expect(window.history.length).toBe(before);
+    expect(back.listeners.size).toBe(0);
   });
 });
 
