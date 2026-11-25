@@ -124,6 +124,8 @@ describe.each([
       expect(toggle()).toBe(pressed);
       expect(row.contains(pressed)).toBe(true);
       expect(document.activeElement).toBe(pressed);
+      // At the row's end, where the finger found it folded.
+      expect(getComputedStyle(pressed).marginLeft).toBe("auto");
     }
   });
 

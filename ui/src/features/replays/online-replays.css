@@ -153,9 +153,15 @@
   margin-top: 0;
 }
 
-/* Unfolded on a phone, the toggle stays in the top row beside Search, where
-   the press that opened it was (VaultSearch): a third column, and down by a
-   label's height as Search is. */
+/* Unfolded on a phone, the toggle stays in the top row beside Search, at its
+   right end where the press that opened it was (VaultSearch,
+   LocalReplaySearch). The local search's row wraps, and the toggle ends
+   whichever line it lands on. The vault's row is a grid: a third column, and
+   down by a label's height as Search is. */
+:where(html[data-phone="lying-down"]) .search-panel-primary > .search-panel-toggle {
+  margin-left: auto;
+}
+
 :where(html[data-phone="lying-down"]) .search-panel-primary.online-search-top {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
