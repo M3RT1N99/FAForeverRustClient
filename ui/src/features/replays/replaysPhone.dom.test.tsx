@@ -112,6 +112,21 @@ describe.each([
     expect(map()).toBeNull();
   });
 
+  it("keeps the toggle, and the focus on it, beside Search through each press", async () => {
+    on(PHONE_LYING_DOWN);
+    const user = userEvent.setup();
+    const form = mount();
+    const row = form.querySelector<HTMLElement>(".vault-search-primary")!;
+    const pressed = toggle();
+    for (const expanded of ["true", "false", "true"]) {
+      await user.click(toggle());
+      expect(toggle().getAttribute("aria-expanded")).toBe(expanded);
+      expect(toggle()).toBe(pressed);
+      expect(row.contains(pressed)).toBe(true);
+      expect(document.activeElement).toBe(pressed);
+    }
+  });
+
   it("keeps every row for a mouse in a desktop window as short", () => {
     on(SHORT_DESKTOP);
     const form = mount();
@@ -120,6 +135,16 @@ describe.each([
     expect(newest()).not.toBeNull();
     expect(toggle().closest(".vault-search-presets")).not.toBeNull();
   });
+});
+
+it("gives the vault's toggle a column of its own beside Search, unfolded on a phone", async () => {
+  on(PHONE_LYING_DOWN);
+  const form = mountVaultSearch();
+  await userEvent.setup().click(toggle());
+  const row = form.querySelector<HTMLElement>(".online-search-top")!;
+  expect(getComputedStyle(row).gridTemplateColumns).toBe("minmax(0, 1fr) auto auto");
+  // Down by a label's height, in line with Search and the fields.
+  expect(getComputedStyle(toggle()).marginTop).toBe("20px");
 });
 
 const replay = (uid: number, title: string): VaultReplay => ({

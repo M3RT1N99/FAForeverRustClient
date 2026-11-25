@@ -153,6 +153,17 @@
   margin-top: 0;
 }
 
+/* Unfolded on a phone, the toggle stays in the top row beside Search, where
+   the press that opened it was (VaultSearch): a third column, and down by a
+   label's height as Search is. */
+:where(html[data-phone="lying-down"]) .search-panel-primary.online-search-top {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+:where(html[data-phone="lying-down"]) .search-panel:not(.is-folded) .online-search-top > .search-panel-toggle {
+  margin-top: 20px;
+}
+
 /* Beside the field, not stretched over the room a narrow window's rule gives
    it (search-panel.css). */
 .search-panel.is-folded .search-panel-submit {

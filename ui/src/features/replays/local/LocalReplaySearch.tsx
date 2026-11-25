@@ -79,8 +79,10 @@ export function LocalReplaySearch({
   // phone: the player field, Search and More filters in one row, and the
   // rest behind More filters, which opens all of it at once. Unfolded, the
   // filters filled the 340 px a phone has lying down before the first
-  // replay.
-  const folded = usePhoneLayout() && !advanced;
+  // replay. The toggle stays beside Search, open or folded, so the button
+  // a press moved to another row never takes the focus with it.
+  const phone = usePhoneLayout();
+  const folded = phone && !advanced;
 
   const replayNotes = useAppStore((state) => state.state.settings.social.replayNotes);
   const searchPresets = useAppStore((state) => state.state.settings.browsing.searchPresets);
@@ -266,7 +268,7 @@ export function LocalReplaySearch({
         <Button type="submit" variant="primary" className="vault-search-submit search-panel-submit">
           <Icon name="search" size={15} /> {t("replays.search.submit")}
         </Button>
-        {folded && toggle}
+        {phone && toggle}
       </div>
 
       {!folded && (
@@ -325,7 +327,7 @@ export function LocalReplaySearch({
             {t("replays.search.hideShort")}
           </label>
           <span className="spacer" />
-          {toggle}
+          {!phone && toggle}
           <Button type="button" onClick={() => apply(EMPTY_LOCAL_REPLAY_QUERY)}>{t("replays.search.clear")}</Button>
           <Button type="button" disabled={loading} onClick={onRefresh}><Icon name="refresh" size={15} /> {t("replays.search.refresh")}</Button>
           {filesCanBePicked() && (

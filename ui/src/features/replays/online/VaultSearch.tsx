@@ -124,8 +124,11 @@ export function VaultSearch({ featuredMods, leaderboards, self, friends, initial
   // phone: the player field, Search and More filters in one row, and the
   // rest behind More filters, which opens all of it at once. Unfolded, the
   // fields, the sliders and the presets filled the 340 px a phone has lying
-  // down several times over before the first replay.
-  const folded = usePhoneLayout() && !advanced;
+  // down several times over before the first replay. The toggle stays beside
+  // Search, open or folded, so the button a press moved to another row never
+  // takes the focus with it.
+  const phone = usePhoneLayout();
+  const folded = phone && !advanced;
   // Reflects the date bound already in the query, so the button matches what is
   // actually being searched rather than a separate opinion about it. An empty
   // `after` is *no* bound, not a recent one: "All replays" leaves it empty and
@@ -401,7 +404,7 @@ export function VaultSearch({ featuredMods, leaderboards, self, friends, initial
         <Button type="submit" variant="primary" className="vault-search-submit search-panel-submit">
           <Icon name="search" size={15} /> {t("replays.search.submit")}
         </Button>
-        {folded && toggle}
+        {phone && toggle}
       </div>
 
       {!folded && (<>
@@ -566,7 +569,7 @@ export function VaultSearch({ featuredMods, leaderboards, self, friends, initial
             {t("replays.search.hideShort")}
           </label>
           <span className="spacer" />
-          {toggle}
+          {!phone && toggle}
           <Button type="button" onClick={reset}>
             {t("replays.search.clear")}
           </Button>
