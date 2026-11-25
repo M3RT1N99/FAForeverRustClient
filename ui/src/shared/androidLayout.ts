@@ -5,15 +5,44 @@
 // and draws it at the scale the viewport names, so those two set how large
 // everything is drawn.
 //
-// The page is drawn at 100 %, as the phone's own apps and FAF's web client
-// are, times the system's font size and the player's interface scale: at the
-// default font one CSS px is one dp, and the body's 14 px is 14 dp. It used to
-// be drawn smaller instead, until the desktop's smallest window (680 x 480)
-// fit, and a phone lying down drew it at 0.76: body text at 10.6 dp and a
-// replay card's facts at 8.3. A phone lying down is a short window, and the
-// stylesheets have rules of their own for a short window on a touch screen,
-// as they have for a narrow desktop window. A tablet lays the page out at its
-// own size, as before.
+// A phone lying down is drawn at 100 %, as the phone's own apps and FAF's web
+// client are, times the system's font size and the player's interface scale:
+// at the default font one CSS px is one dp, and the body's 14 px is 14 dp.
+// That is a short window, and the stylesheets have rules of their own for it
+// (`shared/phoneLayout`), as they have for a narrow desktop window.
+//
+// Any other window, which those rules do not cover yet (a phone upright, a
+// split-screen pane, a pop-up window, a tablet), keeps the fit it had: the
+// makers' layout is made for a desktop window, which is never smaller than
+// 560 x 480 CSS px (src-tauri/src/window.rs), so the page is drawn at the
+// largest scale, up to 100 %, at which its layout is still at least
+// MIN_LAYOUT_WIDTH x MIN_LAYOUT_HEIGHT. A screen with room to spare lays the
+// page out at its own size, at 100 %, and one wider than MAX_LAYOUT_WIDTH
+// draws that layout larger. Never below MIN_DRAW_SCALE: a screen too small for
+// the smallest window at that scale lays the page out narrower instead. The
+// system's font size scales the page as far as it still fits, never past it,
+// and the player's interface scale comes on top, and may go past it.
+
+import { liesDownAsAPhone } from "./phoneLayout";
+
+/**
+ * The narrowest width every page fits without scrolling sideways, measured on
+ * every tab at 1100 down to 640 CSS px: the leaderboard's table is the first
+ * to stick out, below 680. The shell turns its sidebar into a rail by itself
+ * below 900.
+ */
+export const MIN_LAYOUT_WIDTH = 680;
+/** The desktop window's smallest height (`min_inner_size` in window.rs). */
+export const MIN_LAYOUT_HEIGHT = 480;
+/** The desktop's first window; a wider screen draws this layout larger. */
+export const MAX_LAYOUT_WIDTH = 1100;
+/**
+ * The smallest the page is drawn at outside a phone lying down, so that its
+ * text stays readable: three quarters, what the phone tests before the fit to
+ * the webview's width drew it at on a phone lying down (an 1100 px layout on
+ * about 830 CSS px).
+ */
+export const MIN_DRAW_SCALE = 0.75;
 
 /** A size in CSS px at 100 %. */
 export interface Size {
@@ -36,7 +65,16 @@ export interface AndroidLayout {
  * it exactly.
  */
 export function androidLayout(webview: Size, interfaceScale: number, fontScale: number): AndroidLayout {
-  const width = Math.round((webview.width * 100) / (fontScale * interfaceScale));
+  const full = layoutAt(webview, fontScale, interfaceScale);
+  if (liesDownAsAPhone({ width: full.width, height: webview.height / full.scale })) return full;
+  const fits = Math.min(webview.width / MIN_LAYOUT_WIDTH, webview.height / MIN_LAYOUT_HEIGHT);
+  const preferred = fontScale * Math.max(1, webview.width / MAX_LAYOUT_WIDTH);
+  return layoutAt(webview, Math.max(MIN_DRAW_SCALE, Math.min(preferred, fits)), interfaceScale);
+}
+
+/** The layout drawn at `scale` times the interface scale across the webview. */
+function layoutAt(webview: Size, scale: number, interfaceScale: number): AndroidLayout {
+  const width = Math.round((webview.width * 100) / (scale * interfaceScale));
   return { width, scale: webview.width / width };
 }
 
