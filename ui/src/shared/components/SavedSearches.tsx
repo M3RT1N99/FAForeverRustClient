@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../design-system/Button";
 import { Icon } from "../../design-system/Icon";
 import { useOverlayLayer } from "../../design-system/useOverlayLayer";
+import { useRevealOnOpen } from "../../design-system/useRevealOnOpen";
 import { useTranslation } from "../../i18n/useTranslation";
 import { ipc } from "../../ipc/client";
 import {
@@ -45,6 +46,7 @@ export function SavedSearches<T>({
   // button sits beside the row's apply button, and one slip lost a search.
   const [deleted, setDeleted] = useState<{ name: string; saved: string } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) setDeleted(null);
@@ -58,6 +60,7 @@ export function SavedSearches<T>({
     window.addEventListener("pointerdown", onPointerDown, true);
     return () => window.removeEventListener("pointerdown", onPointerDown, true);
   }, [open]);
+  useRevealOnOpen(popoverRef, open);
 
   useOverlayLayer(open, () => {
     setOpen(false);
@@ -148,6 +151,7 @@ export function SavedSearches<T>({
       </Button>
       {open && (
         <div
+          ref={popoverRef}
           className="multi-select-popover replay-saved-searches-popover"
           role="dialog"
           aria-label={t("replays.search.presets")}

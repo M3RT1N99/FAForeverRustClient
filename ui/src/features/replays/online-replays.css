@@ -207,6 +207,41 @@
   padding-top: var(--space-2);
 }
 
+/* A pick list opens in the tray's flow, under its trigger, and the tray's
+   own scroll carries it. Hung over the page as on a desktop, it was clipped
+   to the tray's short window: one opened near the window's foot showed
+   nothing of itself, and what could be scrolled to was a list scrolling in
+   a box that scrolled. `useRevealOnOpen` brings it into view as it opens. */
+.vault-search-tray .multi-select-popover {
+  position: static;
+  max-height: none;
+  overflow-y: visible;
+}
+
+.vault-search-tray .replay-preset-list {
+  max-height: none;
+  overflow-y: visible;
+}
+
+/* A field's neighbours stay at the top of the line while its list is open,
+   rather than dropping to the list's foot. */
+.vault-search-tray-fields:has(.multi-select-popover) {
+  align-items: flex-start;
+}
+
+/* Friends and the saved searches are buttons in the presets row, and their
+   lists take a line of the row to themselves, under the button's. Under the
+   button in its own box, a list widened the box, which then no longer fitted
+   its line and wrapped onto the next with the button, away from the finger. */
+.vault-search-tray .multi-select:is(.friend-replay-picker, .replay-saved-searches) {
+  display: contents;
+}
+
+.vault-search-tray .search-panel-secondary .multi-select-popover {
+  flex: 1 0 100%;
+  max-width: none;
+}
+
 .vault-search-rating {
   flex: 0 1 220px;
   width: 220px;

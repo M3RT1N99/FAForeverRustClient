@@ -31,6 +31,8 @@ const STYLESHEETS = [
   "ui/src/design-system/tokens.css",
   "ui/src/styles.css",
   "ui/src/design-system/search-panel.css",
+  "ui/src/design-system/multi-select.css",
+  "ui/src/design-system/saved-searches.css",
   "ui/src/design-system/modal.css",
   "ui/src/features/replays/online-replays.css",
   "ui/src/features/replays/replays.css",
@@ -123,6 +125,46 @@ describe.each([
     expect(map()).toBeNull();
   });
 
+  it("opens each pick list in the tray's flow, under its trigger, and brings it into view", async () => {
+    on(PHONE_LYING_DOWN);
+    const user = userEvent.setup();
+    const form = mount();
+    await user.click(toggle());
+    const tray = form.querySelector<HTMLElement>(".vault-search-tray")!;
+    const triggers = [...tray.querySelectorAll<HTMLButtonElement>(".multi-select > button[aria-expanded]")];
+    // The vault's game mode, game type, friends, saved searches, tags,
+    // faction and victory; the local search's own.
+    expect(triggers.length).toBeGreaterThan(1);
+    const revealed = vi.spyOn(Element.prototype, "scrollIntoView");
+    for (const trigger of triggers) {
+      const name = trigger.getAttribute("aria-label") ?? trigger.textContent;
+      revealed.mockClear();
+      await user.click(trigger);
+      const root = trigger.closest<HTMLElement>(".multi-select")!;
+      const list = root.querySelector<HTMLElement>(".multi-select-popover")!;
+      expect(tray.contains(list), name).toBe(true);
+      // In the flow, so the tray's own scroll reaches all of it, and no
+      // scroll of its own inside the tray's.
+      const style = getComputedStyle(list);
+      expect(style.position, name).toBe("static");
+      expect(style.maxHeight, name).toBe("none");
+      // Under its trigger: in a field's column, or for a button in the
+      // presets row, on a line of the row to itself, so it cannot widen the
+      // button's place and wrap the button away.
+      const apart = getComputedStyle(root).display === "contents";
+      if (apart) {
+        expect(style.flexBasis, name).toBe("100%");
+      } else {
+        expect(getComputedStyle(root).flexDirection, name).toBe("column");
+      }
+      // Scrolled into view once, with its trigger where they share a box.
+      expect(revealed.mock.contexts, name).toEqual([apart ? list : root]);
+      await user.click(trigger);
+      expect(root.querySelector(".multi-select-popover"), name).toBeNull();
+    }
+    revealed.mockRestore();
+  });
+
   it("keeps the toggle, and the focus on it, beside Search through each press", async () => {
     on(PHONE_LYING_DOWN);
     const user = userEvent.setup();
@@ -140,7 +182,7 @@ describe.each([
     }
   });
 
-  it("keeps every row for a mouse in a desktop window as short", () => {
+  it("keeps every row for a mouse in a desktop window as short", async () => {
     on(SHORT_DESKTOP);
     const form = mount();
     expect(form.classList).not.toContain("is-one-row");
@@ -148,6 +190,13 @@ describe.each([
     expect(form.querySelector(".vault-search-tray")).toBeNull();
     expect(newest()).not.toBeNull();
     expect(toggle().closest(".vault-search-presets")).not.toBeNull();
+    // A pick list still hangs over the page from its trigger, and the page
+    // stays where it is.
+    const revealed = vi.spyOn(Element.prototype, "scrollIntoView");
+    await userEvent.setup().click(form.querySelector<HTMLButtonElement>(".multi-select > button[aria-expanded]")!);
+    expect(getComputedStyle(form.querySelector(".multi-select-popover")!).position).toBe("absolute");
+    expect(revealed).not.toHaveBeenCalled();
+    revealed.mockRestore();
   });
 });
 

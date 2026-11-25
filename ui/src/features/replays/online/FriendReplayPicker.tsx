@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../../design-system/Button";
 import { Icon } from "../../../design-system/Icon";
 import { useOverlayLayer } from "../../../design-system/useOverlayLayer";
+import { useRevealOnOpen } from "../../../design-system/useRevealOnOpen";
 import { useTranslation } from "../../../i18n/useTranslation";
 import "../../../design-system/multi-select.css";
 
@@ -32,6 +33,7 @@ export function FriendReplayPicker({ friends, current, onPick }: Props) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   // Same dismissal rules as `MultiSelect`, which is the other popover in this
   // bar: a pointer anywhere outside, or Escape, which goes through the overlay
@@ -44,6 +46,7 @@ export function FriendReplayPicker({ friends, current, onPick }: Props) {
     window.addEventListener("pointerdown", onPointerDown, true);
     return () => window.removeEventListener("pointerdown", onPointerDown, true);
   }, [open]);
+  useRevealOnOpen(listRef, open);
   useOverlayLayer(open, () => {
     setOpen(false);
     // Back to the trigger, the first button in the root: the filter field
@@ -80,7 +83,7 @@ export function FriendReplayPicker({ friends, current, onPick }: Props) {
         <Icon name="users" size={14} /> {t("replays.search.friends")}
       </Button>
       {open && (
-        <div className="multi-select-popover friend-replay-popover" role="listbox" aria-label={t("replays.search.friends")}>
+        <div ref={listRef} className="multi-select-popover friend-replay-popover" role="listbox" aria-label={t("replays.search.friends")}>
           {friends.length === 0 ? (
             // Not an error, and not empty either: a friends list is only known
             // once the lobby has sent one, which it does on sign-in.

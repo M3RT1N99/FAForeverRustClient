@@ -15,6 +15,7 @@ import "./multi-select.css";
 import "./search-panel.css";
 import { useTranslation } from "../i18n/useTranslation";
 import { useOverlayLayer } from "./useOverlayLayer";
+import { useRevealOnOpen } from "./useRevealOnOpen";
 
 export interface MultiSelectOption {
   /** The value sent to the backend. */
@@ -60,6 +61,7 @@ export function MultiSelect({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -69,6 +71,7 @@ export function MultiSelect({
     window.addEventListener("pointerdown", onPointerDown, true);
     return () => window.removeEventListener("pointerdown", onPointerDown, true);
   }, [open]);
+  useRevealOnOpen(listRef, open);
 
   // Escape closes the list and nothing else: while open, the list is the top
   // of the overlay stack, so a dialog it sits in waits for the next press.
@@ -132,7 +135,7 @@ export function MultiSelect({
       </button>
 
       {open && (
-        <div className="multi-select-popover" role="group" aria-label={label}>
+        <div ref={listRef} className="multi-select-popover" role="group" aria-label={label}>
           {action && (
             <button
               type="button"
