@@ -137,9 +137,10 @@ export function AppShell() {
     menuRef.current?.focus({ preventScroll: true });
   }, []);
   // A layer like any dialog, so Escape closes it and nothing under it; and
-  // on Android, Back closes it before Back leaves the app.
+  // on Android, Back does what Escape does before Back leaves the app: it
+  // closes a dialog opened from the drawer first, then the drawer.
   const drawerLayer = useOverlayLayer(drawer, dismissDrawer, { trapsFocus: true, elementRef: sidebarRef });
-  useSystemBack(drawer, dismissDrawer);
+  useSystemBack(drawer, drawerLayer);
   // A phone turned upright, or the window made taller, has no drawer, and it
   // does not come back open when the phone is turned again.
   useEffect(() => {

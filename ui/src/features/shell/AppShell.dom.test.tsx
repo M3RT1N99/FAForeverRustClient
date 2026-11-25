@@ -12,7 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { en } from "../../i18n/catalog/en";
 import { failOnConsoleError } from "../../testing/consoleGuard";
-import { seedStore, sentCommands } from "../../testing/mounted";
+import { applyEvent, seedStore, sentCommands } from "../../testing/mounted";
 import { PHONE_LYING_DOWN, PHONE_WITH_A_PEN, setScreen, SHORT_DESKTOP, SHORT_TOUCH_DESKTOP } from "../../testing/screens";
 import { AppShell } from "./AppShell";
 
@@ -29,10 +29,15 @@ vi.mock("../nav/tabs", async (importOriginal) => {
 
 failOnConsoleError();
 
-function mountShell() {
+function mountShell(player: { id: number; name: string } | null = null) {
   seedStore((state) => ({
     ...state,
-    auth: { ...state.auth, status: "loggedIn", mode: "offline", player: null },
+    auth: {
+      ...state.auth,
+      status: "loggedIn",
+      mode: player ? "account" : "offline",
+      player: player && { ...player, roles: [] },
+    },
     nav: { ...state.nav, activeTab: "replays" },
   }));
   render(<AppShell />);
@@ -136,6 +141,34 @@ describe("Android's Back", () => {
     const shell = mountShell();
     await userEvent.setup().click(menu());
     expect(entry()).toBeDefined();
+    window.history.back();
+    await waitFor(() => expect(shell.classList).not.toContain("is-drawer-open"));
+    expect(document.activeElement).toBe(menu());
+  });
+
+  it("closes a dialog opened from the drawer first, and the drawer on the Back after", async () => {
+    const user = userEvent.setup();
+    const shell = mountShell({ id: 7, name: "Mrauky" });
+    await user.click(menu());
+    await user.click(screen.getByRole("button", { name: en["shell.sidebar.openProfile"].replace("{name}", "Mrauky") }));
+    expect(sentCommands()).toContainEqual({
+      kind: "PlayerCard",
+      command: { type: "open", payload: { playerId: 7, login: "Mrauky" } },
+    });
+    // The core answers by opening the card, over the drawer.
+    applyEvent({ kind: "PlayerCard", event: { type: "loading", payload: { login: "Mrauky" } } });
+    const card = screen.getByRole("dialog", { name: "Player card: Mrauky" });
+
+    window.history.back();
+    expect(sentCommands()).toContainEqual({ kind: "PlayerCard", command: { type: "close" } });
+    expect(shell.classList).toContain("is-drawer-open");
+    expect(document.activeElement).not.toBe(menu());
+    // The drawer holds its Back again.
+    expect(entry()).toBeDefined();
+    applyEvent({ kind: "PlayerCard", event: { type: "closed" } });
+    expect(card.isConnected).toBe(false);
+    expect(shell.classList).toContain("is-drawer-open");
+
     window.history.back();
     await waitFor(() => expect(shell.classList).not.toContain("is-drawer-open"));
     expect(document.activeElement).toBe(menu());
