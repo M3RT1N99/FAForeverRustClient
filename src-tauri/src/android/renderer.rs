@@ -24,7 +24,7 @@ use crate::recovery_cap::RecoveryCap;
 /// This run's rebuilds, for the cap.
 static REBUILDS: RecoveryCap = RecoveryCap::new();
 
-/// `private external fun rendererGone(crashed: Boolean, priorityAtExit: Int, inFront: Boolean): Boolean`
+/// `private external fun rendererGone(crashed: Boolean, priorityAtExit: Int, started: Boolean, inFront: Boolean): Boolean`
 /// of `com.faforever.rustclient.MainActivity`: whether the page comes back,
 /// at once in front, once in front again from the back. Only primitives
 /// cross, so nothing here touches the Java side.
@@ -34,6 +34,7 @@ pub extern "system" fn Java_com_faforever_rustclient_MainActivity_rendererGone(
     _activity: *mut c_void,
     crashed: u8,
     priority_at_exit: i32,
+    started: u8,
     in_front: u8,
 ) -> u8 {
     // The page is gone whatever the answer: past the cap, Android ends the
@@ -42,10 +43,14 @@ pub extern "system" fn Java_com_faforever_rustclient_MainActivity_rendererGone(
     let in_front = in_front != 0;
     let comes_back = REBUILDS.page_comes_back(in_front, Instant::now());
     // Android's `RenderProcessGoneDetail`: a crash, or the system ending it;
-    // the priority it had then (0 waived, 1 bound, 2 important).
+    // the priority it had then (0 waived, 1 bound, 2 important). Started but
+    // not in front: an end from the back that reached a client Android had
+    // frozen there only once it was in front again, whose page waits for the
+    // next return (`PageRecovery.endedInFront` in MainActivity.kt).
     tracing::warn!(
         crashed = crashed != 0,
         priority_at_exit,
+        started = started != 0,
         in_front,
         comes_back,
         "the page's renderer process is gone"

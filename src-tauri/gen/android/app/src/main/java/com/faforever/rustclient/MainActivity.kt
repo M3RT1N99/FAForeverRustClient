@@ -2,6 +2,7 @@ package com.faforever.rustclient
 
 import android.graphics.Color
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.system.Os
 import android.view.ViewGroup
@@ -41,13 +42,39 @@ internal enum class PageAnswer {
 }
 
 /**
+ * How long after onRestart an end of the renderer that is not a crash still
+ * counts as one in the back (PageRecovery.endedInFront): long enough for a
+ * slow phone to hand on an end it got as it thawed, short enough that an end
+ * really in front seldom falls in it.
+ */
+private const val LATE_END_MILLIS = 1_000L
+
+/**
  * The page's way back once its renderer process has ended, for one activity:
- * the answer to each end, and whether a page that waited is due now that the
- * activity is in front again (MainActivity.onRendererGone says why). Apart
- * from the activity, so a JVM test covers it (PageRecoveryTest).
+ * whether each end came in front, the answer to it, and whether a page that
+ * waited is due now that the activity is in front again
+ * (MainActivity.onRendererGone says why). Apart from the activity, so a JVM
+ * test covers it (PageRecoveryTest). Times are SystemClock.elapsedRealtime's.
  */
 internal class PageRecovery {
   private var waiting = false
+  private var restartedAt: Long? = null
+
+  /**
+   * Whether the renderer ended in front: the activity was [started] when its
+   * end came, at [now], unless that end is Android's, not [crashed], and came
+   * within LATE_END_MILLIS of onRestart. Android freezes a client it keeps in
+   * the back, and the end of a renderer it ended there reaches the client only
+   * as it thaws, which can be just after onRestart, the activity started by
+   * then. In front, that end would count toward the cap and recreate the
+   * activity, which leaves Tauri's plugin manager without its launchers and
+   * the page without Back. A crash stays in front, where the cap stops a page
+   * that crashes as it is drawn.
+   */
+  fun endedInFront(started: Boolean, crashed: Boolean, now: Long): Boolean {
+    val late = !crashed && restartedAt?.let { (now - it) in 0L..LATE_END_MILLIS } == true
+    return started && !late
+  }
 
   /** The renderer ended while the activity was [inFront] or not; [comesBack] is the core's answer, which holds the cap. */
   fun rendererGone(inFront: Boolean, comesBack: Boolean): PageAnswer = when {
@@ -59,8 +86,11 @@ internal class PageRecovery {
     }
   }
 
-  /** The activity is coming to the front: whether a page that waited is built now. Once for each wait. */
-  fun inFrontAgain(): Boolean = waiting.also { waiting = false }
+  /** The activity is coming to the front at [now]: whether a page that waited is built now. Once for each wait. */
+  fun inFrontAgain(now: Long): Boolean {
+    restartedAt = now
+    return waiting.also { waiting = false }
+  }
 }
 
 class MainActivity : TauriActivity() {
@@ -149,9 +179,16 @@ class MainActivity : TauriActivity() {
   // the WebView anew. In the back nothing more happens until the activity is
   // in front again (onRestart): behind a game Android ended each renderer
   // built there within two seconds, and the client with the fourth.
+  //
+  // An end from the back can reach a client that Android froze there only
+  // once it is in front again; it still counts as one in the back
+  // (PageRecovery.endedInFront). Its page then waits for the next return:
+  // wry's setup cannot run again for an activity already started.
   fun onRendererGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-    val inFront = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
-    val comesBack = rendererGone(detail.didCrash(), detail.rendererPriorityAtExit(), inFront)
+    val crashed = detail.didCrash()
+    val started = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+    val inFront = page.endedInFront(started, crashed, SystemClock.elapsedRealtime())
+    val comesBack = rendererGone(crashed, detail.rendererPriorityAtExit(), started, inFront)
     val answer = page.rendererGone(inFront, comesBack)
     if (answer == PageAnswer.ANDROID) return false
     (view.parent as? ViewGroup)?.removeView(view)
@@ -166,10 +203,10 @@ class MainActivity : TauriActivity() {
   // under way, the activity is built again instead, as in front.
   override fun onRestart() {
     super.onRestart()
-    if (page.inFrontAgain() && !rebuildPage()) recreate()
+    if (page.inFrontAgain(SystemClock.elapsedRealtime()) && !rebuildPage()) recreate()
   }
 
-  private external fun rendererGone(crashed: Boolean, priorityAtExit: Int, inFront: Boolean): Boolean
+  private external fun rendererGone(crashed: Boolean, priorityAtExit: Int, started: Boolean, inFront: Boolean): Boolean
 
   private external fun rebuildPage(): Boolean
 }
