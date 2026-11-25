@@ -2,10 +2,11 @@
 //
 // The page's viewport on Android, at the system's font sizes 1.0, 1.15 and
 // 1.3: laid out at the webview's own size and drawn at 100 % whatever the font
-// size, which grows the text alone through the webview's text zoom
-// (MainActivity), as Chrome grows a page's text. The interface scale zooms
-// the whole page. The client log hears of each new layout once, with the
-// font size and the text zoom it was drawn with.
+// size, which grows the text alone through the webview's text zoom, as Chrome
+// grows a page's text. The interface scale zooms the whole page. The client
+// log hears of each new layout once, with the font size and the text zoom
+// MainActivity handed over. The zoom it makes of a font size is its own, and
+// covered on the JVM (TextZoomTest); here the page only passes it on.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyAndroidLayout, resetAndroidLayoutForTests } from "./androidViewport";
@@ -49,7 +50,7 @@ describe("the page's viewport on Android", () => {
     [1, 100],
     [1.15, 115],
     [1.3, 130],
-  ])("is the webview's own size at 100 % at the system's font size %s, which grows the text alone", (font, zoom) => {
+  ])("is the webview's own size at 100 % at the font size %s, and the log gets the font size and text zoom handed over", (font, zoom) => {
     handedOver.fafAndroidFontScale = font;
     handedOver.fafAndroidTextZoom = zoom;
     applyAndroidLayout(100);
@@ -70,7 +71,7 @@ describe("the page's viewport on Android", () => {
     );
   });
 
-  it("zooms the whole page with the interface scale, and not with the font size", () => {
+  it("zooms the whole page with the interface scale alone, whatever font size was handed over", () => {
     handedOver.fafAndroidFontScale = 1.3;
     handedOver.fafAndroidTextZoom = 130;
     applyAndroidLayout(125);

@@ -15,6 +15,20 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import kotlin.math.roundToInt
 
+/**
+ * The most the system's font size grows the page's text. At 1.3 the shell's
+ * and Replays' labels still fit their boxes on a phone lying down (checked
+ * on the emulator at 1.0, 1.15 and 1.3); a larger font size is held there.
+ */
+private const val MAX_TEXT_SCALE = 1.3f
+
+/**
+ * The webview's text zoom, in percent, for the system's font scale: the font
+ * scale rounded to a percent, up to MAX_TEXT_SCALE. Top-level so a JVM test
+ * covers it (TextZoomTest).
+ */
+internal fun textZoomFor(fontScale: Float): Int = (minOf(fontScale, MAX_TEXT_SCALE) * 100).roundToInt()
+
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     // Before the client starts (TauriActivity's onCreate). Its folders, HOME and TMPDIR,
@@ -103,16 +117,4 @@ class MainActivity : TauriActivity() {
   }
 
   private external fun rendererGone(crashed: Boolean, priorityAtExit: Int): Boolean
-
-  companion object {
-    /**
-     * The most the system's font size grows the page's text. At 1.3 the shell's
-     * and Replays' labels still fit their boxes on a phone lying down (checked
-     * on the emulator at 1.0, 1.15 and 1.3); a larger font size is held there.
-     */
-    private const val MAX_TEXT_SCALE = 1.3f
-
-    /** The webview's text zoom, in percent, for the system's font scale. */
-    private fun textZoomFor(fontScale: Float): Int = (minOf(fontScale, MAX_TEXT_SCALE) * 100).roundToInt()
-  }
 }
