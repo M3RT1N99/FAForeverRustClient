@@ -11,6 +11,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.Lifecycle
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import kotlin.math.roundToInt
@@ -29,7 +30,42 @@ private const val MAX_TEXT_SCALE = 1.3f
  */
 internal fun textZoomFor(fontScale: Float): Int = (minOf(fontScale, MAX_TEXT_SCALE) * 100).roundToInt()
 
+/** What becomes of the page once its renderer process has ended. */
+internal enum class PageAnswer {
+  /** Built again at once: the activity is in front. */
+  NOW,
+  /** Built again once the activity is in front again: in the back, Android ends a new renderer as it ended this one. */
+  IN_FRONT,
+  /** Not built again: past the cap, the renderer's end is Android's to handle. */
+  ANDROID,
+}
+
+/**
+ * The page's way back once its renderer process has ended, for one activity:
+ * the answer to each end, and whether a page that waited is due now that the
+ * activity is in front again (MainActivity.onRendererGone says why). Apart
+ * from the activity, so a JVM test covers it (PageRecoveryTest).
+ */
+internal class PageRecovery {
+  private var waiting = false
+
+  /** The renderer ended while the activity was [inFront] or not; [comesBack] is the core's answer, which holds the cap. */
+  fun rendererGone(inFront: Boolean, comesBack: Boolean): PageAnswer = when {
+    !comesBack -> PageAnswer.ANDROID
+    inFront -> PageAnswer.NOW
+    else -> {
+      waiting = true
+      PageAnswer.IN_FRONT
+    }
+  }
+
+  /** The activity is coming to the front: whether a page that waited is built now. Once for each wait. */
+  fun inFrontAgain(): Boolean = waiting.also { waiting = false }
+}
+
 class MainActivity : TauriActivity() {
+  private val page = PageRecovery()
+
   override fun onCreate(savedInstanceState: Bundle?) {
     // Before the client starts (TauriActivity's onCreate). Its folders, HOME and TMPDIR,
     // it takes itself (adopt_app_folders in src-tauri/src/android.rs).
@@ -102,19 +138,38 @@ class MainActivity : TauriActivity() {
   // likely. Called by the WebView's client, the generated RustWebViewClient,
   // through the code BuildTask hands wry for it. A WebView whose renderer is
   // gone cannot be used again, and left unanswered Android ends the whole
-  // client with it. So the WebView is let go and the activity built again,
-  // which wry and tao take as a configuration change: they keep the window and
-  // its handlers and create the WebView anew, whose page loads and reads its
-  // state from the core, which never stopped, as at a start. The Rust side logs
-  // it and caps the rebuilds (src-tauri/src/android/renderer.rs); past the cap
-  // the answer is Android's own again.
+  // client with it. So the WebView is let go and a new one built, whose page
+  // loads and reads its state from the core, which never stopped, as at a
+  // start. The Rust side logs it and caps the rebuilds in front
+  // (src-tauri/src/android/renderer.rs); past the cap the answer is Android's
+  // own again.
+  //
+  // In front the activity is built again at once, which wry and tao take as a
+  // configuration change: they keep the window and its handlers and create
+  // the WebView anew. In the back nothing more happens until the activity is
+  // in front again (onRestart): behind a game Android ended each renderer
+  // built there within two seconds, and the client with the fourth.
   fun onRendererGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-    if (!rendererGone(detail.didCrash(), detail.rendererPriorityAtExit())) return false
+    val inFront = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+    val comesBack = rendererGone(detail.didCrash(), detail.rendererPriorityAtExit(), inFront)
+    val answer = page.rendererGone(inFront, comesBack)
+    if (answer == PageAnswer.ANDROID) return false
     (view.parent as? ViewGroup)?.removeView(view)
     view.destroy()
-    if (!isFinishing && !isDestroyed) recreate()
+    if (answer == PageAnswer.NOW && !isFinishing && !isDestroyed) recreate()
     return true
   }
 
-  private external fun rendererGone(crashed: Boolean, priorityAtExit: Int): Boolean
+  // Coming back from the back, before the activity is started: the one moment
+  // wry's setup may run again for it (rebuildPage, in renderer.rs), which
+  // builds the page that waited in this same activity. Should it not get
+  // under way, the activity is built again instead, as in front.
+  override fun onRestart() {
+    super.onRestart()
+    if (page.inFrontAgain() && !rebuildPage()) recreate()
+  }
+
+  private external fun rendererGone(crashed: Boolean, priorityAtExit: Int, inFront: Boolean): Boolean
+
+  private external fun rebuildPage(): Boolean
 }
