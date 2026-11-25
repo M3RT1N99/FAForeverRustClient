@@ -66,6 +66,31 @@ export interface UnitIcons {
   strategic: Record<string, Record<string, string>>;
 }
 
+/**
+ * The layout the page took on Android, for the client log (`report_layout` in
+ * src-tauri/src/android.rs, `shared/androidViewport`). Sizes are CSS px at
+ * 100 %, which is dp.
+ */
+export interface AndroidLayoutReport {
+  screenWidth: number;
+  screenHeight: number;
+  devicePixelRatio: number;
+  webviewWidth: number;
+  webviewHeight: number;
+  /** The page's own size when the layout was chosen, which is the one before it. */
+  innerWidth: number;
+  innerHeight: number;
+  /** The system's font scale, null where MainActivity could not hand it over. */
+  fontScale: number | null;
+  /** The webview's text zoom MainActivity set from it, in percent; null as above. */
+  textZoom: number | null;
+  interfaceScale: number;
+  layoutWidth: number;
+  layoutScale: number;
+  /** Laid out as a phone lying down rather than fitted (`shared/androidLayout`). */
+  phone: boolean;
+}
+
 /** The factions the shell draws strategic icons for (`FACTION_COLOURS`). */
 const ICON_FACTIONS = ["uef", "aeon", "cybran", "seraphim"];
 
@@ -415,6 +440,14 @@ export const native = {
   async onBackButton(handler: () => void): Promise<() => void> {
     const listener = await onBackButtonPress(() => handler());
     return () => void listener.unregister();
+  },
+
+  /**
+   * Android: write the layout the page took to the client log
+   * (`shared/androidViewport`). Diagnostics only: a failure is ignored.
+   */
+  reportAndroidLayout(layout: AndroidLayoutReport): void {
+    void invoke("report_layout", { layout }).catch(() => {});
   },
 
   /**

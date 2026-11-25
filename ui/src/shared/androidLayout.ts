@@ -56,6 +56,8 @@ export interface AndroidLayout {
   width: number;
   /** The scale that layout is drawn at, which fills the webview's width. */
   scale: number;
+  /** Laid out as a phone lying down, at 100 %, rather than fitted. */
+  phone: boolean;
 }
 
 /**
@@ -66,14 +68,15 @@ export interface AndroidLayout {
  */
 export function androidLayout(webview: Size, interfaceScale: number, fontScale: number): AndroidLayout {
   const full = layoutAt(webview, fontScale, interfaceScale);
-  if (liesDownAsAPhone({ width: full.width, height: webview.height / full.scale })) return full;
+  if (liesDownAsAPhone({ width: full.width, height: webview.height / full.scale })) return { ...full, phone: true };
   const fits = Math.min(webview.width / MIN_LAYOUT_WIDTH, webview.height / MIN_LAYOUT_HEIGHT);
   const preferred = fontScale * Math.max(1, webview.width / MAX_LAYOUT_WIDTH);
-  return layoutAt(webview, Math.max(MIN_DRAW_SCALE, Math.min(preferred, fits)), interfaceScale);
+  const fitted = layoutAt(webview, Math.max(MIN_DRAW_SCALE, Math.min(preferred, fits)), interfaceScale);
+  return { ...fitted, phone: false };
 }
 
 /** The layout drawn at `scale` times the interface scale across the webview. */
-function layoutAt(webview: Size, scale: number, interfaceScale: number): AndroidLayout {
+function layoutAt(webview: Size, scale: number, interfaceScale: number): Omit<AndroidLayout, "phone"> {
   const width = Math.round((webview.width * 100) / (scale * interfaceScale));
   return { width, scale: webview.width / width };
 }

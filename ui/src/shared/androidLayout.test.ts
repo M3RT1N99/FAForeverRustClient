@@ -22,7 +22,7 @@ const layoutHeight = (webview: { width: number; height: number }, width: number)
 
 describe("androidLayout on a phone lying down", () => {
   it("draws it at 100 %, laid out at its own size", () => {
-    expect(androidLayout(phone, 100, 1)).toEqual({ width: 866, scale: 1 });
+    expect(androidLayout(phone, 100, 1)).toEqual({ width: 866, scale: 1, phone: true });
   });
 
   it.each([1.15, 1.3])("draws all of the page larger at the system's font size %s", (font) => {
@@ -59,7 +59,7 @@ describe("androidLayout on a window the phone's rules do not cover", () => {
   });
 
   it("lays out at the webview's own size, at 100 %, where the smallest window fits", () => {
-    expect(androidLayout({ width: 1000, height: 700 }, 100, 1)).toEqual({ width: 1000, scale: 1 });
+    expect(androidLayout({ width: 1000, height: 700 }, 100, 1)).toEqual({ width: 1000, scale: 1, phone: false });
   });
 
   it("keeps the desktop's first window as the widest layout, drawn larger on a wider screen", () => {
@@ -81,7 +81,7 @@ describe("androidLayout on a window the phone's rules do not cover", () => {
 
   it("gives way to the phone's rules where the font size leaves a window lying down and short", () => {
     // 500 x 350 at twice the font: the phone's layout, at 100 % times the font.
-    expect(androidLayout({ width: 1000, height: 700 }, 100, 2)).toEqual({ width: 500, scale: 2 });
+    expect(androidLayout({ width: 1000, height: 700 }, 100, 2)).toEqual({ width: 500, scale: 2, phone: true });
   });
 
   it("puts the player's interface scale on top", () => {

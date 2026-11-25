@@ -227,6 +227,8 @@ pub fn run() {
                 #[cfg(target_os = "android")]
                 android::report_context,
                 #[cfg(target_os = "android")]
+                android::report_layout,
+                #[cfg(target_os = "android")]
                 android::client_notices,
                 #[cfg(target_os = "android")]
                 android::game_app_status,

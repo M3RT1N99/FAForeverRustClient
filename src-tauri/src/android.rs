@@ -204,6 +204,52 @@ fn test_servers() -> Vec<String> {
         .collect()
 }
 
+/// The layout the page took (`ui/src/shared/androidViewport.ts`), sent each
+/// time it takes a new one. Sizes are CSS px at 100 %, which is dp. A phone's
+/// screenshot does not say which density, font size or interface scale drew
+/// it, so the log does. Nothing in it is the player's.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LayoutReport {
+    screen_width: f64,
+    screen_height: f64,
+    device_pixel_ratio: f64,
+    webview_width: f64,
+    webview_height: f64,
+    /// The page's own size when the layout was chosen, the one before it.
+    inner_width: f64,
+    inner_height: f64,
+    /// The system's font scale and the webview's text zoom MainActivity set
+    /// from it, in percent; absent where it could not hand them over.
+    font_scale: Option<f64>,
+    text_zoom: Option<f64>,
+    interface_scale: f64,
+    layout_width: f64,
+    layout_scale: f64,
+    /// A phone lying down's layout at 100 %, rather than the fit.
+    phone: bool,
+}
+
+#[tauri::command]
+pub(crate) fn report_layout(layout: LayoutReport) {
+    tracing::info!(
+        phone = layout.phone,
+        layout_width = layout.layout_width,
+        layout_scale = layout.layout_scale,
+        interface_scale = layout.interface_scale,
+        font_scale = layout.font_scale,
+        text_zoom = layout.text_zoom,
+        webview_width = layout.webview_width,
+        webview_height = layout.webview_height,
+        inner_width = layout.inner_width,
+        inner_height = layout.inner_height,
+        screen_width = layout.screen_width,
+        screen_height = layout.screen_height,
+        device_pixel_ratio = layout.device_pixel_ratio,
+        "the page's layout on Android"
+    );
+}
+
 /// Which build on which device, for a problem report's form.
 #[tauri::command]
 pub(crate) async fn report_context(

@@ -53,8 +53,9 @@ class MainActivity : TauriActivity() {
   // The webview's own text zoom follows the system's font size and grows the
   // text alone, so at a larger font a label outgrew the box the layout keeps
   // for it and was cut off. The page is handed the font size instead and
-  // draws all of itself larger with it. The font size is read here once: a
-  // new one recreates the activity, and with it this webview.
+  // draws all of itself larger with it; the text zoom goes along for the
+  // line the client log gets for the page's layout. The font size is read
+  // here once: a new one recreates the activity, and with it this webview.
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
     webView.settings.useWideViewPort = true
@@ -62,7 +63,11 @@ class MainActivity : TauriActivity() {
     webView.settings.textZoom = 100
     if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
       val fontScale = resources.configuration.fontScale
-      WebViewCompat.addDocumentStartJavaScript(webView, "window.fafAndroidFontScale = $fontScale;", setOf("*"))
+      WebViewCompat.addDocumentStartJavaScript(
+        webView,
+        "window.fafAndroidFontScale = $fontScale; window.fafAndroidTextZoom = ${webView.settings.textZoom};",
+        setOf("*"),
+      )
     }
   }
 
