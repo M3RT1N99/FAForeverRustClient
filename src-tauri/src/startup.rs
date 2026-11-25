@@ -1,6 +1,7 @@
 //! Bringing the client up: where the bundled helpers are, starting the core,
 //! forwarding its events, and the replay a double-click asked for.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use faf_app::App;
@@ -286,6 +287,47 @@ pub(crate) fn locate_bundled_helpers(app: &tauri::App) {
     }
 }
 
+/// Whether the main window has a page for the core's events.
+///
+/// None from the end of its renderer (Android: `android::renderer`) until a
+/// page starts to load again (`window::on_page_load`), in the same activity
+/// or a new one. Until then wry keeps the webview that died and evaluates
+/// each event in it, where the script never runs and stays queued with that
+/// webview, which Tauri's app plugin keeps for good when it is the first.
+/// Nothing is lost by not sending: the page that loads reads the whole state
+/// from the core (`commands::snapshot`), as at a start.
+pub(crate) struct MainPage {
+    gone: AtomicBool,
+}
+
+impl MainPage {
+    const fn new() -> Self {
+        Self {
+            gone: AtomicBool::new(false),
+        }
+    }
+
+    /// The page's renderer has ended, and the page with it.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub(crate) fn renderer_gone(&self) {
+        self.gone.store(true, Ordering::SeqCst);
+    }
+
+    /// A page has started or finished loading.
+    pub(crate) fn loads(&self) {
+        if self.gone.swap(false, Ordering::SeqCst) {
+            tracing::info!("the page loads again and takes the core's events");
+        }
+    }
+
+    fn takes_events(&self) -> bool {
+        !self.gone.load(Ordering::SeqCst)
+    }
+}
+
+/// The main window's page, for the events [`start_core`] forwards.
+pub(crate) static MAIN_PAGE: MainPage = MainPage::new();
+
 /// Build the core, drive its loop, forward its events, and kick off the
 /// startup commands. Returns the handle `setup` puts under Tauri's management.
 pub(crate) fn start_core(app: &tauri::App, backend_version: String) -> Arc<App> {
@@ -342,6 +384,10 @@ pub(crate) fn start_core(app: &tauri::App, backend_version: String) -> Arc<App> 
                     {
                         handle.request_restart();
                         return;
+                    }
+                    // No page to take it: the next one reads the whole state.
+                    if !MAIN_PAGE.takes_events() {
+                        continue;
                     }
                     let revision = event.revision;
                     // The conformance cases keep the two halves of the policy
@@ -404,6 +450,9 @@ pub(crate) fn start_core(app: &tauri::App, backend_version: String) -> Arc<App> 
                     }
                     // The skipped events may have removed or disabled a card.
                     crate::notification_popup::refresh(&handle);
+                    if !MAIN_PAGE.takes_events() {
+                        continue;
+                    }
                     let bytes = serde_json::to_vec(&snapshot.state).map_or(0, |json| json.len());
                     let _ = handle.emit_to(
                         tauri::EventTarget::webview_window(
@@ -479,4 +528,31 @@ pub(crate) fn start_core(app: &tauri::App, backend_version: String) -> Arc<App> 
     });
 
     core
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MainPage;
+
+    #[test]
+    fn a_page_whose_renderer_ended_takes_no_events_until_one_loads() {
+        let page = MainPage::new();
+        assert!(page.takes_events());
+        page.renderer_gone();
+        assert!(!page.takes_events());
+        // Rebuilt in the same activity or a new one, its page loads.
+        page.loads();
+        assert!(page.takes_events());
+    }
+
+    #[test]
+    fn a_page_that_loads_with_none_gone_changes_nothing() {
+        let page = MainPage::new();
+        // A reload, or the page's own load finishing after it started.
+        page.loads();
+        page.loads();
+        assert!(page.takes_events());
+        page.renderer_gone();
+        assert!(!page.takes_events());
+    }
 }

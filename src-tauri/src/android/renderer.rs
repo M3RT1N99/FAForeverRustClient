@@ -9,7 +9,8 @@
 //! ([`RecoveryCap`]), past which the renderer's end is Android's to handle, as
 //! it was; in the back once the client is in front again, uncounted
 //! ([`RecoveryCap::page_comes_back`] says why), and then in the same activity
-//! ([`Java_com_faforever_rustclient_MainActivity_rebuildPage`]).
+//! ([`Java_com_faforever_rustclient_MainActivity_rebuildPage`]). Until a page
+//! loads again, the core's events are not sent ([`crate::startup::MainPage`]).
 
 use std::ffi::c_void;
 use std::time::Instant;
@@ -35,6 +36,9 @@ pub extern "system" fn Java_com_faforever_rustclient_MainActivity_rendererGone(
     priority_at_exit: i32,
     in_front: u8,
 ) -> u8 {
+    // The page is gone whatever the answer: past the cap, Android ends the
+    // client with it.
+    crate::startup::MAIN_PAGE.renderer_gone();
     let in_front = in_front != 0;
     let comes_back = REBUILDS.page_comes_back(in_front, Instant::now());
     // Android's `RenderProcessGoneDetail`: a crash, or the system ending it;

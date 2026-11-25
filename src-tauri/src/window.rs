@@ -291,8 +291,10 @@ pub(crate) fn build_main(
 }
 
 /// The main window's page has started or finished loading, so its native
-/// window and web view stand.
+/// window and web view stand, and the core's events have a page to go to
+/// again ([`crate::startup::MainPage`]).
 fn on_page_load(window: &tauri::WebviewWindow) {
+    crate::startup::MAIN_PAGE.loads();
     #[cfg(windows)]
     crate::webview_recovery::on_main_page_load(window);
     #[cfg(not(windows))]
