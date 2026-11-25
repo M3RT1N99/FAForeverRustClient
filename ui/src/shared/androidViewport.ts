@@ -8,7 +8,7 @@
 // interface scale and the layout chosen, and nothing about the player.
 
 import { native } from "../ipc/native";
-import { type Size, androidLayout, webviewSizeToLayOut } from "./androidLayout";
+import { type Size, androidLayout, screenAround, webviewSizeToLayOut } from "./androidLayout";
 
 /** The webview size the page was last laid out for. */
 let laidOutFor: Size | null = null;
@@ -61,9 +61,12 @@ export function applyAndroidLayout(interfaceScale: number): void {
   const viewport = document.querySelector('meta[name="viewport"]');
   if (!viewport || viewport.getAttribute("content") === content) return;
   viewport.setAttribute("content", content);
+  // The screen the layout was taken in, which the webview may still report
+  // turned the way it was before (`screenAround`).
+  const around = screenAround(webview, { width: window.screen.width, height: window.screen.height });
   native.reportAndroidLayout({
-    screenWidth: window.screen.width,
-    screenHeight: window.screen.height,
+    screenWidth: around.width,
+    screenHeight: around.height,
     devicePixelRatio: window.devicePixelRatio,
     webviewWidth: webview.width,
     webviewHeight: webview.height,

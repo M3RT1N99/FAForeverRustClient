@@ -95,3 +95,17 @@ function layoutAt(webview: Size, scale: number, interfaceScale: number): Omit<An
 export function webviewSizeToLayOut(last: Size | null, now: Size, typing: boolean): Size {
   return typing && last && Math.abs(now.width - last.width) < 1 && now.height < last.height ? last : now;
 }
+
+/**
+ * The screen around `webview`, from the size the page is told it has
+ * (`reported`). At a start with the phone upright the webview still reports
+ * the screen as it was before the client's landscape took effect, its sides
+ * the other way round: 412 x 915 around an 866 x 364 webview on the emulator.
+ * A screen the webview does not fit in is that one, and is turned the
+ * webview's way. A screen it fits in either way round, around a small window,
+ * is left as it is reported.
+ */
+export function screenAround(webview: Size, reported: Size): Size {
+  const fits = webview.width <= reported.width + 1 && webview.height <= reported.height + 1;
+  return fits ? reported : { width: reported.height, height: reported.width };
+}

@@ -39,6 +39,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   viewport.remove();
   Reflect.deleteProperty(window, "visualViewport");
   delete handedOver.fafAndroidFontScale;
@@ -93,4 +94,25 @@ describe("the page's viewport on Android", () => {
       expect.objectContaining({ fontScale: null, textZoom: null, layoutWidth: WEBVIEW.width }),
     );
   });
+
+  it("names the screen the layout was taken in, which the webview still reports upright at a start with the phone upright", () => {
+    // The S22 Ultra's screen in HD+, upright, in CSS px, around its webview lying down.
+    stubScreen(384, 823);
+    applyAndroidLayout(100);
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ screenWidth: 823, screenHeight: 384, webviewWidth: WEBVIEW.width, phone: true }),
+    );
+  });
+
+  it("names the screen as it is reported when it holds the webview", () => {
+    stubScreen(823, 384);
+    applyAndroidLayout(100);
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({ screenWidth: 823, screenHeight: 384 }));
+  });
 });
+
+/** What the page is told of the screen, in CSS px, until the next test. */
+function stubScreen(width: number, height: number): void {
+  vi.spyOn(window.screen, "width", "get").mockReturnValue(width);
+  vi.spyOn(window.screen, "height", "get").mockReturnValue(height);
+}

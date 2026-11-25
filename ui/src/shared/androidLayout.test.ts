@@ -4,6 +4,7 @@ import {
   MIN_DRAW_SCALE,
   MIN_LAYOUT_WIDTH,
   androidLayout,
+  screenAround,
   webviewSizeToLayOut,
 } from "./androidLayout";
 import { liesDownAsAPhone } from "./phoneLayout";
@@ -110,5 +111,26 @@ describe("webviewSizeToLayOut", () => {
     const upright = { width: 412, height: 800 };
     expect(webviewSizeToLayOut(phone, upright, true)).toBe(upright);
     expect(webviewSizeToLayOut(upright, phone, true)).toBe(phone);
+  });
+});
+
+describe("screenAround", () => {
+  /** The test emulator's screen lying down, in CSS px. */
+  const screen = { width: 915, height: 412 };
+
+  it("takes the screen as reported when the webview fits in it", () => {
+    expect(screenAround(phone, screen)).toEqual(screen);
+    // Its sides at the webview's own, the bars hidden, are not too small.
+    expect(screenAround({ width: 915.2, height: 412 }, screen)).toEqual(screen);
+  });
+
+  it("turns a screen reported upright around a webview lying down, as at a start with the phone upright", () => {
+    expect(screenAround(phone, { width: 412, height: 915 })).toEqual(screen);
+  });
+
+  it("leaves an upright screen around a split pane as it is, though the pane is wider than high", () => {
+    const upright = { width: 412, height: 915 };
+    expect(screenAround({ width: 412, height: 400 }, upright)).toEqual(upright);
+    expect(screenAround(splitPane, upright)).toEqual(upright);
   });
 });
