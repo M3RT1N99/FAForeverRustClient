@@ -291,10 +291,19 @@ pub(crate) fn generator_dir() -> PathBuf {
             return PathBuf::from(dir);
         }
     }
-    let dir = crate::infra::project_dirs()
-        .map(|dirs| dirs.data_dir().join("map_generator"))
-        .unwrap_or_else(|| PathBuf::from("map_generator"));
-    crate::infra::paths::checked_default(cfg!(target_os = "android"), dir)
+    let data_dir = crate::infra::project_dirs().map(|dirs| dirs.data_dir().to_path_buf());
+    default_generator_dir(cfg!(target_os = "android"), data_dir.as_deref())
+}
+
+/// `map_generator` in the client's data folder, or in the working directory
+/// when there is none, which Android refuses
+/// ([`crate::infra::paths::checked_default`]).
+pub(crate) fn default_generator_dir(android: bool, data_dir: Option<&Path>) -> PathBuf {
+    let dir = data_dir.map_or_else(
+        || PathBuf::from("map_generator"),
+        |dir| dir.join("map_generator"),
+    );
+    crate::infra::paths::checked_default(android, dir)
 }
 
 /// FA's user maps folder: where the generator writes and where FA looks.

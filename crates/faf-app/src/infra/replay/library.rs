@@ -188,7 +188,14 @@ pub(crate) fn local_replays_dir() -> PathBuf {
             .flatten(),
         crate::infra::faf_content::java_client_prefs_dir("/data/baseDataDirectory"),
     );
-    crate::infra::paths::checked_default(cfg!(target_os = "android"), pick_replays_dir(candidates))
+    default_local_replays_dir(cfg!(target_os = "android"), candidates)
+}
+
+/// The replays folder without an override, picked from [`local_replays_dir`]'s
+/// `candidates`. A relative one, which Android refuses
+/// ([`crate::infra::paths::checked_default`]), is below the working directory.
+pub(crate) fn default_local_replays_dir(android: bool, candidates: Vec<PathBuf>) -> PathBuf {
+    crate::infra::paths::checked_default(android, pick_replays_dir(candidates))
 }
 
 /// [`local_replays_dir`]'s candidates, in order, below `base` (the all-users

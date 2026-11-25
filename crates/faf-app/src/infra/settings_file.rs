@@ -67,16 +67,17 @@ impl FileSettings {
 ///: exists yet.
 pub fn resolve_path() -> PathBuf {
     let config_dir = crate::infra::project_dirs().map(|dirs| dirs.config_dir().to_path_buf());
-    crate::infra::paths::checked_default(
-        cfg!(target_os = "android"),
-        settings_path_in(config_dir.as_deref()),
-    )
+    default_settings_path(cfg!(target_os = "android"), config_dir.as_deref())
 }
 
-/// `settings.json` in the config folder, or in the working directory when
-/// there is none.
-pub(crate) fn settings_path_in(config_dir: Option<&Path>) -> PathBuf {
-    config_dir.unwrap_or(Path::new("")).join("settings.json")
+/// `settings.json` in the client's config folder, or in the working directory
+/// when there is none, which Android refuses
+/// ([`crate::infra::paths::checked_default`]).
+pub(crate) fn default_settings_path(android: bool, config_dir: Option<&Path>) -> PathBuf {
+    crate::infra::paths::checked_default(
+        android,
+        config_dir.unwrap_or(Path::new("")).join("settings.json"),
+    )
 }
 
 /// Blocking read of persisted settings, for use before the async runtime

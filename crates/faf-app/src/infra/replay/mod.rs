@@ -67,9 +67,9 @@ mod vault_rows;
 pub(crate) use codec::read_head;
 pub use details::parse_detailed_info_from_body;
 pub use fake::FakeReplay;
-#[cfg(test)]
-pub(crate) use library::default_replays_dirs;
 pub(crate) use library::local_replays_dir;
+#[cfg(test)]
+pub(crate) use library::{default_local_replays_dir, default_replays_dirs};
 pub use library::{validated_local_replay_path, ReplayLibrary, LOCAL_REPLAY_PAGE_LIMIT};
 pub use playback::ReplayPlayback;
 pub use reader::ReplayReader;

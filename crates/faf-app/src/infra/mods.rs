@@ -1299,7 +1299,7 @@ const GAME_PREFS_FILE: &str = "Game.prefs";
 
 /// The prefs file under `local`: the one on disk in whatever letter case it
 /// has, or where the game would write it when there is none yet.
-pub(crate) fn game_prefs_in(local: &Path) -> PathBuf {
+fn game_prefs_in(local: &Path) -> PathBuf {
     let dir = GAME_PREFS_DIR
         .iter()
         .fold(local.to_path_buf(), |path, part| path.join(part));
@@ -1338,12 +1338,16 @@ pub(crate) fn game_prefs_path() -> PathBuf {
     } else {
         wine_prefix_root().and_then(|prefix| wine_local_app_data(&prefix))
     };
-    let local = local.unwrap_or_else(|| {
-        directories::BaseDirs::new()
-            .map(|b| b.data_local_dir().to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("."))
-    });
-    crate::infra::paths::checked_default(cfg!(target_os = "android"), game_prefs_in(&local))
+    let local =
+        local.or_else(|| directories::BaseDirs::new().map(|b| b.data_local_dir().to_path_buf()));
+    default_game_prefs_path(cfg!(target_os = "android"), local.as_deref())
+}
+
+/// The prefs file below `local`, the local data folder FA writes it under, or
+/// below the working directory when there is none, which Android refuses
+/// ([`crate::infra::paths::checked_default`]).
+pub(crate) fn default_game_prefs_path(android: bool, local: Option<&Path>) -> PathBuf {
+    crate::infra::paths::checked_default(android, game_prefs_in(local.unwrap_or(Path::new("."))))
 }
 
 /// The Wine prefix to look inside, off Windows.

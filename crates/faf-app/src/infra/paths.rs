@@ -268,54 +268,86 @@ mod tests {
         assert!(android_folders(app, Path::new("")).is_err());
     }
 
-    /// The Android path choice, from the folders Tauri names to where the
-    /// client's files go: each default it writes is below the app's own
-    /// folder. Without a HOME (the v6 test build's arm64 client, translated
-    /// on an x86_64 emulator) each falls back to a relative path, below the
-    /// `/` an app starts in: the desktop keeps that fallback, Android stops
-    /// on it.
+    /// The Android path choice, from the folders Tauri names to where each
+    /// default the client writes goes: settings.json, the map generator's
+    /// folder, Game.prefs, the vault and the replays folder, each through its
+    /// own resolver with the folders it would be handed there. Below the app's
+    /// home folder with them. Without a HOME (the v6 test build's arm64
+    /// client, translated on an x86_64 emulator) each falls back to a path
+    /// relative to the `/` an app starts in: the desktop keeps that fallback,
+    /// Android stops on it.
     #[test]
     fn no_android_default_is_relative() {
-        use crate::infra::{faf_content, game, mods, replay, settings_file};
+        use crate::infra::{faf_content, game, map_generator, mods, replay, settings_file};
 
         let app = Path::new(ANDROID_APP);
-        let [(_, home), (_, temp)] = android_folders(app, &app.join("cache")).unwrap();
-        // The folders `directories` names below HOME on Linux, which it takes
-        // Android for, with no XDG variable set.
+        let [(_, home), _] = android_folders(app, &app.join("cache")).unwrap();
+        // What `directories` names below HOME on Android, by its Linux rules
+        // with no XDG variable set: the folders the resolvers are handed.
         let config = home.join(".config").join("faforeverclient");
         let local_data = home.join(".local").join("share");
+        let data = local_data.join("faforeverclient");
         let faf_root = game::linux_faf_root_from(&home, None, |_| false);
 
-        let mut defaults = vec![
-            settings_file::settings_path_in(Some(&config)),
-            mods::game_prefs_in(&local_data),
-            temp,
+        let resolved = [
+            settings_file::default_settings_path(true, Some(&config)),
+            map_generator::default_generator_dir(true, Some(&data)),
+            mods::default_game_prefs_path(true, Some(&local_data)),
+            faf_content::default_vault_dir(
+                true,
+                None,
+                faf_content::default_vault_dirs_in(false, None, Some(&home)),
+            ),
+            replay::default_local_replays_dir(
+                true,
+                replay::default_replays_dirs(false, home.to_str().unwrap(), Some(faf_root), None),
+            ),
         ];
-        defaults.extend(faf_content::default_vault_dirs_in(false, None, Some(&home)));
-        defaults.extend(replay::default_replays_dirs(
-            false,
-            home.to_str().unwrap(),
-            Some(faf_root),
-            None,
-        ));
-        for path in defaults {
-            assert!(path.starts_with(app), "{} is not the app's", path.display());
-            assert_eq!(checked_default(true, path.clone()), path);
+        for path in resolved {
+            assert!(
+                path.starts_with(&home),
+                "{} is not the app's",
+                path.display()
+            );
         }
 
-        let without_home = [
-            settings_file::settings_path_in(None),
-            mods::game_prefs_in(Path::new(".")),
-            faf_content::default_vault_dirs_in(false, None, None).remove(0),
-            replay::default_replays_dirs(false, "", None, None).remove(0),
+        /// A default's resolver without a HOME, on Android or not.
+        type Resolver = fn(bool) -> PathBuf;
+        let without_home: [(&str, Resolver); 5] = [
+            ("settings", |android| {
+                settings_file::default_settings_path(android, None)
+            }),
+            ("map generator", |android| {
+                map_generator::default_generator_dir(android, None)
+            }),
+            ("Game.prefs", |android| {
+                mods::default_game_prefs_path(android, None)
+            }),
+            ("vault", |android| {
+                faf_content::default_vault_dir(
+                    android,
+                    None,
+                    faf_content::default_vault_dirs_in(false, None, None),
+                )
+            }),
+            ("replays", |android| {
+                replay::default_local_replays_dir(
+                    android,
+                    replay::default_replays_dirs(false, "", None, None),
+                )
+            }),
         ];
-        for path in without_home {
-            assert!(!path.has_root(), "{}", path.display());
-            assert_eq!(checked_default(false, path.clone()), path, "the desktop's");
+        for (name, resolve) in without_home {
+            let desktop = resolve(false);
             assert!(
-                std::panic::catch_unwind(|| checked_default(true, path.clone())).is_err(),
-                "Android took {}",
-                path.display()
+                !desktop.has_root(),
+                "the desktop's {name}: {}",
+                desktop.display()
+            );
+            assert!(
+                std::panic::catch_unwind(|| resolve(true)).is_err(),
+                "Android took the {name} at {}",
+                desktop.display()
             );
         }
     }

@@ -22,13 +22,28 @@ pub(crate) fn vault_dir() -> PathBuf {
         return path;
     }
 
-    let candidates = default_vault_dirs();
-    let vault = java_client_vault_dir()
+    default_vault_dir(
+        cfg!(target_os = "android"),
+        java_client_vault_dir(),
+        default_vault_dirs(),
+    )
+}
+
+/// The vault without an override: the Java client's (`java`) where it holds
+/// content, else the first of the reference clients' `candidates` that does,
+/// else the first of them. A relative one, which Android refuses
+/// ([`crate::infra::paths::checked_default`]), is below the working directory.
+pub(crate) fn default_vault_dir(
+    android: bool,
+    java: Option<PathBuf>,
+    candidates: Vec<PathBuf>,
+) -> PathBuf {
+    let vault = java
         .filter(|path| holds_content(path))
         .or_else(|| candidates.iter().find(|path| holds_content(path)).cloned())
         .or_else(|| candidates.into_iter().next())
         .unwrap_or_else(|| PathBuf::from("."));
-    crate::infra::paths::checked_default(cfg!(target_os = "android"), vault)
+    crate::infra::paths::checked_default(android, vault)
 }
 
 fn holds_content(path: &Path) -> bool {
